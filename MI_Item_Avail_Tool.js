@@ -654,7 +654,7 @@ function (ui, file, log, search, runtime, crypto) {
       '    if (show && activeLegendFilters.size > 0) {' +
       '      var matched = false;' +
       '      var lessThan2Val = getCellText(row, 8).toLowerCase();' +
-      '      var expiryVal = expiryStatusColIdx >= 0 ? getCellText(row, expiryStatusColIdx).toLowerCase() : "";' +
+      '      var expiryVal = expiryStatusColIdx >= 0 ? getCellText(row, expiryStatusColIdx).toLowerCase() : ""; console.log("expiryVal", expiryVal)' +
       '      activeLegendFilters.forEach(function(key){' +
       '        if (key === "warning" && lessThan2Val === "yes") matched = true;' +
       '        if (key === "expired" && expiryVal === "expired") matched = true;' +
