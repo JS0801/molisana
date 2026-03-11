@@ -1693,7 +1693,7 @@ function verifyCron(ts, sig) {
               log.debug('cols', cols)
 
               var monStock = entry.monthStock;
-              if (!monStock || monStock == null || monStock == 'null') monStock = 0;
+              if (!monStock || monStock == null || monStock == 'null' || monStock == 'Infinity' || monStock == 'infinity' || monStock == 'NaN' || monStock == 'nan') monStock = 0;
               
               try {
                 record.create({
