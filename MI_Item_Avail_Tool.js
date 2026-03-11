@@ -141,7 +141,7 @@ function (ui, file, log, search, runtime, crypto) {
     var rowsItem     = loadCsvRows(fileIdItem);
     var rowsInv      = loadCsvRows(fileIdInv);
     var rowsAssembly = loadCsvRows(fileIdAssembly);
-    var rowsBilled;  = getBilledExpiryMap(fileIdBilled);
+    var rowsBilled   = getBilledExpiryMap(fileIdBilled);
     log.debug('fileIdBilled', fileIdBilled)
     log.debug('rowsBilled', rowsBilled)
     
