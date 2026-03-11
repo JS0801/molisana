@@ -1,0 +1,744 @@
+/**
+ * @NApiVersion 2.1
+ * @NScriptType Suitelet
+ */
+define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/crypto'],
+function (ui, file, log, search, runtime, crypto) {
+  
+  // ====== CONFIG ======
+  var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
+  
+  var FOLDER_ITEM_LIST     = 423668;  // Item list folder
+  var FOLDER_INV_ITEM_LIST = 423667;  // Inventory item list folder
+  var FOLDER_ASSEMBLY      = 423666;  // Assembly folder
+  var FOLDER_DOWNLOAD_UI   = 423669;  // Download folder
+  var FOLDER_DOWNLOAD_CRON = 279208;
+  
+  const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+  
+  function sign(empid, ts) {
+    var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
+    var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
+    h.update({ input: empid + '|' + ts + '|' + SECRET });
+    return h.digest({ outputEncoding: crypto.Encoding.HEX });
+  }
+  
+  function verify(empid, ts, sig) {
+    if (!empid || !ts || !sig) return false;
+    if (Math.abs(Date.now() - parseInt(ts, 10)) > TOKEN_TTL_MS) return false;
+    try {
+      return sign(empid, ts) === sig;
+    } catch (e) {
+      log.error('verify token', e);
+      return false;
+    }
+  }
+
+  function signCron(ts, secret) {
+    var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
+    h.update({ input: 'CRON|' + ts + '|' + secret });
+    return h.digest({ outputEncoding: crypto.Encoding.HEX });
+  }
+
+  function verifyCron(ts, sig) {
+    if (!ts || !sig) return false;
+    if (Math.abs(Date.now() - parseInt(ts, 10)) > TOKEN_TTL_MS) return false;
+    try {
+      var secret = 'rR9Z7KpXw2N6C8mE4HqFJYvT5bS0aUeD1LQG3oM';
+      return signCron(ts, secret) === sig;
+    } catch (e) {
+      log.error('verifyCron error', e);
+      return false;
+    }
+  }
+
+  function splitCsvRow(line) {
+    if (!line && line !== '') return [];
+    return line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+  }
+
+  function cleanHeader(h) {
+    return String(h || '')
+      .replace(/^[\uFEFF\s"]+|[\s"]+$/g, '')
+      .replace(/\s+/g, ' ');
+  }
+
+  function cleanCsvValue(v) {
+    var s = (v == null ? '' : String(v).trim());
+    if (s.length >= 2 && s[0] === '"' && s[s.length - 1] === '"') {
+      var inner = s.slice(1, -1);
+      if (!/[",\r\n]/.test(inner)) {
+        s = inner;
+      }
+    }
+    if (/[",\r\n]/.test(s)) {
+      s = '"' + s.replace(/"/g, '""') + '"';
+    }
+    if (s === '- None -' || s === 'NaN' || s === 'Infinity') s = '';
+    return s;
+  }
+
+  function loadCsvRows(fileId) {
+    if (!fileId) return [];
+    var f = file.load({ id: fileId });
+    var content = f.getContents() || '';
+    var rows = content.split('\n');
+    rows = rows.map(function (r) { return r.replace(/\r$/, ''); });
+    return rows;
+  }
+
+  function generateCsvFile(isCron) {
+    // ====== 1) Get latest file from all three folders ======
+    var fileIdItem     = null;
+    var fileIdInv      = null;
+    var fileIdAssembly = null;
+    
+    var folderSearch = search.create({
+      type: 'folder',
+      filters: [
+        ['internalid', 'anyof',
+          String(FOLDER_ITEM_LIST),
+          String(FOLDER_INV_ITEM_LIST),
+          String(FOLDER_ASSEMBLY)
+        ],
+        'AND',
+        ['file.documentsize', 'greaterthan', '10']
+      ],
+      columns: [
+        search.createColumn({ name: 'internalid', summary: 'GROUP' }),
+        search.createColumn({ name: 'internalid', join: 'file', summary: 'MAX' })
+      ]
+    });
+    
+    folderSearch.run().each(function (result) {
+      var folderId = parseInt(
+        result.getValue({ name: 'internalid', summary: 'GROUP' }),
+        10
+      );
+      var fId = result.getValue({ name: 'internalid', join: 'file', summary: 'MAX' });
+      
+      if (folderId === FOLDER_ITEM_LIST) {
+        fileIdItem = fId;
+      } else if (folderId === FOLDER_INV_ITEM_LIST) {
+        fileIdInv = fId;
+      } else if (folderId === FOLDER_ASSEMBLY) {
+        fileIdAssembly = fId;
+      }
+      return true;
+    });
+    
+    if (!fileIdItem && !fileIdInv && !fileIdAssembly) {
+      throw new Error('No files found in the specified folders.');
+    }
+    
+    // ====== 2) Load & merge CSV contents ======
+    var rowsItem     = loadCsvRows(fileIdItem);
+    var rowsInv      = loadCsvRows(fileIdInv);
+    var rowsAssembly = loadCsvRows(fileIdAssembly);
+    
+    if (!rowsItem || rowsItem.length === 0) {
+      throw new Error('Item list file is empty or missing header.');
+    }
+    
+    var headerRow = rowsAssembly[0];
+    var allRows = [];
+    allRows = allRows.concat(rowsAssembly);
+    if (rowsInv.length > 1) {
+      allRows = allRows.concat(rowsInv.slice(1));
+    }
+    if (rowsItem.length > 1) {
+      allRows = allRows.concat(rowsItem.slice(1));
+    }
+    
+    // ====== 3) Build cleaned content ======
+    var newContent = [];
+    var headers = splitCsvRow(headerRow);
+    var headersClean = headers.map(cleanHeader);
+    newContent.push(headersClean);
+    
+    // ===== NEW: dedupe, skip blank Item ID, then sort by Item ID =====
+    var seenItemIds = {};
+    var rowObjs = []; // { itemIdNum, cleaned }
+    
+    var balances = getInventoryBalanceMap();
+    log.debug('Inventory Balance Map', balances);
+    
+    allRows.slice(1).forEach(function (line) {
+      if (!line || line.trim() === '') return;
+      
+      var colsRaw = splitCsvRow(line);
+      
+      // Item ID is column 1
+      var rawItemId = (colsRaw[1] || '').replace(/"/g, '').trim();
+      
+      // Skip empty Item ID
+      if (!rawItemId) return;
+      
+      // Skip duplicates (first come first serve)
+      if (seenItemIds[rawItemId]) return;
+      seenItemIds[rawItemId] = true;
+      
+      var cleaned = colsRaw.map(function (v) { return cleanCsvValue(v); });
+      var itemIdNum = parseInt(rawItemId, 10);
+      if (!isFinite(itemIdNum)) itemIdNum = 0;
+      
+      rowObjs.push({
+        itemIdNum: itemIdNum,
+        cleaned: cleaned
+      });
+    });
+    
+    // Sort rows by Item ID (numeric)
+    rowObjs.sort(function (a, b) {
+      return a.itemIdNum - b.itemIdNum;
+    });
+
+    var displayRows = [];
+    
+    // Build CSV + HTML data from sorted rows
+    rowObjs.forEach(function (obj) {
+      var cleaned = obj.cleaned;
+      var displayRow = [];
+    
+      for (var cIdx = 0; cIdx < cleaned.length; cIdx++) {
+        var value  = cleaned[cIdx];
+        var itemid = cleaned[1];
+    
+        var good = 0;
+        var bad  = 0;
+        var total = 0;
+        var avail = 0;
+        var inTransit = cleaned[14];
+        var onOrder   = parseFloat(cleaned[16] || 0) - parseFloat(inTransit || 0);
+        var avg       = parseFloat(cleaned[29] || 0) / 4;
+    
+        if (balances[itemid]) {
+          good  = balances[itemid].good;
+          bad   = balances[itemid].bad;
+          total = balances[itemid].total;
+          avail = balances[itemid].avail;
+        }
+    
+        var txt = String(value || '').replace(/^"+|"+$/g, '');
+    
+        // ----- IMPORTANT: also update cleaned[cIdx] so newContent has the changes -----
+        if (cIdx === 10)  { txt = bad;                                   cleaned[cIdx] = bad; }
+        if (cIdx === 12)  { txt = good;                                  cleaned[cIdx] = good; }
+        if (cIdx === 13)  { txt = total;                                 cleaned[cIdx] = total; }
+        if (cIdx === 15)  {
+          txt = parseFloat(good) + parseFloat(inTransit || 0);
+          cleaned[cIdx] = txt;
+        }
+        if (cIdx === 16)  { txt = onOrder;                               cleaned[cIdx] = onOrder; }
+        if (cIdx === 17)  {
+          var qty15 = Number(cleaned[15]) || 0;
+          var qty16 = Number(cleaned[16]) || 0;
+          cleaned[cIdx] = parseFloat(qty15) + parseFloat(qty16);
+          txt = parseFloat(qty15) + parseFloat(qty16);
+        }
+        if (cIdx === 22)  {
+          if (avg == 0) { txt = ''; } else { txt = ((parseFloat(good)) / avg).toFixed(2); }
+          cleaned[cIdx] = txt;
+        }
+        if (cIdx === 23)  {
+          if (avg == 0) { txt = ''; }
+          else { txt = ((parseFloat(good) + parseFloat(inTransit || 0)) / avg).toFixed(2); }
+          cleaned[cIdx] = txt;
+        }
+        if (cIdx === 24)  {
+          if (avg == 0) { txt = ''; } else { txt = ((parseFloat(avail)) / avg).toFixed(2); }
+          cleaned[cIdx] = txt;
+        }
+        
+        var onHandMonth = ((parseFloat(good)) / avg).toFixed(2) || 0;
+        var daysTillAvail = Number(cleaned[20]) || 0;
+    
+        if (itemid == 1059) {
+          log.debug('onHandMonth', onHandMonth);
+          log.debug('daysTillAvail', daysTillAvail);
+        }
+    
+        if (cIdx === 6)  {
+          var yorn = 'No';
+          if (onHandMonth <= 1 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn = 'Yes';
+          txt = yorn;
+          cleaned[cIdx] = yorn;
+        }
+    
+        if (cIdx === 7)  {
+          var yorn2 = 'No';
+          if (onHandMonth <= 2 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn2 = 'Yes';
+          txt = yorn2;
+          cleaned[cIdx] = yorn2;
+        }
+    
+        displayRow.push(txt);
+      }
+    
+      newContent.push(cleaned);
+      displayRows.push(displayRow);
+    });
+    
+    // ====== 4) Create cleaned CSV file in download folder ======
+    var cleanedCsv = newContent.map(function (row) {
+      return row.join(',');
+    }).join('\n');
+
+    var targetFolder = isCron ? FOLDER_DOWNLOAD_CRON : FOLDER_DOWNLOAD_UI;
+    var fileName = isCron
+        ? 'Item Avail Tool.csv'
+        : 'Avail_Download_' + (new Date().getTime()) + '.csv';
+    
+    var newFileObj = file.create({
+      name: fileName,
+      fileType: file.Type.CSV,
+      contents: cleanedCsv,
+      encoding: file.Encoding.UTF8,
+      folder: targetFolder,
+      isOnline: true
+    });
+    var newFileId = newFileObj.save();
+    
+    var reloadFile = file.load({ id: newFileId });
+    var dlUrl = reloadFile.url || '';
+
+    return {
+      fileId: newFileId,
+      url: dlUrl,
+      name: reloadFile.name || '',
+      headersClean: headersClean,
+      displayRows: displayRows,
+      newContent: newContent,
+      cleanedCsv: cleanedCsv
+    };
+  }
+  
+  // ====== MAIN ======
+  function onRequest(context) {
+    if (context.request.method !== 'GET') {
+      context.response.write('This Suitelet only supports GET.');
+      return;
+    }
+    
+    var q = context.request.parameters || {};
+    var mode    = q.mode || '';
+    var cronts  = q.cronts || '';
+    var cronsig = q.cronsig || '';
+
+    // ====== CRON MODE ======
+    if (mode === 'cron') {
+      context.response.setHeader({
+        name: 'Content-Type',
+        value: 'application/json'
+      });
+
+      if (!verifyCron(cronts, cronsig)) {
+        context.response.write(JSON.stringify({
+          ok: false,
+          message: 'Invalid cron token'
+        }));
+        return;
+      }
+
+      try {
+        var cronResult = generateCsvFile(true);
+        context.response.write(JSON.stringify({
+          ok: true,
+          fileId: cronResult.fileId,
+          url: cronResult.url,
+          name: cronResult.name
+        }));
+      } catch (e) {
+        log.error('cron mode error', e);
+        context.response.write(JSON.stringify({
+          ok: false,
+          message: e.message || String(e)
+        }));
+      }
+      return;
+    }
+
+    var form = ui.createForm({ title: 'Availability Tool' });
+    
+    // --- Signed params ---
+    var empid = q.empid || '';
+    var ts    = q.ts    || '';
+    var sig   = q.sig   || '';
+    
+    var selectedEmp = q.custpage_id || '';
+    
+    if (empid && ts && sig && verify(empid, ts, sig)) {
+      selectedEmp = empid;
+    }
+    
+    if (!selectedEmp) {
+      context.response.write(
+        '<html><head>' +
+        '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(PORTAL_URL) + '; }, 1200);</script>' +
+        '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
+        '</head><body><div class="message">Login Required</div></body></html>'
+      );
+      return;
+    }
+    
+    var empField = form.addField({
+      id: 'custpage_empid',
+      type: ui.FieldType.SELECT,
+      label: 'Current Employee',
+      source: 'employee'
+    });
+    empField.defaultValue = selectedEmp;
+    empField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+    
+    var tsField = form.addField({
+      id: 'custpage_ts',
+      type: ui.FieldType.TEXT,
+      label: 'ts'
+    });
+    tsField.defaultValue = ts || '';
+    tsField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+    
+    var sigField = form.addField({
+      id: 'custpage_sig',
+      type: ui.FieldType.TEXT,
+      label: 'sig'
+    });
+    sigField.defaultValue = sig || '';
+    sigField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+    
+    var fileField = form.addField({
+      id: 'custpage_file_id',
+      type: ui.FieldType.TEXT,
+      label: 'File ID'
+    });
+    fileField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+    
+    var htmlField = form.addField({
+      id: 'custpage_excel_html',
+      type: ui.FieldType.INLINEHTML,
+      label: 'Availability Table'
+    });
+
+    var result;
+    try {
+      result = generateCsvFile(false);
+    } catch (e) {
+      log.error('generateCsvFile error', e);
+      htmlField.defaultValue = '<p style="color:red;">' + (e.message || e.toString()) + '</p>';
+      context.response.writePage(form);
+      return;
+    }
+
+    fileField.defaultValue = result.fileId;
+    
+    var html = '';
+    html += '<style>' +
+      '.table-container{max-height:850px;overflow-y:auto;overflow-x:auto;border:1px solid #ccc;}' +
+      '.h-scroll{height:16px;overflow-x:auto;overflow-y:hidden;border:1px solid #ccc;border-bottom:0;width:100%;}' +
+      '.h-scroll-inner{height:1px;}' +
+      '#excelTable{border-collapse:separate;width:max-content;min-width:100%;table-layout:auto;}' +
+      '#excelTable th,#excelTable td{border:1px solid #ccc;padding:6px 10px;background-color:#fff;white-space:nowrap;font-size:12px;}' +
+      '#excelTable thead th{position:sticky;top:0;background-color:#f3f3f3;z-index:9;}' +
+      
+      '.download-btn{background-color:white;border:none;font-size:13px;cursor:pointer;margin-bottom:8px;}' +
+      '.download-btn:hover{background-color:#eef7ff;}' +
+      
+      '.th-filter-wrap{position:relative;display:inline-flex;align-items:center;gap:6px;}' +
+      '.th-filter-btn{cursor:pointer;border:1px solid #cbd5e1;background:#fff;padding:2px 4px;border-radius:4px;line-height:1;font-size:11px;}' +
+      '.th-filter-btn:hover{background:#f3f4f6;}' +
+      '.th-filter-panel{position:fixed;top:0;left:0;width:260px;max-height:320px;overflow:auto;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:9999;}' +
+      '.th-filter-panel .hdr{font-weight:600;font-size:12px;margin-bottom:6px;}' +
+      '.th-filter-panel input[type="search"]{width:100%;padding:6px 8px;box-sizing:border-box;margin-bottom:8px;}' +
+      '.th-filter-panel .list{max-height:200px;overflow:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px;}' +
+      '.th-filter-panel .row{display:flex;align-items:center;gap:8px;padding:2px 0;font-size:12px;}' +
+      '.th-filter-panel .actions{display:flex;justify-content:space-between;gap:8px;margin-top:8px;}' +
+      '.th-filter-panel .actions button{padding:2px 6px;font-size:11px;line-height:1.2;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;}' +
+      '.th-filter-panel .actions button[data-act="apply"]{font-weight:600;border-color:#9ab3ff;}' +
+      '.th-filter-panel .actions button[data-act="clear"]{color:#7f1d1d;border-color:#f3d2d2;}' +
+      '.th-filter-active .th-filter-btn{border-color:#2563eb;background:#eff6ff;}' +
+      
+      /* STICKY FIRST 4 COLUMNS (0–3) */
+      '.sticky-col{position:sticky;background:#f9f9f9;background-clip:padding-box;z-index:11;}' +
+      'thead th.sticky-col{z-index:30;}' +
+      '.sticky-col.sep-left{border-left-color:transparent;box-shadow:inset 1px 0 0 #ccc;}' +
+      '.col-sticky-0{left:0px;min-width:180px;}' +
+      '.col-sticky-1{left:180px;min-width:110px;}' +
+      '.col-sticky-2{left:290px;min-width:180px;}' +
+      '.col-sticky-3{left:470px;min-width:160px;}' +
+      '</style>';
+    
+    html += '<button id="downloadCsvBtn" class="download-btn" type="button">' +
+      '<img src="https://cdn-icons-png.flaticon.com/512/10630/10630240.png" ' +
+      'alt="csv-icon" style="width:16px;vertical-align:middle;margin-right:6px;" />' +
+      'Download CSV</button>';
+    
+    html += '<div id="filter-portal"></div>';
+    
+    html += '<div class="h-scroll" id="topScroll"><div class="h-scroll-inner" id="topScrollInner"></div></div>';
+    html += '<div class="table-container"><table id="excelTable"><thead><tr>';
+    
+    // Header row
+    result.headersClean.forEach(function (hVal, idx) {
+      var label = hVal || ('Col ' + (idx + 1));
+      var thCls = '';
+      
+      html += '<th' + thCls + ' data-col-idx="' + idx + '">' +
+        '<span class="th-filter-wrap">' +
+        '<span class="th-label">' + label + '</span>' +
+        '<button class="th-filter-btn" type="button" data-col="' + idx + '">▾</button>' +
+        '</span></th>';
+    });
+    
+    html += '</tr></thead><tbody>';
+    
+    result.displayRows.forEach(function (row) {
+      html += '<tr>';
+
+      for (var cIdx = 0; cIdx < row.length; cIdx++) {
+        var txt = row[cIdx];
+        var tdCls = '';
+
+        if (cIdx === 8) {
+          html += '<td' + tdCls +
+            ' style="width:80px;min-width:80px;max-width:80px;">' +
+            '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
+            '" style="width:100%;box-sizing:border-box;" />' +
+            '</td>';
+        } else {
+          html += '<td' + tdCls + '>' + txt + '</td>';
+        }
+      }
+
+      html += '</tr>';
+    });
+    
+    html += '</tbody></table></div>';
+    
+    html += '<script>window.DOWNLOAD_URL = ' + JSON.stringify(result.url) + ';</script>';
+    
+    // ====== 5) JS: Download + Filters + top scrollbar ======
+    html += '<script>' +
+      'document.addEventListener("DOMContentLoaded", function(){' +
+      'var exportBtn = document.getElementById("downloadCsvBtn");' +
+      'if(exportBtn){exportBtn.addEventListener("click", function(e){e.preventDefault();e.stopPropagation();var url=(window.DOWNLOAD_URL||"").trim();if(url){window.open(url,"_blank");}else{alert("Download not available yet.");}});}' +
+      
+      'var table = document.getElementById("excelTable");' +
+      'var container = document.querySelector(".table-container");' +
+      'var topScroll = document.getElementById("topScroll");' +
+      'var topInner = document.getElementById("topScrollInner");' +
+      
+      'function updateTopScrollbarWidth(){' +
+      'if(!table||!topInner||!container) return;' +
+      'var w = Math.max(table.scrollWidth||0, (container.clientWidth||0)+2);' +
+      'topInner.style.width = w + "px";' +
+      '}' +
+      'if(topScroll && container){' +
+      'topScroll.addEventListener("scroll", function(){container.scrollLeft = topScroll.scrollLeft;});' +
+      'container.addEventListener("scroll", function(){topScroll.scrollLeft = container.scrollLeft;});' +
+      '}' +
+      'updateTopScrollbarWidth();' +
+      'window.addEventListener("resize", updateTopScrollbarWidth);' +
+      
+      'var activeFilters = {};' +
+      'function bodyRows(){return table && table.tBodies[0] ? table.tBodies[0].rows : [];}' +
+      'function getCellText(row, idx){var cells=row.cells;if(!cells||idx<0||idx>=cells.length) return "";var t=cells[idx].textContent||"";return String(t).trim();}' +
+      'function normalizeVal(v){var s=String(v==null?"":v).trim();if(/^-+\\s*none\\s*-+$/i.test(s))s="";if(/^nan$/i.test(s))s="";return s.toLowerCase();}' +
+      
+      'function getAllValuesForColumn(colIdx){' +
+      'var rows=bodyRows();var displayByKey={};' +
+      'for(var r=0;r<rows.length;r++){' +
+      'var v=getCellText(rows[r], colIdx);' +
+      'if(v===" - None -"||v==="NaN") v="";' +
+      'if(v===".00") v="0.00";' +
+      'var key=normalizeVal(v);' +
+      'if(!displayByKey[key]) displayByKey[key]=(key===""?"(blank)":(v||"(blank)"));' +
+      '}' +
+      'var keys = Object.keys(displayByKey).sort(function(a,b){var da=displayByKey[a], db=displayByKey[b];if(a===""&&b==="")return 0;if(a==="")return 1;if(b==="")return -1;return da.localeCompare(db,undefined,{numeric:true,sensitivity:"base"});});' +
+      'return {keys:keys,displayByKey:displayByKey};' +
+      '}' +
+      
+      'function rowPassesFiltersExceptColumn(row, exceptIdx){' +
+      'for(var k in activeFilters){if(!Object.prototype.hasOwnProperty.call(activeFilters,k))continue;var idx=parseInt(k,10);if(idx===exceptIdx)continue;var set=activeFilters[k];if(set&&set.size>0){var v=getCellText(row,idx).toLowerCase();if(!set.has(v))return false;}}return true;' +
+      '}' +
+      
+      'function getValueCountsForColumn(colIdx){' +
+      'var rows=bodyRows(),counts={};' +
+      'for(var r=0;r<rows.length;r++){' +
+      'var row=rows[r];' +
+      'if(!rowPassesFiltersExceptColumn(row,colIdx)) continue;' +
+      'var v=getCellText(row,colIdx);' +
+      'if(v===" - None -"||v==="NaN") v="";' +
+      'if(v===".00") v="0.00";' +
+      'var key=normalizeVal(v);' +
+      'counts[key]=(counts[key]||0)+1;' +
+      '}' +
+      'return counts;' +
+      '}' +
+      
+      'function applyFilters(){' +
+      'var rows=bodyRows(),pairs=[];' +
+      'for(var k in activeFilters){if(!Object.prototype.hasOwnProperty.call(activeFilters,k))continue;var s=activeFilters[k];if(s&&s.size>0)pairs.push([parseInt(k,10),s]);}' +
+      'for(var r=0;r<rows.length;r++){' +
+      'var row=rows[r],show=true;' +
+      'for(var i=0;i<pairs.length && show;i++){' +
+      'var colIdx=pairs[i][0],set=pairs[i][1];' +
+      'var val=getCellText(row,colIdx).toLowerCase();' +
+      'if(!set.has(val)) show=false;' +
+      '}' +
+      'row.style.display = show ? "" : "none";' +
+      '}' +
+      '}' +
+      
+      'function openFilterPanel(btn,colIdx){' +
+      'var th=btn.closest("th");' +
+      'var oldPanel=document.querySelector("#filter-portal .th-filter-panel");' +
+      'if(oldPanel){var same=(oldPanel.__ownerTH===th);oldPanel.remove();if(th)th.classList.remove("th-filter-active");if(same)return;}' +
+      'document.querySelectorAll("th.th-filter-active").forEach(function(node){node.classList.remove("th-filter-active");});' +
+      
+      'var panel=document.createElement("div");' +
+      'panel.className="th-filter-panel";' +
+      'panel.innerHTML=' +
+      '"<div class=\\"hdr\\">Filter</div>" +' +
+      '"<input type=\\"search\\" placeholder=\\"Search values...\\">" +' +
+      '"<div class=\\"list\\"></div>" +' +
+      '"<div class=\\"actions\\">" +' +
+      '"<button type=\\"button\\" data-act=\\"clear\\">Clear</button>" +' +
+      '"<div style=\\"display:flex;gap:6px;\\">" +' +
+      '"<button type=\\"button\\" data-act=\\"selectall\\">Select all</button>" +' +
+      '"<button type=\\"button\\" data-act=\\"deselectall\\">Deselect all</button>" +' +
+      '"<button type=\\"button\\" data-act=\\"apply\\">Apply</button>" +' +
+      '"</div>" +' +
+      '"</div>";' +
+      
+      'var list=panel.querySelector(".list");' +
+      'panel.__ownerTH = th;' +
+      
+      'var grouped=getAllValuesForColumn(colIdx);' +
+      'var universeKeys=grouped.keys;' +
+      'var displayByKey=grouped.displayByKey;' +
+      'var visibleCounts=getValueCountsForColumn(colIdx);' +
+      'var existing=activeFilters[colIdx]||null;' +
+      'var tempSel=new Set();' +
+      
+      'if(existing && existing.size>0){' +
+      'universeKeys.forEach(function(k){if(existing.has(k)) tempSel.add(k);});' +
+      '}else{' +
+      'universeKeys.forEach(function(k){if((visibleCounts[k]||0)>0) tempSel.add(k);});' +
+      '}' +
+      
+      'function renderList(filterText){' +
+      'list.innerHTML="";' +
+      'var ft=String(filterText||"").toLowerCase();' +
+      'universeKeys.forEach(function(k){' +
+      'var labelText=displayByKey[k]||(k===""?"(blank)":k);' +
+      'if(ft && labelText.toLowerCase().indexOf(ft)===-1) return;' +
+      'var id="f_"+colIdx+"_"+Math.random().toString(36).slice(2);' +
+      'var checked=tempSel.has(k);' +
+      'var cnt=visibleCounts[k]||0;' +
+      'var row=document.createElement("div");row.className="row";row.dataset.key=k;' +
+      'row.innerHTML="<input type=\\"checkbox\\" id=\\""+id+"\\" "+(checked?"checked":"")+">" +' +
+      '"<label for=\\""+id+"\\">"+labelText+(cnt?"  ("+cnt+")":"")+"</label>";' +
+      'list.appendChild(row);' +
+      '});' +
+      '}' +
+      'renderList("");' +
+      
+      'panel.querySelector("input[type=search]").addEventListener("input", function(){renderList(this.value);});' +
+      
+      'list.addEventListener("change", function(e){var cb=e.target;if(!cb||cb.type!=="checkbox")return;var row=cb.closest(".row");if(!row)return;var key=row.dataset.key||"";if(cb.checked)tempSel.add(key);else tempSel.delete(key);});' +
+      
+      'panel.querySelector(".actions").addEventListener("click", function(e){var act=e.target && e.target.getAttribute("data-act");if(!act)return;' +
+      'if(act==="clear"){delete activeFilters[colIdx];if(th)th.classList.remove("th-filter-active");panel.remove();applyFilters();return;}' +
+      'if(act==="selectall"){var cbs=list.querySelectorAll("input[type=checkbox]");for(var i=0;i<cbs.length;i++){var cb=cbs[i];if(!cb.checked)cb.checked=true;var key=cb.closest(".row").dataset.key||"";tempSel.add(key);}return;}' +
+      'if(act==="deselectall"){var cbs2=list.querySelectorAll("input[type=checkbox]");for(var j=0;j<cbs2.length;j++){var cb2=cbs2[j];if(cb2.checked)cb2.checked=false;var key2=cb2.closest(".row").dataset.key||"";tempSel.delete(key2);}return;}' +
+      'if(act==="apply"){' +
+      'var allow=new Set();tempSel.forEach(function(k){allow.add(k);});' +
+      'if(allow.size===universeKeys.length){delete activeFilters[colIdx];if(th)th.classList.remove("th-filter-active");}' +
+      'else{activeFilters[colIdx]=allow;if(th)th.classList.add("th-filter-active");}' +
+      'panel.remove();applyFilters();}' +
+      '});' +
+      
+      'var portal=document.getElementById("filter-portal") || document.body;' +
+      'portal.appendChild(panel);' +
+      
+      'function positionPanel(){' +
+      'var rect=btn.getBoundingClientRect();' +
+      'var vw=Math.max(document.documentElement.clientWidth||0, window.innerWidth||0);' +
+      'var ph=panel.offsetHeight||0;var pw=panel.offsetWidth||260;' +
+      'var belowTop=rect.bottom+6;var aboveTop=rect.top-ph-6;' +
+      'var top=(belowTop+ph<=window.innerHeight)?belowTop:Math.max(8,aboveTop);' +
+      'var left=Math.min(vw-pw-8, Math.max(8, rect.right-pw));' +
+      'panel.style.top=Math.round(top)+"px";panel.style.left=Math.round(left)+"px";' +
+      '}' +
+      'positionPanel();' +
+      'var onScrollResize=function(){positionPanel();};' +
+      'window.addEventListener("scroll", onScrollResize, true);' +
+      'window.addEventListener("resize", onScrollResize);' +
+      'if(container) container.addEventListener("scroll", onScrollResize);' +
+      
+      'setTimeout(function(){document.addEventListener("click", function handler(e){if(panel.contains(e.target)||th.contains(e.target))return;panel.remove();if(th)th.classList.remove("th-filter-active");window.removeEventListener("scroll",onScrollResize,true);window.removeEventListener("resize",onScrollResize);if(container)container.removeEventListener("scroll",onScrollResize);document.removeEventListener("click",handler);});},0);' +
+      
+      'if(th)th.classList.add("th-filter-active");' +
+      '}' +
+      
+      'if(table && table.tHead){' +
+      'table.tHead.addEventListener("click", function(e){var btn=e.target.closest(".th-filter-btn");if(!btn)return;var colIdx=parseInt(btn.getAttribute("data-col"),10);if(!isFinite(colIdx))return;e.stopPropagation();openFilterPanel(btn,colIdx);});' +
+      '}' +
+      '});' +
+      '</script>';
+    
+    htmlField.defaultValue = html;
+    context.response.writePage(form);
+  }
+
+  function getInventoryBalanceMap() {
+    var resultMap = {};
+    
+    var inventorybalanceSearchObj = search.create({
+      type: "inventorybalance",
+      filters: [
+        ["status", "anyof", "6", "1"],
+        "AND",
+        ["item.isinactive", "is", "F"]
+      ],
+      columns: [
+        search.createColumn({
+          name: "item",
+          summary: "GROUP"
+        }),
+        search.createColumn({
+          name: "formulanumeric",
+          summary: "SUM",
+          formula: "case when {status} = 'Good' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: "formulanumeric1",
+          summary: "SUM",
+          formula: "case when {status} = 'Deviation' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: "available",
+          summary: "SUM",
+          label: "Available"
+        })
+      ]
+    });
+    
+    inventorybalanceSearchObj.run().each(function(result) {
+      var itemId = result.getValue({ name: "item", summary: "GROUP" });
+      var goodQty = parseFloat(result.getValue({ name: "formulanumeric", summary: "SUM" })) || 0;
+      var badQty  = parseFloat(result.getValue({ name: "formulanumeric1", summary: "SUM" })) || 0;
+      var total = parseFloat((goodQty + badQty).toFixed(2));
+      var avail = parseFloat(result.getValue({ name: "available", summary: "SUM" })) || 0;
+      
+      resultMap[itemId] = { good: goodQty, bad: badQty, total: total, avail: avail };
+      return true;
+    });
+    
+    return resultMap;
+  }
+
+  return {
+    onRequest: onRequest
+  };
+});
