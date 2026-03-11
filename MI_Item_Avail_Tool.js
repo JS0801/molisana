@@ -673,7 +673,7 @@ function (ui, file, log, search, runtime, crypto) {
    '   var colIdx = pairs[i][0], set = pairs[i][1];' +
     '  var val = getCellText(row, colIdx).toLowerCase();' +
      ' if (!set.has(val)) show = false;' +
-  ' }
+  ' }' +
 
     // legend filters by VALUE
   '  if (show && activeLegendFilters.size > 0) {' +
