@@ -700,7 +700,6 @@ function (ui, file, log, search, runtime, crypto) {
    ' row.style.display = show ? "" : "none";' +
  ' }' +
 '}' +
-' +
 
       'var legendWrap = document.getElementById("colorLegendWrap");' +
       'if(legendWrap){' +
