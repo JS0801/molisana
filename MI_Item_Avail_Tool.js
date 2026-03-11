@@ -828,6 +828,15 @@ function (ui, file, log, search, runtime, crypto) {
 
     if (!itemId || !maxDate) continue;
 
+    if (shelfLife && shelfLife > 0) {
+      resultMap[itemId] = {
+      billedDate: maxDate,
+      expireDate: '',
+      stat: ''
+    };
+      continue;
+    }
+
     var d = maxDate.split('/');
     var billedDate = new Date(d[2], d[0]-1, d[1]);
 
