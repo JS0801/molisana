@@ -89,53 +89,6 @@ function (ui, file, log, search, runtime, crypto) {
   }
 
 
-  function getBilledDateMap(fileId) {
-  var resultMap = {};
-
-  if (!fileId) return resultMap;
-
-  var f = file.load({ id: fileId });
-  var content = f.getContents() || '';
-  if (!content) return resultMap;
-
-  var rows = content.split('\n');
-  rows = rows.map(function(row) {
-    return row.replace(/\r$/, '');
-  });
-
-  if (rows.length <= 1) return resultMap;
-
-  var headers = splitCsvRow(rows[0]).map(function(h) {
-    return cleanHeader(h).toLowerCase();
-  });
-
-  // update these header names based on your CSV
-  var itemIdCol = headers.indexOf('internalid');
-  var billedDateCol = headers.indexOf('maximum of date');
-
-  if (itemIdCol === -1 || billedDateCol === -1) {
-    log.error('getBilledDateMap', 'Required columns not found. Headers: ' + JSON.stringify(headers));
-    return resultMap;
-  }
-
-  for (var i = 1; i < rows.length; i++) {
-    var line = rows[i];
-    if (!line || !line.trim()) continue;
-
-    var cols = splitCsvRow(line);
-
-    var itemId = String(cols[itemIdCol] || '').replace(/"/g, '').trim();
-    var billedDate = String(cols[billedDateCol] || '').replace(/"/g, '').trim();
-
-    if (!itemId) continue;
-
-    resultMap[itemId] = billedDate;
-  }
-
-  return resultMap;
-}
-
-
   function generateCsvFile(isCron) {
     // ====== 1) Get latest file from all three folders ======
     var fileIdItem     = null;
@@ -153,7 +106,7 @@ function (ui, file, log, search, runtime, crypto) {
           String(lastBilledFile)
         ],
         'AND',
-        ['file.documentsize', 'greaterthan', '10']
+        ['file.documentsize', 'greaterthan', '3']
       ],
       columns: [
         search.createColumn({ name: 'internalid', summary: 'GROUP' }),
