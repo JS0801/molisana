@@ -557,7 +557,7 @@ function (ui, file, log, search, runtime, crypto) {
     result.displayRows.forEach(function (row) {
   var rowClass = '';
   var warningLessThan2 = String(row[8] || '').trim().toLowerCase();
-  var expiryStatus = String(row[33] || '').trim().toLowerCase();
+  var expiryStatus = String(row[34] || '').trim().toLowerCase();
 
   if (warningLessThan2 === 'yes') {
     rowClass = ' class="row-warning"';
