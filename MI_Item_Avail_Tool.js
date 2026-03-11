@@ -476,7 +476,7 @@ function (ui, file, log, search, runtime, crypto) {
       '.row-expiring td{background-color:#fff7bf !important;}' +
       '.row-expiring .sticky-col{background-color:#fff7bf !important;}' +
 
-      '.toolbar-wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px;}' +
+      '.toolbar-wrap{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;}' +
       '.legend-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}' +
       '.legend-label{font-size:12px;font-weight:600;color:#333;}' +
       '.legend-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid #ccc;border-radius:999px;cursor:pointer;background:#fff;font-size:12px;user-select:none;}' +
