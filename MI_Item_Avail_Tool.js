@@ -442,6 +442,10 @@ function (ui, file, log, search, runtime, crypto) {
       
       '.download-btn{background-color:white;border:none;font-size:13px;cursor:pointer;margin-bottom:8px;}' +
       '.download-btn:hover{background-color:#eef7ff;}' +
+
+      '.row-warning td{background-color:#ffd6d6 !important;}' +
+      '.row-warning .sticky-col{background-color:#ffd6d6 !important;}' +
+
       
       '.th-filter-wrap{position:relative;display:inline-flex;align-items:center;gap:6px;}' +
       '.th-filter-btn{cursor:pointer;border:1px solid #cbd5e1;background:#fff;padding:2px 4px;border-radius:4px;line-height:1;font-size:11px;}' +
@@ -491,26 +495,55 @@ function (ui, file, log, search, runtime, crypto) {
     
     html += '</tr></thead><tbody>';
     
+    // result.displayRows.forEach(function (row) {
+    //   html += '<tr>';
+
+    //   for (var cIdx = 0; cIdx < row.length; cIdx++) {
+    //     var txt = row[cIdx];
+    //     var tdCls = '';
+
+    //     if (cIdx === 8) {
+    //       html += '<td' + tdCls +
+    //         ' style="width:80px;min-width:80px;max-width:80px;">' +
+    //         '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
+    //         '" style="width:100%;box-sizing:border-box;" />' +
+    //         '</td>';
+    //     } else {
+    //       html += '<td' + tdCls + '>' + txt + '</td>';
+    //     }
+    //   }
+
+    //   html += '</tr>';
+    // });
+
     result.displayRows.forEach(function (row) {
-      html += '<tr>';
+  var rowClass = '';
+  var warningLessThan2 = String(row[7] || '').trim().toLowerCase();
 
-      for (var cIdx = 0; cIdx < row.length; cIdx++) {
-        var txt = row[cIdx];
-        var tdCls = '';
+  if (warningLessThan2 === 'yes') {
+    rowClass = ' class="row-warning"';
+  }
 
-        if (cIdx === 8) {
-          html += '<td' + tdCls +
-            ' style="width:80px;min-width:80px;max-width:80px;">' +
-            '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
-            '" style="width:100%;box-sizing:border-box;" />' +
-            '</td>';
-        } else {
-          html += '<td' + tdCls + '>' + txt + '</td>';
-        }
-      }
+  html += '<tr' + rowClass + '>';
 
-      html += '</tr>';
-    });
+  for (var cIdx = 0; cIdx < row.length; cIdx++) {
+    var txt = row[cIdx];
+    var tdCls = '';
+
+    if (cIdx === 8) {
+      html += '<td' + tdCls +
+        ' style="width:80px;min-width:80px;max-width:80px;">' +
+        '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
+        '" style="width:100%;box-sizing:border-box;" />' +
+        '</td>';
+    } else {
+      html += '<td' + tdCls + '>' + txt + '</td>';
+    }
+  }
+
+  html += '</tr>';
+});
+
     
     html += '</tbody></table></div>';
     
