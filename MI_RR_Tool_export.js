@@ -15,6 +15,7 @@ function(task, file, log, runtime, search, record) {
       var paramSearchId_avail = runtime.getCurrentScript().getParameter({ name: 'custscript_mi_avail_search' });
       var paramSearchId1_avail = runtime.getCurrentScript().getParameter({ name: 'custscript_inventory_avail_search' });
       var paramSearchId2_avail = runtime.getCurrentScript().getParameter({ name: 'custscript_item_list_avail' });
+      var paramSearchId3_avail = runtime.getCurrentScript().getParameter({ name: 'custscript_item_last_billed_date' });
 
 
       var fileObj_avail = file.create({
@@ -76,6 +77,27 @@ function(task, file, log, runtime, search, record) {
 
       var searchTaskId_avail2 = searchTask_avail2.submit();
       log.audit("Search Export Task Submitted", "Task ID: " + searchTaskId_avail2);
+
+
+      var fileObj_avail3 = file.create({
+        name: 'Avail_Tool_BilledDate_' + new Date() + '.csv',
+        fileType: file.Type.CSV,
+        encoding: file.Encoding.UTF8,
+        folder: 447164,
+        isOnline: true
+      });
+
+      var fileID_avail3 = fileObj_avail3.save();
+      log.debug('fileID', fileID_avail3)
+
+      var searchTask_avail3 = task.create({
+        taskType: task.TaskType.SEARCH,
+        savedSearchId: paramSearchId3_avail,
+        fileId: fileID_avail3
+      });
+
+      var searchTaskId_avail3 = searchTask_avail3.submit();
+      log.audit("Search Export Task Submitted", "Task ID: " + searchTaskId_avail3);
 
       //-------------------------
 
