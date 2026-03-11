@@ -141,7 +141,7 @@ function (ui, file, log, search, runtime, crypto) {
     var rowsItem     = loadCsvRows(fileIdItem);
     var rowsInv      = loadCsvRows(fileIdInv);
     var rowsAssembly = loadCsvRows(fileIdAssembly);
-    var rowsBilled;  // = getBilledExpiryMap(fileIdBilled);
+    var rowsBilled;  = getBilledExpiryMap(fileIdBilled);
     log.debug('fileIdBilled', fileIdBilled)
     log.debug('rowsBilled', rowsBilled)
     
@@ -264,11 +264,6 @@ function (ui, file, log, search, runtime, crypto) {
         
         var onHandMonth = ((parseFloat(good)) / avg).toFixed(2) || 0;
         var daysTillAvail = Number(cleaned[21]) || 0;
-    
-        if (itemid == 1059) {
-          log.debug('onHandMonth', onHandMonth);
-          log.debug('daysTillAvail', daysTillAvail);
-        }
     
         if (cIdx === 7)  {
           var yorn = 'No';
