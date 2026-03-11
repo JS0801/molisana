@@ -1,0 +1,556 @@
+Item Name,Item ID,Display Name,Case UPC Code,Pallet Qty,Reorder Vendor Group,Critical Stock Restriction,Warning (< 2 Months),Recommened Restriction Quantity ,Maximum of Committed,Sum of On Hold,Sum of Reserved,Sum of On Hand Available (Good) ,Sum of On Hand Total (Good + Deviated),In Transit,Sum of On Hand Total + In Transit,On Order (TO SHIP),Total Stock,Next Arrival Qty,Next Arrival Date,Days Till Next Arrival,Months Till Next Arrival,On Hand Total (Months),On Hand Total + Transit (Months),Total Stock [Months],30 Days,60 Days,90 Days,120 Days,4 Month Average
+(A) Additional Cases Over 1200 Cases,7286,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Additional SKU's over 5 SKUs,7289,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Admin Fee,7281,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Dry Offload Floor-Loaded Container Upto 1200 cases & 5 SKU's,7287,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Initial Storage,7283,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Initial Storage OS,7285,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) OVERSIZED 2x,7294,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) PALLET,7295,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Pallet IN Receiving,7271,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Pallet Out,7280,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Pallet Pick,7278,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Pallet Pick and Out,7292,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Pallet Put Away,7276,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Pallet Put Away - Floor Loaded,7279,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Pallet Rework,7284,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Rush Fee (Same Day),7288,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(A) Shrink Wrap,7282,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(T) Initial Storage Temp,7290,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(T) Temp - Offload Floor-Loaded Container Upto 1200 cases & 5 SKU's,7291,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+(T) Temp Ctrl Pallet,7293,- None -,- None -,,- None -,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI104331486-CA,7014,Perugina Baci Quick Display 1x,- None -,100,Baci_Displayer,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI104936513-CA,7025,Baci Perugina Displayer Header with Base (part 1 of 2),- None -,100,Baci_Displayer,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI104936519-CA,7023,Baci Perugina Displayer Buckets (part 2 of 2),- None -,100,Baci_Displayer,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12363320-CA,6985,Perugina Bar Dark 51% 12x86g,839456004603,100,Baci_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12405295-CA,6953,Baci Bag Original Dark 12x125g,- None -,100,Baci_Chocolate,- None -,- None -,- None -,2,,,,,1508,,1508,- None -,1508,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+BACI12439386-CA,6956,Baci Bulk Original Dark 3x1Kg,8000300388916,100,Baci_Chocolate,- None -,- None -,- None -,,,,,,120,,520,- None -,120,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+BACI12439598-CA,6959,Baci Bag Milk 12x125g,839456005662,100,Baci_Chocolate,- None -,- None -,- None -,2,,,,,704,,704,- None -,704,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+BACI12439610-CA,6960,Baci Box 12Pcs Milk 6x150g,839456005440,100,Baci_Chocolate,- None -,- None -,- None -,1,,,,,997,,2297,- None -,997,3/24/2026,13,.43,0,- None -,- None -,0,0,0,0,0
+BACI12439675-CA,6961,Baci Box 12Pcs Original Dark 6x150g,839456005464,100,Baci_Chocolate,- None -,- None -,- None -,1,,,,,1748,,2548,- None -,803,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+BACI12497895-CA,6994,Baci Box 28Pcs Original Dark 6x350g,- None -,100,Baci_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12497895-PA,7202,Baci Box 28Pcs Original Dark 264 (6x350g) DISPLAY PALLET,- None -,100,Baci_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12531682-CA,6965,Baci Bag Easter Mini Eggs Milk 20x150g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12531685-CA,6966,Baci Bag Easter Mini Eggs Original Dark 20x150g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12531696-CA,6967,Baci Bag Easter Mini Eggs Assorted 20x150g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12532528-CA,6968,Perugina Egg Easter Dark 12x245g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,10,,10,- None -,10,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+BACI12532557-CA,6969,Perugina Egg Easter Milk 12x245g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,20,,20,- None -,20,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+BACI12533587-CA,6970,Baci Egg Easter Milk 12x265g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12533665-CA,6971,Baci Egg Easter Original Dark 12x265g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12534834-CA,6972,Baci Egg Easter Hazelnut 6x255g,- None -,100,Baci_Easter Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12560167-CA,6977,Baci BAG Coffee 12x125g,8000300421361,100,Baci_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12562416-CA,7049,Baci Box Original Sparkling - Blue -  20Pcs  10x250g,- None -,100,Baci_XMAS Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12565331-CA,6974,Baci Box Heart Original Dark 20x100g,8000300394382,100,Baci_Valentine Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12595334-CA,7047,Baci Box Assorted Sparkling - Gold -  20Pcs 10x250g,- None -,100,Baci_XMAS Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12595564-CA,7015,Perugina Baci Advent Calendar Ramb 10x278g,- None -,100,Baci_XMAS Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BACI12597082-CA,7048,Baci Box Assorted Sparkling - Silver -  20Pcs  10x250g,- None -,100,Baci_XMAS Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA03-CA,3487,Gioia Petite Beurre 12x500g,779921100709,56,Crich,- None -,- None -,- None -,4,,,,,1200,,1200,- None -,1200,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA04-CA,3490,Gioia S Biscuits 24x200g,779921100907,63,Hollandia,- None -,- None -,- None -,,,,,,,,433,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA08A-CA,6914,Gioia Cookies Hazelnut Cream Fill 14x150g,- None -,160,Biscottificio,- None -,- None -,- None -,,,,,,144,,144,- None -,144,4/8/2026,28,.93,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA09A-CA,6915,Gioia Cookies Lemon Cream Fill 14x150g,- None -,160,Biscottificio,- None -,- None -,- None -,1,,,,,144,,144,- None -,144,4/8/2026,28,.93,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA10-CA,5472,Gioia Savoiardi 15x400g,779921105001,45,Bonomi,- None -,- None -,- None -,8,,,,,4846,,20073,- None -,1446,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA12-CA,3492,Gioia Sfogliatine 12x200g,779921100969,84,Bonomi,- None -,- None -,- None -,12,,,,,513,,513,- None -,513,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA17-CA,3470,Gioia Cantuccini Mandorle 1x2Kg(Aprox 215-220 Units),- None -,70,Panducale,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA18-CA,3491,Gioia Safari Cookies 12x250g,779921100716,70,Crich,- None -,- None -,- None -,1,,,,,,,70,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKGIOIA19-CA,7031,Gioia Mini Torta 12x390 g,- None -,72,Freddi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKMA05-CA,3469,Gioia Cantuccini (Tozetti) Almond 12x200g,779921082234,70,Panducale,- None -,- None -,- None -,12,,,,,100,,100,- None -,403,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+BAKMA29A-CA,3476,Gioia Croissants Chocolate 8x270g,779921108101,96,Balconi,- None -,- None -,- None -,1,,,,,,,1100,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKMA31A-CA,3478,Gioia Croissants Cream 8x270g,779921108200,96,Balconi,- None -,- None -,- None -,2,,,,,789,,1889,- None -,789,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+BAKMA41-CA,3466,Gioia Amaretti Biscuits 12x200g,779921082210,70,Panducale,- None -,- None -,- None -,5,,,,,,,,- None -,412,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+BAKMB17503-CA,3607,Mulino Bianco Pan Di Stelle Hazelnut Spread 10x380g (Special order),- None -,160,Mulino Bianco,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKMB182641-CA,3611,Mulino Bianco Pavesini Plain 12x200g,8013355500882,56,Mulino Bianco,- None -,- None -,- None -,2,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKMOV10000-CA,5116,Venchi Assorted Bag 12x200 g,779921089011,,Molisana Imports,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKMOV10001-CA,5117,Venchi Assorted Baroque Bag 12x175g,779921089035,,Molisana Imports,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKPAN01-CA,3640,PC Cantucci Almond 12x250g,- None -,81,Panducale_PL PC,- None -,- None -,- None -,,,,,,540,,540,- None -,540,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+BAKV104382-CA,6304,Venchi Bulk Espresso Coffee 5x1kg,- None -,54,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV105138-CA,5501,Venchi Bulk Cubotto Chocaviar 75% Dark 5kg,- None -,,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV105167-CA,6827,Venchi Bulk Chocoviar Stracciatella 5kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV105168-CA,6831,Venchi Bulk Chocoviar Arancia 5kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,20,2/28/2026,-11,-.37,0,- None -,- None -,0,0,0,0,0
+BAKV105182-CA,2082,Venchi Bulk Cubotto Chocaviar Creme Brulee 5x1Kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV105185-CA,6742,Venchi Bulk Chocoviar Crema Cacao 5x1kg,- None -,54,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV105187-CA,2088,Venchi Bulk Chocaviar Pistachio 5x1kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV107272-CA,6271,Venchi Gift Murrine Cremini Box 10x127g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV107294-CA,6760,Venchi Gift Murrine Maxi Book TIN 8x200g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV107295-CA,6918,Venchi Gift Murrine MINI Book TIN  16x115g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,48,2/28/2026,-11,-.37,0,- None -,- None -,0,0,0,0,0
+BAKV107298-CA,6919,Venchi Gift Murrine SMALL Hamper Gift box 10x200g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV107299-CA,6917,Venchi Gift Murrine Heart Box 8x194g,- None -,100,Venchi_Valentine Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV107300-CA,6588,Venchi Gift Murrine Bag 8x150g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,1,,1,- None -,24,2/28/2026,-11,-.37,0,- None -,- None -,0,0,0,0,0
+BAKV108189-CA,2196,Venchi Bulk Milk Chocomousse 5Kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV108311-CA,6295,Venchi Bulk Pearl Pistachio 5x1kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV112443-CA,6832,Venchi Bulk Tiramisu 5kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV114078-CA,6839,Venchi Spread Hazelnut 12x200g,- None -,96,Venchi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116020-CA,5516,Venchi Bar Extra Dark Hazelnut 70% 24x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116022-CA,3799,Venchi Bar Milk Hazelnut 24x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116023-CA,3838,Venchi Bar White Chocolate Hazelnut w Salted Nuts 24x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116209-CA,3763,Venchi Bar Cremino 24x110g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116211-CA,3813,Venchi Bar Pistachio Cremino 24x110g,- None -,168,Venchi_Chocolate,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116350-CA,6938,Venchi Bar Milk Chocolate 24x78g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116354-CA,6940,Venchi Bar 75% Extra Dark Chocolate 24x78g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116449-CA,6780,Venchi Cocoa Single Dose For Hot Chocolate 28x30g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116639-CA,6765,Venchi Bar Tiramisu 24x110g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116651-CA,6767,Venchi Bar Snack Choconougatine 32x35g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116652-CA,6766,Venchi Bar Snack Chocobiscuit 32x35g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116682-CA,6936,Venchi Bulk Pistachio Ingot 5kg,- None -,,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116684-CA,6939,Venchi Bar 69% Dark Crunchy 24x78g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116715-CA,6346,Venchi Bar Milk Gianduja w Hazelnuts 24x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116716-CA,6347,Venchi Bar Dark Gianduja 24x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV116716_2-CA,6764,Venchi Bar Dark Gianduja with Hazelnuts 24x100g,- None -,48,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV122083-CA,3828,Venchi Cigar Truffle Nougatine Chocolate 15x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,9,,9,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV122084-CA,3746,Venchi Cigar Aromatic Chocolate 15x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV122093-CA,6592,Venchi Cigar Pistachio Chocolate 15x100g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV126125-CA,2028,Venchi Bulk Gianduja 1x5Kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV126223-CA,2063,Venchi Bulk Cremino 1878 5x1Kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV126234-CA,2070,Venchi Bulk Cremino Pistachio 5x1Kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV126363-CA,6292,Venchi Bulk Pistachio Gianduiotti 5x1kg,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV140141-CA,7304,Venchi Flower Metal Tin 12x60g,- None -,,Venchi - Easter,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV140145-CA,7301,Venchi Easter Bunny Metal Tin 12x66g,- None -,,Venchi - Easter,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV140146,7302,Venchi Easter Egg Metal Tin 10x77g,- None -,,Venchi - Easter,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV140148-CA,7303,Venchi Teresa Rego Spring MINI Book TIN  16x117g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV140149-CA,7300,Venchi Teresa Rego Spring Gift Box 10x135g,- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV935826-OT,5726,Venchi Empty Plastic Blister 25Pcs,- None -,,Venchi - Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV939150-OT,7105,Venchi Large Murrine Pouch (100 pieces),- None -,100,Venchi_Chocolate,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAKV939151-OT,7106,Venchi Extra Large Murrine Pouch (100 pieces),- None -,100,Venchi_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUBISCH80-CA,7255,Bauducco Cookies Choco Biscuit Tray 18x80g,- None -,160,Bauducco_Cookies,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUCOKCHO-CA,7176,Bauducco Cookies Fudge Layer - Chocolate 18x96g,- None -,240,Bauducco_Cookies,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS20002780-OT,7258,Bauducco Inflatable Santa,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS20006251-OT,7257,Bauducco Biscuits Displayer (Floor),- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000355-OT,7252,Bauducco Displayer Mini Tower,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000361-OT,7247,Bauducco Pallet Cover,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000424-OT,7259,Bauducco Santa Socks,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000499-OT,7248,Bauducco Tree Topper,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000500-OT,7250,Bauducco Oversized Santa,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000502-OT,7249,Bauducco Chocottone Topper,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000506-OT,7245,Bauducco Displayer Train,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000508-EA,7251,Bauducco Pallet Wrap Roll,- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUPOS90000508-OT,7246,Bauducco Pallet Wrap Roll (Pack of 2),- None -,100,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFCHO142-CA,6891,Bauducco Wafers Chocolate 18x142g,875754010083,160,Bauducco_Wafers,- None -,- None -,- None -,4,,,,,,,2100,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFCHOSS-CA,7173,Bauducco Wafer Single Serve 10 Pack Chocolate 6x400g,- None -,84,Bauducco_Wafers,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFHAZ142-CA,6895,Bauducco Wafers Hazelnut 18x142g,875754010113,160,Bauducco_Wafers,- None -,- None -,- None -,185,,,,,,,2100,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFHAZSS-CA,7175,Bauducco Wafer Single Serve 10 Pack Hazelnut 6x400g,- None -,84,Bauducco_Wafers,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFROLCH-CA,7122,Bauducco Wafer Rolls Chocolate Hazelnut TIN 12x400g,- None -,88,Bauducco_Wafers,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFROLVA-CA,7123,Bauducco Wafer Rolls Vanilla TIN 12x400g,- None -,88,Bauducco_Wafers,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFSTR142-CA,6893,Bauducco Wafers Strawberry 18x142g,875754010106,160,Bauducco_Wafers,- None -,- None -,- None -,2,,,,,,,600,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFVAN142-CA,6892,Bauducco Wafers Vanilla 18x142g,875754010090,160,Bauducco_Wafers,- None -,- None -,- None -,4,,,,,,,1700,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BAUWAFVANSS-CA,7172,Bauducco Wafer Single Serve 10 Pack Vanilla 6x400g,- None -,84,Bauducco_Wafers,- None -,- None -,- None -,62,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEBI01-CA,3467,Gioia Bitter (Red) 24x100ml (4x6Pack),779921921151,224,Polara,- None -,- None -,- None -,2,,,,,947,,2737,- None -,947,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+BEBI01-PA,6245,Gioia Bitter (Red) 224x(24x100ml) (4x6Pack),- None -,1,Molisana Imports_PL Costco,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEBI18-CA,3619,Niasca Limonata Cluster 24x250ml (6x4Pack),779921902020,91,Niasca_Beverages,- None -,- None -,- None -,4,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEBI19-CA,3621,Niasca Mandarinata Cluster 24x250ml (6x4Pack),779921902068,91,Niasca_Beverages,- None -,- None -,- None -,3,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEBI20-CA,3618,Niasca Festivo Cluster 24x250ml (6x4Pack),779921902129,91,Niasca_Beverages,- None -,- None -,- None -,3,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEBI21-CA,3615,Niasca Chinotto Cluster 24x250ml (6x4Pack),779921902167,91,Niasca_Beverages,- None -,- None -,- None -,5,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEDOR01-CA,3886,Vita Sana Nectars Peach 12x680ml,779921901108,90,Conserve Italia_Nectars,- None -,- None -,- None -,2,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEDOR02-CA,3888,Vita Sana Nectars Pear 12x680ml,779921901009,90,Conserve Italia_Nectars,- None -,- None -,- None -,3,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEDOR03-CA,3883,Vita Sana Nectars Apricot 12x680ml,779921901207,90,Conserve Italia_Nectars,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEDOR04-CA,3885,Vita Sana Nectars Peach 24x125ml (4x6Pack),779921991451,200,Conserve Italia_Nectars,- None -,- None -,- None -,,,,,,,,200,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEDOR05-CA,3887,Vita Sana Nectars Pear 24x125ml (4x6Pack),779921991352,200,Conserve Italia_Nectars,- None -,- None -,- None -,,,,,,,,400,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEFU01-CA,5374,Fiuggi Vivace Sparkling Water 6x1L,840368082122,100,Fiuggi,- None -,- None -,- None -,120,,,,,960,,4200,- None -,960,3/30/2026,19,.63,0,- None -,- None -,0,0,0,0,0
+BEFU02-CA,5370,Fiuggi Natural Mineral Water 6x1L,840368082023,100,Fiuggi,- None -,- None -,- None -,76,,,,,1440,,9360,- None -,1440,3/30/2026,19,.63,0,- None -,- None -,0,0,0,0,0
+BEFU07A-CA,7115,Fiuggi Natural Mineral Water Slim 6x500ml PET,693707000352,240,Fiuggi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEFU09A-CA,7116,Fiuggi Sparkling Mineral Water Slim 6x500ml PET,693707000345,240,Fiuggi,- None -,- None -,- None -,,,,,,,,336,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BEGB02-CA,6875,Gioia Bitter (Red) 6x1L,779921900200,180,Polara,- None -,- None -,- None -,3,,,,,796,,1336,- None -,360,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+BOX101167S-OT,7240,Empty Box Portapanettone + Bott (L430mm x W240mm x H345mm) Seta Oro,- None -,100,Scotton_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BOX130121S-OT,7241,Empty Box Portapanettone + Bott (L430mm x W240mm x H345mm) Fibra Blue,- None -,100,Scotton_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BOX134947S-OT,7243,Empty Box Portapanettone + Bott (L520mm x W310mm x H355mm) Bordeaux Silk,- None -,100,Scotton_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BOX138781S-OT,7242,Empty Box Portapanettone + Bott (L280mm x W200mm x H350mm) Skin Argento,- None -,100,Scotton_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRCO06A-CA,3876,Vita Sana Freselle Integrali 12x400g,779921200362,50,Pascuzzo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRCO07-CA,3912,Vita Sana Whole Wheat Bruschette 15x400g,779921200362,50,Pascuzzo,- None -,- None -,- None -,,,,,,70,,70,- None -,70,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+BRFB001-CA,3443,Farm Boy Artisanal Grissini Traditional 20x250g,- None -,64,Larte Dei Sapori_PL Farm Boy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRFB002-CA,3441,Farm Boy Artisanal Grissini Fennel 20x250g,- None -,64,Larte Dei Sapori_PL Farm Boy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRFB003-CA,3442,Farm Boy Artisanal Grissini Garlic & Hot Pepper 20x250g,- None -,64,Larte Dei Sapori_PL Farm Boy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRLF105-CA,6214,Vita Sana Taralli Pizza 16x225g,779921200348,104,Pascuzzo,- None -,- None -,- None -,,,,,,100,,100,- None -,100,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+BRLF106-CA,3907,Vita Sana Taralli Pepperoncino 16x225g,779921200232,104,Pascuzzo,- None -,- None -,- None -,11,,,,,435,,435,- None -,435,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+BRLF107-CA,3906,Vita Sana Taralli Olive Oil 16x225g,779921200201,104,Pascuzzo,- None -,- None -,- None -,1,,,,,22,,22,- None -,86,2/10/2026,-29,-.97,0,- None -,- None -,0,0,0,0,0
+BRLF108-CA,3869,Vita Sana Breadsticks Sesame Bulk 12x400g,779921200249,40,La Mole,- None -,- None -,- None -,42,,,,,252,,252,- None -,169,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+BRLF109-CA,3905,Vita Sana Taralli Fennel 16x225g,779921200225,104,Pascuzzo,- None -,- None -,- None -,1,,,,,696,,796,- None -,696,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+BRRI576-CA,3495,Vita Sana Treccine 16x340g,779921200010,50,Ricciardi,- None -,- None -,- None -,8,,,,,204,,404,- None -,4,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+BRRI579-CA,3496,Vita Sana Treccine Pepperoncino 16x340g,779921200034,50,Ricciardi,- None -,- None -,- None -,,,,,,71,,71,- None -,70,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+BRVV01A-CA,3924,Vita Vigor Traditional Breadsticks 12x125g,779921228502,120,Vitavigor,- None -,- None -,- None -,47,,,,,2880,,2880,- None -,1800,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+BRVV02A-CA,3923,Vita Vigor Sesame Breadsticks 12x125g,779921228533,120,Vitavigor,- None -,- None -,- None -,4,,,,,1300,,1350,- None -,70,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+BRVV03A-CA,3919,Vita Vigor Garlic Breadsticks 12x125g,779921228564,120,Vitavigor,- None -,- None -,- None -,2,,,,,580,,580,- None -,70,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+BRVV04A-CA,3922,Vita Vigor Pizza Breadsticks 12x125g,779921228595,120,Vitavigor,- None -,- None -,- None -,,,,,,,,4,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRVV22-CA,3918,Vita Vigor (VS) Super Trad. Breadsticks 10x250g,779921222050,50,Vitavigor,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRVV23-CA,3920,Vita Vigor Multigrain Breadsticks 12x125g,779921228625,120,Vitavigor,- None -,- None -,- None -,5,,,,,584,,584,- None -,300,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+BRVV26-CA,4756,Massimo Breadsticks Traditional 14x125g,- None -,140,Vitavigor_Massimo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+BRVV28-CA,4757,Massimo Garlic Breadsticks 14x125g,- None -,140,Vitavigor_Massimo,- None -,- None -,- None -,280,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CERAMIC03-L-CA,3471,Gioia Ceramic Biscotti Jar Large 6 Per Case,- None -,100,Jin - Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CERAMICBLUE-UNIT-CA,3474,Gioia Ceramic Biscotti Jar Small Blue Empty Jar 12 Per Case,- None -,100,Jin - Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHE993PAR18-CA,6814,993 Reggiano Parmigiano18 Month 10x500g,- None -,42,993,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDAMAFVA227-CA,7126,Chiostro Amaretti Vintage Tin 6x225g,- None -,56,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDAMASB500-CA,7125,Chiostro Amaretti Bag 10x500g,- None -,25,Chiostro_Cookies,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDAMAVAN100-CA,7129,Chiostro Amaretti Classic Metal Van 12x100g,- None -,42,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDAMAWB150-CA,7124,Chiostro Amaretti Red Window Box 12x150g,- None -,42,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDCANTVAN100-CA,7130,Chiostro Cantuccini Metal Van 12x100g,- None -,42,Chiostro_Cookies,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDEXPOASS175-CA,7128,Chiostro Amaretti Assorted 12x175g,- None -,40,Chiostro_Cookies,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDPANDLSCI750-CA,7166,Chiostro Pandoro Sciatori Metal Tin 6x750g,- None -,36,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDPANEA750-CA,7145,Chiostro Panettone Paper Wrap Amaretto 8x750g,- None -,30,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDPANEALLUX750-CA,7143,"Chiostro Panettone Tin Lemon, Tangerine, Orange 6x750g",- None -,20,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDPANEL750-CA,7007,Chiostro Panettone Paper Wrap Limoncello 8x750g,- None -,30,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDPANELGR1-CA,7011,Chiostro Panettone Tin Classic 6x1Kg,- None -,20,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDPANEPI750-CA,7009,Chiostro Panettone Paper Wrap Pistacchio 8x750g,- None -,30,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CHIDPANEPLLUX750-CA,7161,Chiostro Panettone Pistachio Metal Tin Luxury Edition 6x750g,- None -,20,Chiostro_Label_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+CIAMDRL400-CA,7149,David Rocco Ciambella Lemon 6x400g,- None -,104,IL FORNAIO,- None -,- None -,- None -,,,,,,312,,312,- None -,312,4/8/2026,28,.93,0,- None -,- None -,0,0,0,0,0
+COFCAM122-CA,4163,Camardo Espresso Royal Beans 6x1Kg,- None -,100,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM158SLIM-CA,6869,Camardo Slim Arabica Moka and Drip Classic 12x250g (Can),- None -,121,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM159SLIM-CA,6871,Camardo Slim Decaf Moka and Drip 12x250g (Can),- None -,121,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM188-CA,4164,Camardo Nespresso Classic 160x5g Pods (16x10Pack),- None -,100,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM188P25-CA,6865,Camardo Nespresso Classic 150x5g Pods (6x25Pack),- None -,100,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM237-CA,6866,Camardo Espresso Crema 6x1Kg,- None -,100,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM303SLIM-CA,6872,Camardo Slim Biologico Moka and Drip 12x250g (Can),8003755003038,121,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM335-CA,6867,Camardo Espresso Gourmet Avvolgente 8x500g,- None -,100,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFCAM435-CA,6868,Camardo Espresso Gourmet Intenso 8x500g,8003755004356,100,Camardo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFGIO-CAP CLASSIC-CA,1535,Gioia Espresso Classic Capsules 100 Per Case,- None -,100,Labcaffe,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFGIO01-12PK-CA,3481,Gioia Espresso Coffee White 12x250g,779921570007,180,Labcaffe,- None -,- None -,- None -,6,,,,,1179,,1655,- None -,229,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+COFGIO02-12PK-CA,3480,Gioia Espresso Coffee Gold 12x250g,779921571004,180,Labcaffe,- None -,- None -,- None -,,,,,,951,,1427,- None -,489,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+COFGIO03-CA,3479,Gioia Espresso Coffee Beans 12x1Kg,779921572001 + 8007387001035,40,Labcaffe,- None -,- None -,- None -,1,,,,,,,180,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER009CAN-CA,3858,Vergnano Granaroma  Whole Bean 6x1Kg,8001800000094,96,Vergnano,- None -,- None -,- None -,1,,,,,,,224,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER048CAN-CA,5169,Vergnano Anticabottega Whole Bean 6x1Kg,8001800000483,112,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER051-CA,6722,Vergnano Arabica Decaffeinated Whole Bean 6x1Kg,8001800000513,84,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER052-CA,3853,Vergnano Crema 800 Whole Bean 6x1Kg,8001800000520,112,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER054CAN-CA,6979,Vergnano Granaroma Whole Bean 6x500g,8001800000803,120,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER058CA-CA,6721,Vergnano 100% Arabica Whole Beans 12x250g,- None -,140,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER103CAN-CA,6978,Vergnano Anticabottega Whole Bean 6x500g,- None -,140,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER150-CA,3856,Vergnano Decaffinated Espresso Tin 6x250g,8001800001503,140,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER15306-CA,3850,Vergnano Arabica Moka Tin 6x250g,- None -,176,Vergnano,- None -,- None -,- None -,,,,,,,,40,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER15406-CA,3849,Vergnano Arabica Espresso Tin 6x250g,764583001532,240,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER15406CAN-CA,6717,Vergnano Arabica 100% Fine Grind Tin 12x250g,- None -,176,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER1601CA-CA,6725,Vergnano 1882 Original Blend Whole Bean PET 2x2.5Kg,- None -,60,Vergnano,- None -,- None -,- None -,6,,,,,150,,150,- None -,60,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+COFVER181CAN-CA,5168,Vergnano Anticabottega Moka 12x250g,8001800001824,288,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER198-CA,3859,Vergnano Granaroma Moka Ground Brick 12x250g,- None -,200,Vergnano,- None -,- None -,- None -,3,,,,,,,96,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER455CA-CA,6718,Vergnano 100% Arabica Made in Eataly Tin 12x250g,- None -,96,Vergnano,- None -,- None -,- None -,,,,,,20,,20,- None -,20,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+COFVER456CA-CA,6719,Vergnano Decaf Made in Eataly Tin 12x250g,8001800004566,96,Vergnano,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER5476-CA,3848,Vergnano Arabica Espresso 6x10 Capsules,764583006278,168,Vergnano,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER5486-CA,3854,Vergnano Cremoso Espresso 6x10 Capsules,- None -,168,Vergnano,- None -,- None -,- None -,4.5,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+COFVER5556-CA,3860,Vergnano Napoli Espresso 6x10 Capsules,764583005554,168,Vergnano,- None -,- None -,- None -,14,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+DELROV049CD-CA,1192,Rovagnati Prosciutto Cotto Gran Biscotto Classic (2Pc) Per/Kg,- None -,100,Rovagnati,- None -,- None -,- None -,6,,,,,3876.953,,3876.953,- None -,3876.953,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROV194CD-CA,3719,Rovagnati SPECK Prosciutto (2Pc) Per/Kg,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,316.918,,316.918,- None -,116.918,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROV250CD-CA,3718,Rovagnati Sgrassatella (1Pc) Per/Kg,- None -,100,Rovagnati,- None -,- None -,- None -,3,,,,,207.356,,207.356,- None -,207.356,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVG33CD-CA,6001,Rovagnati Salame Napoli,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,778.754,,778.754,- None -,500,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVG37CD-CA,6000,Rovagnati Salame Milano,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,795.478,,795.478,- None -,795.478,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVGL0CD-CA,3707,Rovagnati Porchetta Smaller Cuts (2Pc) Per/Kg,- None -,100,Rovagnati,- None -,- None -,- None -,3,,,,,953.37,,953.37,- None -,953.37,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVGT4CD-CA,3713,Rovagnati Prosciutto Gran Milano 14 Month (1Pc) Per/Kg,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+DELROVGV9CD-CA,1194,Rovagnati Prosciutto Cotto Gran Sapore (2Pc) Per/Kg,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,2848.51,,2848.51,- None -,2848.51,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVU87CD-CA,3706,Rovagnati PISTACCHIO Gran Mortadella (2Pc) Per/Kg,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,1085.76,,1085.76,- None -,335.76,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVU88CD-CA,6150,Rovagnati Gran Mortadella Massima 2x3Kg,- None -,100,Rovagnati,- None -,- None -,- None -,16,,,,,4173.66,,4173.66,- None -,4173.66,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVUO7CD-CA,6003,Rovagnati Salame Ventricina,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,867.484,,867.484,- None -,300,3/21/2026,10,.33,0,- None -,- None -,0,0,0,0,0
+DELROVUS9CD-CA,6861,Rovagnati Salami Fennel,- None -,100,Rovagnati,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+DELROVUZ1CD-CA,7188,Longos Curato Prosciutto Cotto Gran Sapore (2Pc) Per/Kg,- None -,100,Rovagnati_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+DSPBACIBOW-OT,7227,Baci Bow Image Display (empty) 31.5x20 Inch PVC 10 Inch Extra Fold at 90 Degrees,- None -,100,Baci_Displayer,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FBGAN01-CA,3450,Farm Boy Hazelnut Spread 12x350g,- None -,96,Gandola_PL Farm Boy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FBTRUF01-CA,3455,Farm Boy Truffle Flavoured Grapedseed Oil 12x100ml,- None -,180,Le Ife_PL Farm Boy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FBTRUF02-CA,3456,Farm Boy Truffle Flavoured Sea Salts 12x100ml,- None -,270,Le Ife_PL Farm Boy,- None -,- None -,- None -,,,,,,50,,50,- None -,50,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+FER33-CA,4428,Ferrarelle Sparkling Water 24x330ml,8006290800117,84,Ferrarelle,- None -,- None -,- None -,5,,,,,,,588,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FER33N-CA,4788,Ferrarelle Still Water 24x330ml,8006290805341,84,Ferrarelle,- None -,- None -,- None -,5,,,,,,,840,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FER75-S-CA,4430,Ferrarelle Sparkling Water 12x750ml,8006290800605,75,Ferrarelle,- None -,- None -,- None -,9,,,,,,,375,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FER75N-CA,4789,Ferrarelle Still Water 12x750ml,8006290805334,75,Ferrarelle,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FILMGIOIASB-OT,7069,Gioia S Biscuits Film,- None -,100,Carta Stampa_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPCOL15-CA,1156,Colavita Hazelnut Chopped Roasted 8x4.4lb,- None -,100,Colavita USA_Hazelnuts,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPCOL16-CA,1157,Colavita Hazelnut Whole Roasted 8x4.4lb,- None -,100,Colavita USA_Hazelnuts,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPFB001-CA,3454,Farm Boy Olives Green Cerignola 12x580ml,- None -,84,Iposea_PL Farm Boy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPIP254-CA,3649,R.M. Artichokes Grilled 12x580g,- None -,110,Colavita Italy_Other,- None -,- None -,- None -,,,,,,121,,242,- None -,121,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+FPIP256-CA,3694,R.M. Sundried Tomatoes 12x314ml,779921321104,170,Iposea_Marinades,- None -,- None -,- None -,6,,,,,,,1000,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPIP258-CA,3650,R.M. Artichokes Stemmed 12x580ml,779921320602,98,Iposea_Marinades,- None -,- None -,- None -,4,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPIP259-CA,3682,R.M. Olives Green Cerignola 12x580ml,779921320800,98,Iposea_Olives,- None -,- None -,- None -,202,,,,,,,624,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPRM01-CA,3651,R.M. Baby Clams 6x270g,- None -,252,Flott,- None -,- None -,- None -,31,,,,,400,,800,- None -,400,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+FPRM120-CA,3646,R.M. Artichoke Hearts 12x6oz,779921361056,238,Alguazas_Marinades,- None -,- None -,- None -,3,,,,,,,714,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPRM120-FB-CA,3440,Farm Boy Artichoke Hearts 12x340ml,- None -,162,Alguazas_PL Farm Boy,- None -,- None -,- None -,,,,,,,,648,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPRM124-CA,3645,R.M. Artichoke Hearts 12x12oz,779921361100,153,Alguazas_Marinades,- None -,- None -,- None -,7,,,,,,,1071,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPRM125-CA,3663,R.M. Fire Red Roasted Peppers 12x12oz,- None -,153,Alguazas_Marinades,- None -,- None -,- None -,2,,,,,,,918,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPRM126-CA,3664,R.M. Fire Red Roasted Peppers 6x3Kg,779921362206,63,Alguazas_Marinades,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPRM149A-CA,5490,R.M. Capers 12x105ml,779921362916,288,Alguazas_Marinades,- None -,- None -,- None -,,,,,,,,300,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA022-CA,3656,R.M. Eggplant Hot In Oil 12x375ml,779921310238,144,Livabec,- None -,- None -,- None -,,,,,,,,511,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA023-CA,3659,R.M. Eggplant Mild In Oil 12x375ml,779921320237,144,Livabec,- None -,- None -,- None -,1,,,,,,,636,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA024-CA,3658,R.M. Eggplant Hot In Oil 12x750ml,779921310269,77,Livabec,- None -,- None -,- None -,1,,,,,,,168,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA025-CA,3661,R.M. Eggplant Mild In Oil 12x750ml,779921320268,77,Livabec,- None -,- None -,- None -,1,,,,,,,269,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA028-CA,3666,R.M. Hot Sliced Peppers 12x250ml,779921325133,192,Livabec,- None -,- None -,- None -,,,,,,,,192,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA030-CA,3676,R.M. Mushrooms Hot In Oil 12x250ml,779921310016,192,Livabec,- None -,- None -,- None -,2,,,,,,,384,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA031-CA,3679,R.M. Mushrooms Mild In Oil 12x250ml,779921320015,192,Livabec,- None -,- None -,- None -,1,,,,,,,576,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA055-CA,3657,R.M. Eggplant Hot In Oil 2x4L,- None -,84,Livabec,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA056-CA,3660,R.M. Eggplant Mild In Oil 2x4L,- None -,84,Livabec,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA057-CA,3677,R.M. Mushrooms Hot In Oil 2x4L,- None -,84,Livabec,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA058-CA,3678,R.M. Mushrooms Mild In Oil 2x4L,779921310054,84,Livabec,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA059-CA,3642,R.M. Antipasto (Giardiniera) Hot 12x375ml,779921371000,144,Livabec,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA060-CA,3643,R.M. Antipasto (Giardiniera) Mild 12x375ml,779921371024,144,Livabec,- None -,- None -,- None -,3,,,,,,,500,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA065A-CA,3674,R.M. Muffuletta Mild 12x500ml,779921372014,102,Livabec,- None -,- None -,- None -,4,,,,,,,848,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA066A-CA,3672,R.M. Muffuletta Hot 12x500ml,779921372052,102,Livabec,- None -,- None -,- None -,3,,,,,,,967,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA069A-CA,3554,Longos Muffuletta Original 12x500ml,- None -,102,Livabec_PL Longos,- None -,- None -,- None -,,,,,,,,306,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA069B-CA,3553,Longos Muffuletta Mild 12x500ml,- None -,102,Livabec_PL Longos,- None -,- None -,- None -,,,,,,,,510,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA070-CA,3452,Farm Boy Muffuletta Mild 12x500g,- None -,102,Livabec_PL Farm Boy,- None -,- None -,- None -,,,,,,,,204,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA070C-CA,6620,Longos Curato Hot Sliced Peppers 12x250ml,- None -,250,Livabec_PL Longos,- None -,- None -,- None -,,,,,,,,384,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA071-CA,3453,Farm Boy Muffuletta Spicy 12x500g,- None -,102,Livabec_PL Farm Boy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA375-CA,3673,R.M. Muffuletta Mild 2x4L,- None -,84,Livabec,- None -,- None -,- None -,,,,,,,,168,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+FPVA375A-CA,3671,R.M. Muffuletta Hot 2x4L,- None -,84,Livabec,- None -,- None -,- None -,,,,,,,,84,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+GNOCCHI-CA,3877,Vita Sana Gnocchi 10x500g,779921116113,147,Ciemme_Gnocchi,- None -,- None -,- None -,7,,,,,3270,,5835,- None -,1000,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+GNOCCHI05-CA,3878,Vita Sana Gnocchi Bulk 6x1Kg,779921106121,120,Ciemme_Gnocchi,- None -,- None -,- None -,79,,,,,7280,,9780,- None -,2244,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+GNOCCHI10-CA,3880,Vita Sana Gnocchi Gluten Free 12x500g,779921116175,100,Ciemme_Gnocchi,- None -,- None -,- None -,28,,,,,1820,,1820,- None -,1820,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+GNOCCHI10FB-CA,3449,Farm Boy Gnocchi Gluten Free 12x500g,- None -,140,Ciemme_PL Farm Boy,- None -,- None -,- None -,,,,,,,,800,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+GNOCCHICAULI-CA,6812,Vita Sana Gluten Free Cauliflower Gnocchi 8x500g,779921116137,85,Ciemme_Gnocchi,- None -,- None -,- None -,1,,,,,512,,1912,- None -,512,3/22/2026,11,.37,0,- None -,- None -,0,0,0,0,0
+GNOCCHICAULIFB-CA,7053,Farm Boy  Cauliflower Gnocchi 8x500g,- None -,100,Ciemme_PL Farm Boy,- None -,- None -,- None -,,,,,,,,320,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+GNOCCHIFB-CA,3448,Farm Boy Gnocchi 10x500g,- None -,108,Ciemme_PL Farm Boy,- None -,- None -,- None -,,,,,,,,1176,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+GNOCCHIMASS-CA,3562,Massimo Gnocchi 10x500g,- None -,140,Ciemme/Maffei_ Massimo,- None -,- None -,- None -,588,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+LEMON02-CA,3540,Limmi (VS) Lemon Juice 12x200ml,641777111010,242,B&G SRL (Limmi)_Lemon Juice,- None -,- None -,- None -,26,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOAVOCA-CA,6883,Colavita Avocado Oil 6x750ml (Timeless),39153431836,120,Colavita Italy_Oil,- None -,- None -,- None -,157,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOGRAPE01-CA,1158,Colavita Oil GRAPESEED 6x750ml,39153100992,120,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOSPRAVO-CA,6559,Colavita Spray Avocado Oil 6x148ml,39153431041,240,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOSPRGAR-CA,6555,Colavita SPRAY EV Olive Oil GARLIC 6x148ml,39153430082,240,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOSPRORG-CA,6553,Colavita Spray EV Olive Oil Organic 6x148ml,39153431027,240,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOSPRPRE-CA,6551,Colavita Spray EV Olive Oil Premium 6x148ml,39153431539,240,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV-6PK-CA,3662,R.M. Extra Virgin Olive Oil 6x1L,779921601053,100,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,100,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV-ORGANIC-CA,1177,Colavita EV Olive Oil ORGANIC 6x500ml,39153100404,125,Colavita Italy_Oil,- None -,- None -,- None -,60,,,,,,,180,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV.10CAN-CA,1059,Colavita Oil Canola (80) / EV Olive (20) 1x10L (Bag in Box),- None -,64,Colavita USA_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV.10L56BB-CA,6860,Colavita Pure Olive Oil Bag In Box 1x10L,- None -,72,Colavita USA_Oil,- None -,- None -,- None -,315,,,,,2795,,2795,- None -,1344,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+OCOXV.1L147TIMELESS-CA,7017,COL Premium ITALIAN EVOliveOil 6x1lT,39153011410,96,Colavita Italy_Oil,- None -,- None -,- None -,40,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV.5-6pk-CA,6482,Colavita Extra Virgin Olive Oil 6x500ml (Timeless),39153010031,180,Colavita Italy_Oil,- None -,- None -,- None -,2,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV.500L71TIMELESS-CA,7016,COL Premium ITALIAN EVOliveOil 6x500ml,39153010215,180,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV.75L22TIMELESS-CA,1163,Colavita Premium Italian  EV Olive Oil 6x750ml (Timeless),39153010109,120,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,280,,280,- None -,280,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+OCOXV.TINL10ITTIMELESS-CA,7018,COL Premium ITALIAN EVOliveOil 4X3LT TIN,39153011434,90,Colavita Italy_Oil,- None -,- None -,- None -,2,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXV1TIMELESS-CA,1166,Colavita Extra Virgin Olive Oil 6x1L (Timeless),39153010024,96,Colavita Italy_Oil,- None -,- None -,- None -,24,,,,,1688,,3816,- None -,336,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+OCOXV3T-CA,1167,Colavita Extra Virgin Olive Oil 4x3L (Tin),39153010017,90,Colavita Italy_Oil,- None -,- None -,- None -,3,,,,,90,,90,- None -,90,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+OCOXVBAS-CA,1168,Colavita EV Olive Oil Basil 6x250ml (Timeless),39153100268,238,Colavita Italy_Oil,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVCAL-CA,1169,Colavita EV Olive Oil California 6x750ml (Timeless),- None -,120,Colavita USA_Oil,- None -,- None -,- None -,,,,,,,,240,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVCERAMIC-CA,1170,Colavita EV Olive Oil Premium Italian 6x250ml (Ceramic Jar),39153100381,155,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVGAR-CA,1173,Colavita EV Olive Oil Garlic 6x250ml (Timeless),39153100503,238,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVGRE01-CA,1174,Colavita EV Olive Oil GREEK 6x750ml (Timeless),39153100862,140,Colavita Italy_Oil,- None -,- None -,- None -,1,,,,,559,,1539,- None -,279,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+OCOXVLEM-CA,1175,Colavita EV Olive Oil Lemon 6x250ml (Timeless),39153100251,238,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVMED-CA,1176,Colavita EV Olive Oil Mediterranean 6x750ml (Timeless),39153100879,140,Colavita Italy_Oil,- None -,- None -,- None -,3,,,,,,,280,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVMED-CA-1.5LT PET,6862,Colavita (PET)  EV Olive Oil Mediteranean 6x1.5L,39153431485,80,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVPEP-CA,1178,Colavita EV Olive Oil PEPPER 6x250ml (Timeless),- None -,287,Colavita Italy_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVPOR-CA,1179,Colavita EV Olive Oil PORTUGAL 6x750ml (Timeless),39153011526,120,Colavita Italy_Oil,- None -,- None -,- None -,61,,,,,279,,279,- None -,139,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+OCOXVSEWC-CA,7203,Colavita EV Olive Oil The 2026 World Cup Special Edition 6x500ml,039153432321,84,Colavita_Special,- None -,- None -,- None -,,,,,,910,,12500,- None -,910,3/24/2026,13,.43,0,- None -,- None -,0,0,0,0,0
+OCOXVSPN-CA,1180,Colavita EV Olive Oil SPANISH 6x750ml (Timeless),39153010147,120,Colavita Italy_Oil,- None -,- None -,- None -,149,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OCOXVTAR-CA,1181,Colavita EV Olive Oil TRUFFLE 6x250ml (Timeless),39153100398,238,Colavita Italy_Oil,- None -,- None -,- None -,5,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL011-CA,7117,O California Premium EVOO  (Plastic Squeeze Bottle) 6x500ml,- None -,224,Colavita USA_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL051-CA,6792,O Meyer Lemon Crushed Olive Oil 6x250ml,634039050011,252,Colavita USA_Oil,- None -,- None -,- None -,34,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL052-CA,6793,O Blood Orange Crushed Olive Oil 6x250ml,634039050028,252,Colavita USA_Oil,- None -,- None -,- None -,36,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL053-CA,6794,O Roasted Garlic Crushed Olive Oil 6x250ml,- None -,252,Colavita USA_Oil,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL101-CA,6795,O Champagne Vinegar 6x300ml,634039350081,250,Colavita USA_Vinegar,- None -,- None -,- None -,122,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL102-CA,6796,O Citrus Champagne Vinegar 6x300ml,634039350111,250,Colavita USA_Vinegar,- None -,- None -,- None -,55,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL104-CA,6804,O Orange Blossom Champagne Vinegar 6x300ml,- None -,250,Colavita USA_Vinegar,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL105-CA,6797,O Pomegranate Champagne Vinegar 6x300ml,634039350470,250,Colavita USA_Vinegar,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL111-CA,6801,O Cabernet Wine Vinegar 6x300ml,634039350128,250,Colavita USA_Vinegar,- None -,- None -,- None -,2,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL113-CA,6802,O Sherry Wine Vinegar 6x300ml,634039350050,250,Colavita USA_Vinegar,- None -,- None -,- None -,26,,,,,,,60,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL117-CA,6803,O Yuzu Rice Vinegar 6x300ml,634039350142,250,Colavita USA_Vinegar,- None -,- None -,- None -,100,,,,,,,500,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL119-CA,6798,O California White Balsamic Vinegar 6x300ml,634039350180,250,Colavita USA_Vinegar,- None -,- None -,- None -,4,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL121-CA,6799,O California Fig Balsamic Vinegar 6x300ml,634039350210,250,Colavita USA_Vinegar,- None -,- None -,- None -,3,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+OOIL122-CA,6800,O California Balsamic Vinegar 6x300ml,634039350135,250,Colavita USA_Vinegar,- None -,- None -,- None -,3,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV80DJ-CA,7055,OraSi Soy Beverage Sugar Free 12x1L,8003180048154,65,OraSi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV80EO-CA,7054,OraSi Soy Beverage 12x1L,8003180046990,65,OraSi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV81ER-CA,7056,OraSi Rice Beverage No Added Sugar 12x1L,8003180046976,65,OraSi,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV83CK-CA,7060,OraSi Almond Beverage Sugar Free 12x1L,8003180047010,65,OraSi,- None -,- None -,- None -,3,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV83DE-CA,7059,OraSi Almond Beverage Bold 12x1L,8003180048949,65,OraSi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV84AJ-CA,7061,OraSi Hazelnut Beverage 12x1L,8003180047058,65,OraSi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV87AO-CA,7057,OraSi Oat Beverage No Added Sugar 12x1L,8003180047034,65,OraSi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV87CF-CA,7058,OraSi Oat Beverage Sugar Free 12x1L,8003180048130,65,OraSi,- None -,- None -,- None -,,,,,,,,65,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV88AN-CA,7062,OraSi Barista Soy Beverage 12x1L,8003180047782,65,OraSi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV88FV-CA,7063,OraSi Barista Almond Beverage 12x1L,8003180047829,65,OraSi,- None -,- None -,- None -,,,,,,,,88,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV88HT-CA,7064,OraSi Barista Coconut Beverage 12x1L,8003180047843,65,OraSi,- None -,- None -,- None -,33,,,,,,,65,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV88IW-CA,7066,OraSi Barista Oat Beverage 12x1L,8003180047805,65,OraSi,- None -,- None -,- None -,,,,,,,,260,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+ORAAV88JK-CA,7065,OraSi Barista Hazelnut Beverage 12x1L,8003180047867,65,OraSi,- None -,- None -,- None -,1,,,,,,,65,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAB001-CA,4035,Vita Sana Organic Chickpea Fusilli 6x225g,779921017137,162,GoviFarm,- None -,- None -,- None -,7,,,,,1512,,1512,- None -,864,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAB002-CA,4036,Vita Sana Organic Red Lentil Penne 6x225g,779921017052,162,GoviFarm,- None -,- None -,- None -,2,,,,,648,,648,- None -,648,4/8/2026,28,.93,0,- None -,- None -,0,0,0,0,0
+PAB003-CA,4037,Vita Sana Organic Yellow Lentil Casarecce 6x225g,779921017090,162,GoviFarm,- None -,- None -,- None -,15,,,,,648,,648,- None -,648,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAB015-CA,6899,La Molisana Lupini Spaghetti 12x400g,8004690486160,95,L.M._Pasta Speciali,- None -,- None -,- None -,16,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAB020-CA,6897,La Molisana Lupini Penne Rigate 12x400g,8004690480205,50,L.M._Pasta Speciali,- None -,- None -,- None -,31,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAB028-CA,6898,La Molisana Lupini Fusilli 12x400g,8004690480281,50,L.M._Pasta Speciali,- None -,- None -,- None -,60,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PACM001-CA,3896,Vita Sana Pasta Orecchiette 12x450g,779921600100,96,Dibenedetto,- None -,- None -,- None -,,,,,,411,,450,- None -,411,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM001DR-CA,6144,David Rocco Pasta Orecchiette 12x400g,- None -,60,Dibenedetto,- None -,- None -,- None -,6.5,,,,,149,,149,- None -,148,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM002-CA,3890,Vita Sana Pasta Cavatelli 12x450g,- None -,120,Dibenedetto,- None -,- None -,- None -,,,,,,315,,315,- None -,315,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM003-CA,3894,Vita Sana Pasta Fusilli 12x450g,- None -,96,Dibenedetto,- None -,- None -,- None -,12,,,,,126,,126,- None -,126,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM003DR-CA,6145,David Rocco Pasta Fusilli 12x400g,- None -,60,Dibenedetto,- None -,- None -,- None -,,,,,,100,,100,- None -,100,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM004-CA,3897,Vita Sana Pasta Strozzapreti 12x450g,779921600933,96,Dibenedetto,- None -,- None -,- None -,6,,,,,127,,127,- None -,126,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM004A-CA,3898,Vita Sana Pasta Strozzapreti Tricolore 12x450g,779921600513,96,Dibenedetto,- None -,- None -,- None -,3,,,,,106,,106,- None -,105,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM004DR-CA,6146,David Rocco Pasta Strozzapreti 12x400g,- None -,60,Dibenedetto,- None -,- None -,- None -,2,,,,,100,,100,- None -,100,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM005-CA,3891,Vita Sana Pasta Cavatoni 12x450g,- None -,96,Dibenedetto,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PACM006-CA,3895,Vita Sana Pasta Maccheroni 12x450g,- None -,72,Dibenedetto,- None -,- None -,- None -,,,,,,324,,324,- None -,324,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM008-CA,3892,Vita Sana Pasta Foglie And Spinaci 12x450g,779921600124,96,Dibenedetto,- None -,- None -,- None -,,,,,,,,50,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PACM013A-CA,3893,Vita Sana Pasta Fregola Sarda 12x500g,- None -,84,Cagliaritani,- None -,- None -,- None -,1,,,,,384,,384,- None -,384,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PACM014-CA,3899,Vita Sana Pasta Trofie 12x450g,- None -,60,Dibenedetto,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAG020-GF-CA,6191,La Molisana Gluten Free Penne Ziti Rigate#20 14x400g,8004690470039,60,L.M._Pasta Gluten free,- None -,- None -,- None -,2,,,,,,,140,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAG028-GF-CA,6192,La Molisana Gluten Free Fusilli #28 14x400g,8004690470046,50,L.M._Pasta Gluten free,- None -,- None -,- None -,2,,,,,399,,400,- None -,200,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PALAT071-CA,3990,La Molisana Rotelle #71 24x500g,8004690057100,45,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,307,,312,- None -,100,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PALAT077-CA,4011,La Molisana Mafalda Corta #77 24x500g,8004690057704,32,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,450,,450,- None -,300,3/22/2026,11,.37,0,- None -,- None -,0,0,0,0,0
+PALAT58-DR-CA,6843,La Molisana Mista Grano Ita #58 24x500g,8004690055823,40,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAR002-DR-CA,3998,La Molisana Fettucce Ricce #2 12x450g,8004690100202,48,L.M._Pasta Speciali,- None -,- None -,- None -,45,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAR002-DR18-CA,6951,La Molisana Fettuccia Riccia #2 18x500g,- None -,100,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,215,,489,- None -,189,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAR003-DR-CA,4002,La Molisana Tripolina Lunga #3 12x450g,779921000030,48,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAR003-DR18-CA,7275,La Molisana Mezze Fettuccia Riccia #3 18x500g,- None -,100,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,81,,81,- None -,81,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAR100-12-500-CA,7296,La Molisana Nidi '0' Capelli Angelo #100 12x500g,- None -,40,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,54,,54,- None -,54,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAR100-12-CA,4000,La Molisana Nidi '0' Capelli Angelo #100 12x450g,779921001006,40,L.M._Pasta Speciali,- None -,- None -,- None -,60,,,,,331,,1000,- None -,331,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+PAR103-12-500-CA,7311,La Molisana Nidi '3' Tagliatelle #103 12x500g,- None -,40,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAR103-12-CA,4001,La Molisana Nidi '3' Tagliatelle #103 12x450g,779921001037,40,L.M._Pasta Speciali,- None -,- None -,- None -,1,,,,,,,40,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAR108-DR-CA,4008,La Molisana Fusilli Corti Bucati #108 12x450g,779921011081,90,L.M._Pasta Speciali,- None -,- None -,- None -,30,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAR60A-DR-500-CA,7312,La Molisana Anelli Siciliani #60A 12x500g,- None -,98,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,,,150,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAR60A-DR-CA,4004,La Molisana Anelli Siciliani #60A 12x450g,779921001600,98,L.M._Pasta Speciali,- None -,- None -,- None -,19,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PASPT01-CA,4032,Vita Sana Spelt Penne 12x450g,779921015034,60,Andalini,- None -,- None -,- None -,6,,,,,,,250,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PASPT02-CA,4031,Vita Sana Spelt Fusilli 12x450g,779921015065,60,Andalini,- None -,- None -,- None -,67,,,,,100,,350,- None -,100,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+PASPT03-CA,4034,Vita Sana Spelt Tortiglioni (Elicoidali) 12x450g,779921015096,60,Andalini,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PASPT04-CA,4033,Vita Sana Spelt Spaghetti 12x450g,779921015041,162,Andalini,- None -,- None -,- None -,24,,,,,230,,230,- None -,230,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+PASPT06-CA,4029,Vita Sana Spelt Cavatappi #70 12x450g,- None -,60,Andalini,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT001-DR18-CA,3994,La Molisana Spaghetto Quadrato #1 18x450g,- None -,112,L.M._Pasta Traditional,- None -,- None -,- None -,14,,,,,51,,1330,- None -,51,3/22/2026,11,.37,0,- None -,- None -,0,0,0,0,0
+PAT006-DR18-CA,3978,La Molisana Linguine #6 18x450g,779921000061,112,L.M._Pasta Traditional,- None -,- None -,- None -,21,,,,,43,,2500,- None -,43,3/22/2026,11,.37,0,- None -,- None -,0,0,0,0,0
+PAT012-DR18-CA,3969,La Molisana Bucatini #12 18x450g,779921000122,92,L.M._Pasta Traditional,- None -,- None -,- None -,17,,,,,1034,,1034,- None -,390,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAT015-DR18-CA,3992,La Molisana Spaghetti #15 18x450g,779921000153,112,L.M._Pasta Traditional,- None -,- None -,- None -,402,,,,,5845,,6277,- None -,560,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT015-GLUTEN-CA,4040,La Molisana Gluten Free Spaghetti #15 12x400g,8004690470022,205,L.M._Pasta Gluten free,- None -,- None -,- None -,3,,,,,,,250,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT015-ORG-CA,4028,La Molisana Organic Spaghetti #15 18x500g,8004690420157,84,L.M._Pasta Organic,- None -,- None -,- None -,,,,,,84,,84,- None -,84,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT016-DR18-CA,3993,La Molisana Spaghettini #16 18x450g,779921000160,112,L.M._Pasta Traditional,- None -,- None -,- None -,21,,,,,,,1000,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT016-FS-CA,3536,La Molisana Spaghetti Bulk #16 2x10lb (Box),779921090161,96,L.M._Pasta Bulk,- None -,- None -,- None -,,,,,,96,,363,- None -,36,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT017-DR18-CA,3970,La Molisana Capellini #17 18x450g,779921000177,112,L.M._Pasta Traditional,- None -,- None -,- None -,18,,,,,886,,886,- None -,885,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAT018-DR-CA,3984,La Molisana Penne Ziti Lisce #18 12x450g,779921000184,90,L.M._Pasta Traditional,- None -,- None -,- None -,14,,,,,2909,,4099,- None -,1140,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAT020-DR-CA,3985,La Molisana Penne Ziti Rigate #20 12x450g,779921000207,90,L.M._Pasta Traditional,- None -,- None -,- None -,18,,,,,4483,,12065,- None -,700,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT020-ORG-CA,4027,La Molisana Organic Penne #20 10x500g,8004690420201,60,L.M._Pasta Organic,- None -,- None -,- None -,56,,,,,,,100,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT021-DR-CA,3987,La Molisana Pennoni Rigati #21 12x450g,779921000214,48,L.M._Pasta Traditional,- None -,- None -,- None -,13,,,,,1355,,3584,- None -,923,3/22/2026,11,.37,0,- None -,- None -,0,0,0,0,0
+PAT021A-DR-CA,3986,La Molisana Pennoni Lisci #21A 12x450g,779921001211,48,L.M._Pasta Traditional,- None -,- None -,- None -,11,,,,,960,,1960,- None -,960,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAT022-DR-CA,3983,La Molisana Penne Mezzi Ziti #22 12x450g,779921000221,84,L.M._Pasta Traditional,- None -,- None -,- None -,150,,,,,1229,,1980,- None -,980,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAT022-FS-CA,3531,La Molisana Penette Bulk Rigate 4x3Kg,779921090222,54,L.M._Pasta Bulk,- None -,- None -,- None -,1,,,,,264,,272,- None -,8,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT022A-DR-CA,3982,La Molisana Penne Mezze Ziti Rigate #22A 12x450g,779921001228,84,L.M._Pasta Traditional,- None -,- None -,- None -,10,,,,,588,,588,- None -,588,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT025-DR-CA,3968,La Molisana Abissine Rigate #25 12x450g,779921000252,90,L.M._Pasta Traditional,- None -,- None -,- None -,6,,,,,1,,51,- None -,318,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAT028-DR-CA,3977,La Molisana Fusilli #28 12x450g,779921000283,90,L.M._Pasta Traditional,- None -,- None -,- None -,14,,,,,5009,,14113,- None -,1226,3/12/2026,1,.03,0,- None -,- None -,0,0,0,0,0
+PAT028-FS-CA,3520,La Molisana Fusilli Bulk #28 2x10lb (Box),- None -,56,L.M._Pasta Bulk,- None -,- None -,- None -,,,,,,,,360,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT028-ORG-CA,4025,La Molisana Organic Fusilli #28 10x500g,8004690420287,60,L.M._Pasta Organic,- None -,- None -,- None -,71,,,,,,,100,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT030-FS-CA,3529,La Molisana Orecchiette Bulk #30 2x10lb (Box),37212509168,64,L.M._Pasta Bulk,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT031-DR-CA,3989,La Molisana Rigatoni #31 12x450g,779921000313,64,L.M._Pasta Traditional,- None -,- None -,- None -,30,,,,,2064,,6206,- None -,1488,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAT032-DR-CA,3980,La Molisana Mezzi Rigatoni #32 12x450g,779921000320,64,L.M._Pasta Traditional,- None -,- None -,- None -,16,,,,,,,300,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT034-DR-CA,3972,La Molisana Cavatappi #34 12x450g,- None -,90,L.M._Pasta Traditional,- None -,- None -,- None -,3,,,,,1740,,2150,- None -,600,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+PAT037-DR-CA,3975,La Molisana Elicoidali #37 12x450g,779921000375,56,L.M._Pasta Traditional,- None -,- None -,- None -,17,,,,,1232,,1896,- None -,896,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT045-DR-CA,3973,La Molisana Ditali #45 12x450g,779921000450,84,L.M._Pasta Traditional,- None -,- None -,- None -,15,,,,,1111,,2111,- None -,111,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAT048-500-DR-CA,7297,La Molisana Tubetti #48 24x500g,- None -,,L.M._Pasta Traditional,- None -,- None -,- None -,,,,,,128,,128,- None -,128,3/12/2026,1,.03,0,- None -,- None -,0,0,0,0,0
+PAT048-DR-CA,3997,La Molisana Tubetti #48 12x450g,- None -,98,L.M._Pasta Traditional,- None -,- None -,- None -,,,,,,,,1744,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT054-ORG-CA,4026,La Molisana Organic Lumache Rigate # 54 10x500g,8004690420546,60,L.M._Pasta Organic,- None -,- None -,- None -,44,,,,,60,,240,- None -,60,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT058A-DR-CA,3971,La Molisana Capellini Spezzati #58 12x450g,779921001587,98,L.M._Pasta Traditional,- None -,- None -,- None -,25,,,,,7350,,8394,- None -,2000,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT059-DR-CA,3995,La Molisana Stelline #59 12x450g,779921000597,120,L.M._Pasta Traditional,- None -,- None -,- None -,23,,,,,1763,,2063,- None -,563,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAT061-DR-CA,3991,La Molisana Semi Di Melone #61 12x450g,779921000610,120,L.M._Pasta Traditional,- None -,- None -,- None -,300,,,,,,,1564,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT064-DR-CA,3988,La Molisana Peperini #64 12x450g,779921000641,120,L.M._Pasta Traditional,- None -,- None -,- None -,500,,,,,,,2300,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT065-DR-CA,3981,La Molisana Orzo #65 12x450g,779921000658,120,L.M._Pasta Traditional,- None -,- None -,- None -,11,,,,,,,240,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PAT066-DR-CA,3976,La Molisana Farfalle 'Bow Ties' #66 12x450g,779921000665,72,L.M._Pasta Traditional,- None -,- None -,- None -,21,,,,,1838,,4838,- None -,1838,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PAT066-FS-CA,3518,La Molisana Farfalle Bulk #66 2x10lb (Box),779921090666,56,L.M._Pasta Bulk,- None -,- None -,- None -,,,,,,105,,410,- None -,100,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PAT068-DR-CA,3996,La Molisana Tripoline #68 12x450g,779921000689,90,L.M._Pasta Traditional,- None -,- None -,- None -,8,,,,,960,,1960,- None -,960,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PAT070-DR-CA,3974,La Molisana Elbows #70 12x450g,779921000702,98,L.M._Pasta Traditional,- None -,- None -,- None -,210,,,,,2450,,5896,- None -,950,4/12/2026,32,1.07,0,- None -,- None -,0,0,0,0,0
+PAT341-FS-CA,3515,La Molisana Cavatappi Bulk #341 2x10lb (Box),- None -,56,L.M._Pasta Bulk,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PATGI061-IT,7226,La Molisana Grano Italiano Semi Di Melone #61 24x500g,8.00E+12,42,L.M._Pasta Grano Italiano,- None -,- None -,- None -,,,,,,168,,168,- None -,168,3/12/2026,1,.03,0,- None -,- None -,0,0,0,0,0
+PATGI108-IT,7225,La Molisana Grano Italiano Fusilli Corti Bucati #108 24x500g,8.00E+12,28,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,144,,442,- None -,34,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PATW015-DR-CA,4017,La Molisana Whole Wheat Spaghetti #15 18x500g,8004690611500,84,L.M._Pasta Whole Wheat,- None -,- None -,- None -,,,,,,84,,100,- None -,84,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+PATW020-DR-CA,4016,La Molisana Whole Wheat Penne Ziti Rigate #20 12x500g,- None -,70,L.M._Pasta Whole Wheat,- None -,- None -,- None -,4,,,,,100,,100,- None -,100,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+PATW028-DR-CA,4015,La Molisana Whole Wheat Fusilli #28 12x500g,8004690612804,63,L.M._Pasta Whole Wheat,- None -,- None -,- None -,,,,,,180,,195,- None -,45,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PATW066-DR-CA,4014,La Molisana Whole Wheat Farfalle #66 12x500g,8004690616604,63,L.M._Pasta Whole Wheat,- None -,- None -,- None -,,,,,,108,,108,- None -,108,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PFLOUR02-CA,3870,Vita Sana Enriched 00 Soft Wheat Flour 10x1Kg (Bag),779921020014,63,Agugiaro & Figna_Flour,- None -,- None -,- None -,9,,,,,2019,,4312,- None -,630,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PFLOUR04A-CA,3535,La Molisana Semola Flour Di Grano #601 12x1Kg,8004690258316,45,L.M._Flour,- None -,- None -,- None -,53,,,,,1170,,2185,- None -,585,2/20/2026,-19,-.63,0,- None -,- None -,0,0,0,0,0
+PFLOUR05-CA,3533,La Molisana Pizza Semola Flour Di Grano Duro #603 12x1Kg,8004690278246,45,L.M._Flour,- None -,- None -,- None -,3,,,,,,,250,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PFLOURFB-CA,3439,Farm Boy 00 Soft Wheat Flour 10x1Kg (Bag),- None -,63,Agugiaro & Figna_PL Farm Boy,- None -,- None -,- None -,,,,,,,,99,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PFLOURFBA-CA,3444,Farm Boy Enriched Durum Wheat Semolina 10x1Kg (Bag),- None -,63,Agugiaro & Figna_PL Farm Boy,- None -,- None -,- None -,,,,,,,,99,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PRM203-DR-CA,4021,La Molisana Tagliatelle Egg #203 12x250g,779921002034,60,L.M._Pasta Egg,- None -,- None -,- None -,,,,,,1549,,3007,- None -,1000,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+PRM204-DR-CA,4019,La Molisana Fettuccine Egg #204 12x250g,779921002041,60,L.M._Pasta Egg,- None -,- None -,- None -,66,,,,,500,,500,- None -,500,3/12/2026,1,.03,0,- None -,- None -,0,0,0,0,0
+PRM204-DR-IT,7309,La Molisana Fettuccine Egg #204 12x250g,- None -,60,L.M._Pasta Egg,- None -,- None -,- None -,,,,,,240,,240,- None -,240,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+PRM205-DR-CA,4020,La Molisana Pappardelle Egg #205 12x250g,779921002058,60,L.M._Pasta Egg,- None -,- None -,- None -,7,,,,,,,1100,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PRM220-CA,4023,R.M. Lasagna Egg #220 12x500g,779921002201,96,Fazion,- None -,- None -,- None -,9,,,,,1152,,3076,- None -,572,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+PRM220-FB-CA,3451,Farm Boy Lasagna Egg #220 12x500g,- None -,96,Fazion_PL Farm Boy,- None -,- None -,- None -,,,,,,,,576,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PRM220-GF-CA,6228,RM Lasagna Gluten Free 12x250g,779921002232,125,Andriani,- None -,- None -,- None -,2,,,,,,,700,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+PRM312-CA,4005,La Molisana Cannelloni #312 Box 12x250g,8004690343128,60,L.M._Pasta Speciali,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+RDAN02-CA,3644,R.M. Arborio Rice 10x1Kg,779921601503,90,Scotti/Agrover,- None -,- None -,- None -,407,,,,,2757,,5395,- None -,405,3/9/2026,-2,-.07,0,- None -,- None -,0,0,0,0,0
+SACIR31916-CA,3398,Cirio Rustica Passata 12x680ml,822356000226,90,Conserve Italia - Cirio,- None -,- None -,- None -,12,,,,,,,90,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACIR38338-CA,3385,Cirio Cuor Di Pelato 2x5Kg,- None -,90,Conserve Italia - Cirio,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACIR39788-CA,3389,Cirio Passata Strained Tomatoes 12x680ml,822356000615,90,Conserve Italia - Cirio,- None -,- None -,- None -,100,,,,,,,90,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACIR41348-CA,3384,Cirio Crushed Cuor Pomodoro 2x5Kg,- None -,90,Conserve Italia - Cirio,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACIR41540-CA,3376,Cirio Arrabbiata Spicy Pasta Sauce 12x400ml,822356000547,120,Conserve Italia - Cirio,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACIR41541-CA,3377,Cirio Basilico Pasta Sauce With Basil 12x400ml,822356000554,160,Conserve Italia - Cirio,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACIR41542-CA,3388,Cirio Napoletana Original Pasta Sauce 12x400ml,822356000561,135,Conserve Italia - Cirio,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACIR41548-CA,3390,Cirio Pelati Whole Peeled Plum Tomatoes 12x796ml(Tin),822356000196,88,Conserve Italia - Cirio,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SACOLPASS-CA,7201,Colavita Passata 6x680ml,- None -,174,Colavita Italy_Other,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SADRALF482-CA,7181,David Rocco Alfredo Sauce 6x482ml,- None -,210,La Doria,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SADRARR650-CA,6408,David Rocco Arrabbiata Pasta Sauce 6x650ml,779921800944,160,La Doria,- None -,- None -,- None -,2,,,,,,,1440,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SADRPEST185-CA,7184,David Rocco Green Pesto Genovese 6x185g,- None -,468,Nord Salse,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SADRPUT650-CA,6412,David Rocco Puttanesca Pasta Sauce 6x650ml,779921800975,160,La Doria,- None -,- None -,- None -,1,,,,,,,460,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SADRRIC650-CA,6410,David Rocco Ricotta Pasta Sauce 6x650ml,779921800968,160,La Doria,- None -,- None -,- None -,1,,,,,,,1260,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SADRTAB650-CA,6406,David Rocco Tomato and Basil Pasta Sauce 6x650ml,779921800982,160,La Doria,- None -,- None -,- None -,1,,,,,,,1440,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SAFARM01-CA,6902,Farm Boy San Marzano DOP Tomatoes 12x796ml (28oz),- None -,100,Agriconserve_PL Farm Boy,- None -,- None -,- None -,,,,,,699,,699,- None -,699,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+SALM006-CA,3534,La Molisana Red Pesto 6x190g,8004690950081,165,L.M._Pesto,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SALONGOS01-CA,3548,Longos Curato San Marzano DOP Tomatoes 12x796ml,- None -,100,Agriconserve_PL Longos,- None -,- None -,- None -,,,,,,,,1990,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SAPEST-135-CA,3690,R.M. Pesto (Green) with Basil 12x150g,779921800500,200,Clas Pesto_Green Pesto,- None -,- None -,- None -,2,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SAPEST-135R-CA,3691,R.M. Pesto (Red) with Sundried Tomatoes 12x150g,779921800531,250,Clas Pesto_Green Pesto,- None -,- None -,- None -,9,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SAPO04-CA,3641,Pomi Passata Strained Tomatoes 12x750ml (Tetra),846558000150,105,Casalasco_Tomato Sauce,- None -,- None -,- None -,2,,,,,,,210,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SAPO06-CA,1810,Pomi Polpa Di Pomodoro 1x10Kg,- None -,125,Casalasco_Tomato Sauce,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM-100-CA,3667,R.M. Italian Peeled Tomatoes 6x100oz,- None -,64,Agriconserve,- None -,- None -,- None -,,,,,,192,,192,- None -,64,3/12/2026,1,.03,0,- None -,- None -,0,0,0,0,0
+SARM-12 DOP-CA,3693,R.M. San Marzano DOP Tomatoes 12x796ml (28oz),- None -,120,Agriconserve,- None -,- None -,- None -,49,,,,,,,770,- None -,699,3/8/2026,-3,-.1,0,- None -,- None -,0,0,0,0,0
+SARM-12-CA,3668,R.M. Italian Peeled Tomatoes 12x796ml (28oz),- None -,120,Agriconserve,- None -,- None -,- None -,12,,,,,330,,1210,- None -,220,3/12/2026,1,.03,0,- None -,- None -,0,0,0,0,0
+SARM-D24-CA,3654,R.M. Diced Tomatoes 24x398ml (14oz),- None -,96,Agriconserve,- None -,- None -,- None -,35,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM425-PZA-CA,7032,R.M. Pizza Sauce 12x380ml,- None -,221,Casalasco_Tomato Sauce,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM500-8PK-CA,6806,R.M. Passata 8x500ml (Tetra),779921800784,210,Casalasco_Tomato Sauce,- None -,- None -,- None -,49,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM500T-12PK-CA,7187,R.M. Passata 12x500ml (Tetra),- None -,147,Casalasco,- None -,- None -,- None -,,,,,,,,7892,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM680.ORG-CA,7183,R.M. Organic Passata 12x680ml,779921800777,96,Agriconserve,- None -,- None -,- None -,,,,,,,,3066,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM680.RUS-CA,7182,R.M. Passata Rustica 12x680ml,- None -,96,Agriconserve,- None -,- None -,- None -,,,,,,,,3142,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM700.PAS-CA,3689,R.M. Passata Di Pomodori 12x680ml,779921800746,90,La Doria,- None -,- None -,- None -,13,,,,,13680,,101610,- None -,2100,3/15/2026,4,.13,0,- None -,- None -,0,0,0,0,0
+SARM720-BAS-CA,3692,R.M. Pomodoro and Basilico 12x680ml,779921800708,90,Conserve Italia_Tomato Sauce,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SARM720-MAR-CA,3670,R.M. Marinara Sauce 12x680ml,779921800203,90,Conserve Italia_Tomato Sauce,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI1-CA,3727,Scotti Arborio Superfine Rice 10x1Kg,779921601602,84,Scotti,- None -,- None -,- None -,74,,,,,936,,2952,- None -,936,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+SCOTTI10-CA,4965,Scotti Arborio Rice 12x500g,8001860201516,108,Scotti,- None -,- None -,- None -,40,,,,,252,,252,- None -,126,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+SCOTTI1DISPLAY-EMPTY-FL,1962,Scotti Empty Displayers,- None -,,Scotti,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI23-14-CA,7313,Scotti Venere Black Rice 14x500g (Bag),8001860187735,126,Scotti,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI23-CA,6193,Scotti Venere Black Rice 12x500g (Box),8001860187735,126,Scotti,- None -,- None -,- None -,4,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI2DISPLAY-FL,7318,Scotti Displayer 160x210g Mixed Risotto (Built),- None -,,Bauducco_Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI3-CA,3728,Scotti Long Grain Carnaroli 10x1Kg,779921601619,84,Scotti,- None -,- None -,- None -,14,,,,,,,480,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI36-CA,3726,Scotti Arancine Rice 10x1kg,779921601657,84,Scotti,- None -,- None -,- None -,,,,,,,,112,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI4-CA,3732,Scotti Porcini Risotto 10x210g,709736350051,136,Scotti,- None -,- None -,- None -,36,,,,,272,,952,- None -,272,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+SCOTTI44-CA,6236,Scotti Venere Express Black Rice 6x230g,8001860187711,196,Scotti,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI7-CA,3733,Scotti Tartufi (Truffle) Risotto 10x210g,8001860257131,136,Scotti,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+SCOTTI8-CA,3731,Scotti Risotto Formaggio Cremoso 10x210g,8001860257773,136,Scotti,- None -,- None -,- None -,2,,,,,272,,816,- None -,272,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+SCOTTI8A-CA,3734,Scotti Zafferano (Milanese) Risotto 10x210g,8001860257810,136,Scotti,- None -,- None -,- None -,2,,,,,136,,680,- None -,136,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+SRMPASTE-CA,6252,R.M. Tomato Paste 12x140g,779921800913,300,Casalasco_Tomato Paste,- None -,- None -,- None -,9.5,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+TOMDRUM,6425,Polpa Tomatoes Drum 1x215Kg,- None -,4,Casalasco_Tomatos,- None -,- None -,- None -,,,,,,,,580,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VDODI07A-CA,3865,Vita Sana Balsamic Vinegar of Modena IGP 6x250ml,779921363319,234,Denigris,- None -,- None -,- None -,1,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VDODI14-CA,3652,R.M. Balsamic Vinegar of Modena 12x500ml,779921363852,110,Denigris,- None -,- None -,- None -,,,,,,,,440,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99106H-OT,5799,Vergnano Black Saucers set of 6x8,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99109H-OT,5808,Caffe Vergnano Cappuccino Black Saucer6x8,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99137-OT,7096,Vergnano Takeaway Lid (Medium 9oz) 10x100Pcs,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,5,,5,- None -,5,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+VERMKT99138-OT,7097,Vergnano Takeaway Lid (Large 14oz) 10x100Pcs,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,5,,5,- None -,5,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+VERMKT99170-OT,6030,Vergnano BIC Take Away 1882 (50pcs x 4OZ) x 20,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,5,,5,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99172-OT,6132,Vergnano Lid for Disposable Cup,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,5,,5,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99177-OT,7094,Vergnano Takeaway Cups (Medium 9oz) 20x50Pcs,- None -,100,Vergnano Marketing,- None -,- None -,- None -,3,,,,,5,,5,- None -,5,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+VERMKT99178-OT,6727,VERGNANO TAKE AWAY SLEEVES LARGE (12 oz - 500) CODE 99178,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,10,,10,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99179-OT,6728,VERGNANO TAKE AWAY SLEEVES LARGE (8 oz -500) CODE 99179,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,5,,5,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99186-OT,7095,Vergnano Takeaway Cups (Large 14oz) 20x50Pcs,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,5,,5,- None -,5,4/1/2026,21,.7,0,- None -,- None -,0,0,0,0,0
+VERMKT99208H-OT,5798,Vergnano Black Cups 6 Cupsx2.5oz,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,20,,20,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99209H-OT,5811,Vergnano Cappuccino Black Cup6x8,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,20,,20,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99210H-OT,5812,Caffe Vergnano Black Chocolate Set,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,10,,10,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VERMKT99921-OT,6134,Vergnano Cup & Saucer,- None -,100,Vergnano Marketing,- None -,- None -,- None -,,,,,,5,,5,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIBA.5-CA,1184,Colavita Balsamic Vinegar of Modena 12x500ml,39153413009,102,Colavita_Vinegar,- None -,- None -,- None -,4,,,,,,,1112,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIBA.5LT-CA,1185,Colavita Balsamic Vinegar of Modena 2x5L,8001876570064,,Colavita_Vinegar,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIBAV24-CA,4200,Colavita Balsamic Aged Vinegar IGP 6x250ml,- None -,126,Colavita_Vinegar,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIBGLAZEV332-CA,7132,Colavita Balsamic Glaze 2x32oz,- None -,370,Colavita USA_Vinegar,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VINWB01-CA,3696,R.M. White Vinegar of Modena 12x500ml,779921363869,110,Denigris,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIPW.5LT-CA,7319,Colavita Wine Vinegar Prosecco 2x5L,039153413696,105,Colavita USA_Vinegar,- None -,- None -,- None -,,,,,,,,25,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIRASW-CA,6149,Colavita Raspberry Wine Vinegar 12x500ml,39153413153,102,Colavita_Vinegar,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIWR003-CA,1188,Colavita Wine Vinegar Red 12x500ml,39153413054,102,Colavita_Vinegar,- None -,- None -,- None -,,,,,,585,,1617,- None -,585,3/23/2026,12,.4,0,- None -,- None -,0,0,0,0,0
+VIWR003-FB-CA,3457,Farm Boy Wine Vinegar Red 12x500ml,- None -,102,Colavita_PL Farmboy,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VIWW004-CA,1190,Colavita Wine Vinegar White 12x500ml,39153413061,102,Colavita_Vinegar,- None -,- None -,- None -,1,,,,,,,796,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOFET02-CA,7109,Longos Curato Fettucine Egg Nest pasta 18x250g,- None -,100,Alguazas_PL Longos,- None -,- None -,- None -,,,,,,,,540,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGONSWHI01-CA,3552,Longos Curato White Wine Vinegar 12x500ml,- None -,102,Colavita_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOPAP03-CA,7108,Longos Curato Pappardelle Egg Nest pasta 18x250g,- None -,100,Alguazas_PL Longos,- None -,- None -,- None -,,,,,,2,,542,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSBALS01-CA,3544,Longos Curato Balsamic Vinegar 12x500ml,- None -,102,Colavita_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSBALS02-CA,3551,Longos Curato White Vinegar of Modena 6x250ml,- None -,259,Colavita_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSBALS03-CA,3543,Longos Curato Balsamic Glaze 12x250ml,- None -,192,Colavita_PL Longos,- None -,- None -,- None -,,,,,,,,384,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSBALS04-CA,3545,Longos Curato Balsamic Vinegar Gold 6x250ml,- None -,224,Colavita_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSBALS05-CA,3546,Longos Curato Balsamic Vinegar Silver 12x250ml,- None -,100,Colavita_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSFOC01-CA,6608,Longos Curato Focaccia Rosemary 10x100g,- None -,60,Panificio Bo_PL Longos,- None -,- None -,- None -,,,,,,,,864,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSFOC02-CA,6610,Longos Curato Focaccia Olive 10x100g,- None -,60,Panificio Bo_PL Longos,- None -,- None -,- None -,,,,,,,,720,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSGNO-CA,6616,Longos Curato Gnocchi 12x500g,- None -,100,Ciemme_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSGNOGF-CA,6618,Longos Curato Gnocchi Gluten Free 12x500g,- None -,140,Ciemme_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOSRED01-CA,3547,Longos Curato Red Wine Vinegar 12x500ml,- None -,100,Colavita_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VLONGOTAG01-CA,7107,Longos Curato Tagliatelle Egg Nest pasta 20x250g,- None -,100,Alguazas_PL Longos,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VSHON500A-T-CA,6430,Vita Sana Honey (Truffle) 6x500g,- None -,100,La Ife,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+VSPOLENTA01-CA,3900,Vita Sana Polenta 12x500g (Box),779921106596,120,Molino Peila,- None -,- None -,- None -,39,,,,,2,,962,- None -,960,3/1/2026,-10,-.33,0,- None -,- None -,0,0,0,0,0
+VSPOLENTA02-CA,3901,Vita Sana Polenta 10x900g (Tube),779921106626,56,La Delizia,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMAS52A-CA,4071,Gioia Pandoro Chocolate Cream Fill 8x750g,- None -,21,Balconi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMAS53A-CA,4073,Gioia Pandoro Lemon Cream Filled 8x750g,- None -,21,Balconi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASAU01B-CA,6573,Gioia Panettone Traditional 12x750g,- None -,25,Bauducco_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASAU02-CA,4072,Gioia Pandoro Classic 8x800g,- None -,21,Balconi,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBAU01B-CA,6574,Bauducco Panettone Traditional 12x680g,- None -,25,Bauducco_XMAS,- None -,- None -,- None -,,,,,,25,,25,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBAU02B-CA,6575,Bauducco Chocottone 12x680g,- None -,25,Bauducco_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBAU03AB-CA,7034,Bauducco Hazelnut Cream Panettone Box 12x454g,- None -,25,Bauducco_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBAU04B-CA,6577,Bauducco Mini Panettone 24x80g,- None -,72,Bauducco_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBAU09B-CA,6578,Bauducco Mini Chocottone 24x80g,- None -,72,Bauducco_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBOX16361-OT,5686,Blue or Red Small Empty Box,- None -,100,Scotton_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBOX16362-OT,5684,Blue or Red Medium Empty Box,- None -,100,Scotton_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASBOX31341-OT,5704,Silver or Gold Small Empty Box,- None -,100,Scotton_Packaging,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASMAS01-CA,6904,Massimo Pandoro Classic 12x500g (Box),- None -,25,Bauducco_ XMAS Massimo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASMAS01B-CA,6903,Massimo Panettone Traditional 12x750g (Cello),- None -,25,Bauducco_ XMAS Massimo,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASMTV01-CA,7033,Monteverde Panettone CELLO 12x750g,779921110036,25,Bauducco_XMAS,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+XMASTR10A-CA,4069,Gioia Torrone Soft With Hazelnuts 12x150g,779921290028,248,Torrone del Molise,- None -,- None -,- None -,,,,,,,,,- None -,,,0,0,0,- None -,- None -,0,0,0,0,0
+Total,,,,,,,,,,0.0,0.0,0.0,0.0,,0.0,,,,,,,,,,0.0,0.0,0.0,0.0,0.0
