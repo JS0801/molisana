@@ -1700,7 +1700,7 @@ function verifyCron(ts, sig) {
                 .setValue({ fieldId: 'custrecord_mi_item', value: cols[3] })
                 .setValue({ fieldId: 'custrecord_mi_order_qty', value: entry.qty })
                 .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: entry.memo == 0 ? '' : entry.memo})
-                .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(entry.monthStock) }) // <-- NEW
+                .setValue({ fieldId: 'custrecord_month_of_stocks', value: entry.monthStock? safeParseFloat(entry.monthStock) : 0 }) // <-- NEW
                 .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[24]) })
                 .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[31]) })
                 .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[25]) })
