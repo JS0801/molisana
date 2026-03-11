@@ -332,8 +332,8 @@ function (ui, file, log, search, runtime, crypto) {
         displayRow.push(txt);
 
         if (cIdx + 1 == cleaned.length) {
-          if (rowsBilled && rowsBilled[itemId]) {
-            var relatedDate = rowsBilled[itemId];
+          if (rowsBilled && rowsBilled[itemid]) {
+            var relatedDate = rowsBilled[itemid];
             displayRow.push(relatedDate.billedDate);
             displayRow.push(relatedDate.expireDate);
             displayRow.push(relatedDate.stat);
