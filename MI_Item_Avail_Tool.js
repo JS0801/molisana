@@ -511,24 +511,25 @@ function (ui, file, log, search, runtime, crypto) {
       '</style>';
     
     html += '<div class="toolbar-wrap">' +
-      '<button id="downloadCsvBtn" class="download-btn" type="button">' +
-      '<img src="https://cdn-icons-png.flaticon.com/512/10630/10630240.png" ' +
-      'alt="csv-icon" style="width:16px;vertical-align:middle;margin-right:6px;" />' +
-      'Download CSV</button>' +
+  '<button id="downloadCsvBtn" class="download-btn" type="button">' +
+  '<img src="https://cdn-icons-png.flaticon.com/512/10630/10630240.png" ' +
+  'alt="csv-icon" style="width:16px;vertical-align:middle;margin-right:6px;" />' +
+  'Download CSV</button>' +
 
-      '<div class="legend-wrap" id="colorLegendWrap">' +
-        '<span class="legend-label">Color Legend:</span>' +
-        '<span class="legend-pill legend-red" data-row-filter="row-warning">' +
-          '<span class="legend-dot"></span><span>Less than 2 Months</span>' +
-        '</span>' +
-        '<span class="legend-pill legend-purple" data-row-filter="row-expired">' +
-          '<span class="legend-dot"></span><span>Expired</span>' +
-        '</span>' +
-        '<span class="legend-pill legend-yellow" data-row-filter="row-expiring">' +
-          '<span class="legend-dot"></span><span>Expiring</span>' +
-        '</span>' +
-      '</div>' +
-    '</div>';
+  '<div class="legend-wrap" id="colorLegendWrap">' +
+    '<span class="legend-label">Color Legend:</span>' +
+    '<span class="legend-pill legend-red" data-row-filter="warning">' +
+      '<span class="legend-dot"></span><span>Less than 2 Months</span>' +
+    '</span>' +
+    '<span class="legend-pill legend-purple" data-row-filter="expired">' +
+      '<span class="legend-dot"></span><span>Expired</span>' +
+    '</span>' +
+    '<span class="legend-pill legend-yellow" data-row-filter="expiring">' +
+      '<span class="legend-dot"></span><span>Expiring</span>' +
+    '</span>' +
+  '</div>' +
+'</div>';
+
 
     html += '<div id="filter-portal"></div>';
     
@@ -610,7 +611,15 @@ function (ui, file, log, search, runtime, crypto) {
       'window.addEventListener("resize", updateTopScrollbarWidth);' +
       
       'var activeFilters = {};' +
-      'var activeRowColorFilters = new Set();' +
+      'var activeLegendFilters = new Set();' +
+'var expiryStatusColIdx = -1;' +
+'for (var i = 0; i < table.tHead.rows[0].cells.length; i++) {' +
+ ' var hdr = (table.tHead.rows[0].cells[i].textContent || "").trim().toLowerCase();' +
+ ' if (hdr === "expiry status") {' +
+  '  expiryStatusColIdx = i;' +
+  '  break;' +
+  '}' +
+'}' +
 
       'function bodyRows(){return table && table.tBodies[0] ? table.tBodies[0].rows : [];}' +
       'function getCellText(row, idx){var cells=row.cells;if(!cells||idx<0||idx>=cells.length) return "";var t=cells[idx].textContent||"";return String(t).trim();}' +
@@ -648,36 +657,63 @@ function (ui, file, log, search, runtime, crypto) {
       '}' +
       
       'function applyFilters(){' +
-      'var rows=bodyRows(),pairs=[];' +
-      'for(var k in activeFilters){if(!Object.prototype.hasOwnProperty.call(activeFilters,k))continue;var s=activeFilters[k];if(s&&s.size>0)pairs.push([parseInt(k,10),s]);}' +
-      'for(var r=0;r<rows.length;r++){' +
-      'var row=rows[r],show=true;' +
-      'for(var i=0;i<pairs.length && show;i++){' +
-      'var colIdx=pairs[i][0],set=pairs[i][1];' +
-      'var val=getCellText(row,colIdx).toLowerCase();' +
-      'if(!set.has(val)) show=false;' +
-      '}' +
-      'if(show && activeRowColorFilters.size > 0){' +
-      'var matched = false;' +
-      'activeRowColorFilters.forEach(function(cls){if(row.classList.contains(cls)) matched = true;});' +
-      'if(!matched) show = false;' +
-      '}' +
-      'row.style.display = show ? "" : "none";' +
-      '}' +
-      '}' +
+ ' var rows = bodyRows(), pairs = [];' +
+
+'  for (var k in activeFilters) {' +
+ '   if (!Object.prototype.hasOwnProperty.call(activeFilters, k)) continue;' +
+  '  var s = activeFilters[k];' +
+   ' if (s && s.size > 0) pairs.push([parseInt(k, 10), s]);' +
+ ' }' +
+
+ ' for (var r = 0; r < rows.length; r++) {' +
+   ' var row = rows[r], show = true;' +
+
+    // existing column filters
+   ' for (var i = 0; i < pairs.length && show; i++) {' +
+   '   var colIdx = pairs[i][0], set = pairs[i][1];' +
+    '  var val = getCellText(row, colIdx).toLowerCase();' +
+     ' if (!set.has(val)) show = false;' +
+  ' }
+
+    // legend filters by VALUE
+  '  if (show && activeLegendFilters.size > 0) {' +
+     ' var matched = false;' +
+
+      'var lessThan2Val = getCellText(row, 8).toLowerCase();' + // your warning column
+    '  var expiryVal = expiryStatusColIdx >= 0 ? getCellText(row, expiryStatusColIdx).toLowerCase() : "";' +
+
+   '   activeLegendFilters.forEach(function(key){' +
+    '    if (key === "warning" && lessThan2Val === "yes") {' +
+     '     matched = true;' +
+     '   }' +
+    '    if (key === "expired" && expiryVal === "expired") {' + 
+    '      matched = true;' +
+'        }' +
+     '   if (key === "expiring" && expiryVal === "expiring") {' +
+     '     matched = true;' +
+   '     }' +
+  '    });' +
+
+'    if (!matched) show = false;' +
+   ' }' +
+
+   ' row.style.display = show ? "" : "none";' +
+ ' }' +
+'}' +
+' +
 
       'var legendWrap = document.getElementById("colorLegendWrap");' +
       'if(legendWrap){' +
       'legendWrap.addEventListener("click", function(e){' +
       'var pill = e.target.closest(".legend-pill");' +
       'if(!pill) return;' +
-      'var cls = pill.getAttribute("data-row-filter") || "";' +
-      'if(!cls) return;' +
-      'if(activeRowColorFilters.has(cls)){' +
-      'activeRowColorFilters.delete(cls);' +
+      'var key = pill.getAttribute("data-row-filter") || "";' +
+      'if(!key) return;' +
+      'if(activeRowColorFilters.has(key)){' +
+      'activeRowColorFilters.delete(key);' +
       'pill.classList.remove("active");' +
       '} else {' +
-      'activeRowColorFilters.add(cls);' +
+      'activeRowColorFilters.add(key);' +
       'pill.classList.add("active");' +
       '}' +
       'applyFilters();' +
