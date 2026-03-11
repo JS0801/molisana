@@ -208,9 +208,9 @@ function (ui, file, log, search, runtime, crypto) {
         var bad  = 0;
         var total = 0;
         var avail = 0;
-        var inTransit = cleaned[14];
-        var onOrder   = parseFloat(cleaned[16] || 0) - parseFloat(inTransit || 0);
-        var avg       = parseFloat(cleaned[29] || 0) / 4;
+        var inTransit = cleaned[15];
+        var onOrder   = parseFloat(cleaned[17] || 0) - parseFloat(inTransit || 0);
+        var avg       = parseFloat(cleaned[30] || 0) / 4;
     
         if (balances[itemid]) {
           good  = balances[itemid].good;
@@ -222,50 +222,50 @@ function (ui, file, log, search, runtime, crypto) {
         var txt = String(value || '').replace(/^"+|"+$/g, '');
     
         // ----- IMPORTANT: also update cleaned[cIdx] so newContent has the changes -----
-        if (cIdx === 10)  { txt = bad;                                   cleaned[cIdx] = bad; }
-        if (cIdx === 12)  { txt = good;                                  cleaned[cIdx] = good; }
-        if (cIdx === 13)  { txt = total;                                 cleaned[cIdx] = total; }
-        if (cIdx === 15)  {
+        if (cIdx === 11)  { txt = bad;                                   cleaned[cIdx] = bad; }
+        if (cIdx === 13)  { txt = good;                                  cleaned[cIdx] = good; }
+        if (cIdx === 14)  { txt = total;                                 cleaned[cIdx] = total; }
+        if (cIdx === 16)  {
           txt = parseFloat(good) + parseFloat(inTransit || 0);
           cleaned[cIdx] = txt;
         }
-        if (cIdx === 16)  { txt = onOrder;                               cleaned[cIdx] = onOrder; }
-        if (cIdx === 17)  {
-          var qty15 = Number(cleaned[15]) || 0;
-          var qty16 = Number(cleaned[16]) || 0;
+        if (cIdx === 17)  { txt = onOrder;                               cleaned[cIdx] = onOrder; }
+        if (cIdx === 18)  {
+          var qty15 = Number(cleaned[16]) || 0;
+          var qty16 = Number(cleaned[17]) || 0;
           cleaned[cIdx] = parseFloat(qty15) + parseFloat(qty16);
           txt = parseFloat(qty15) + parseFloat(qty16);
         }
-        if (cIdx === 22)  {
+        if (cIdx === 23)  {
           if (avg == 0) { txt = ''; } else { txt = ((parseFloat(good)) / avg).toFixed(2); }
           cleaned[cIdx] = txt;
         }
-        if (cIdx === 23)  {
+        if (cIdx === 24)  {
           if (avg == 0) { txt = ''; }
           else { txt = ((parseFloat(good) + parseFloat(inTransit || 0)) / avg).toFixed(2); }
           cleaned[cIdx] = txt;
         }
-        if (cIdx === 24)  {
+        if (cIdx === 25)  {
           if (avg == 0) { txt = ''; } else { txt = ((parseFloat(avail)) / avg).toFixed(2); }
           cleaned[cIdx] = txt;
         }
         
         var onHandMonth = ((parseFloat(good)) / avg).toFixed(2) || 0;
-        var daysTillAvail = Number(cleaned[20]) || 0;
+        var daysTillAvail = Number(cleaned[21]) || 0;
     
         if (itemid == 1059) {
           log.debug('onHandMonth', onHandMonth);
           log.debug('daysTillAvail', daysTillAvail);
         }
     
-        if (cIdx === 6)  {
+        if (cIdx === 7)  {
           var yorn = 'No';
           if (onHandMonth <= 1 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn = 'Yes';
           txt = yorn;
           cleaned[cIdx] = yorn;
         }
     
-        if (cIdx === 7)  {
+        if (cIdx === 8)  {
           var yorn2 = 'No';
           if (onHandMonth <= 2 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn2 = 'Yes';
           txt = yorn2;
@@ -518,7 +518,7 @@ function (ui, file, log, search, runtime, crypto) {
 
     result.displayRows.forEach(function (row) {
   var rowClass = '';
-  var warningLessThan2 = String(row[7] || '').trim().toLowerCase();
+  var warningLessThan2 = String(row[8] || '').trim().toLowerCase();
 
   if (warningLessThan2 === 'yes') {
     rowClass = ' class="row-warning"';
@@ -530,7 +530,7 @@ function (ui, file, log, search, runtime, crypto) {
     var txt = row[cIdx];
     var tdCls = '';
 
-    if (cIdx === 8) {
+    if (cIdx === 9) {
       html += '<td' + tdCls +
         ' style="width:80px;min-width:80px;max-width:80px;">' +
         '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
