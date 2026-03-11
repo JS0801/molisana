@@ -211,10 +211,11 @@ function (ui, file, log, search, runtime, crypto) {
     rowObjs.forEach(function (obj) {
       var cleaned = obj.cleaned;
       var displayRow = [];
+      var itemid = cleaned[1];
     
       for (var cIdx = 0; cIdx < cleaned.length; cIdx++) {
         var value  = cleaned[cIdx];
-        var itemid = cleaned[1];
+        
     
         var good = 0;
         var bad  = 0;
