@@ -13,6 +13,7 @@ function (ui, file, log, search, runtime, crypto) {
   var FOLDER_ASSEMBLY      = 423666;  // Assembly folder
   var FOLDER_DOWNLOAD_UI   = 423669;  // Download folder
   var FOLDER_DOWNLOAD_CRON = 279208;
+  var lastBilledFile       = 447164;
   
   const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
   
@@ -87,11 +88,60 @@ function (ui, file, log, search, runtime, crypto) {
     return rows;
   }
 
+
+  function getBilledDateMap(fileId) {
+  var resultMap = {};
+
+  if (!fileId) return resultMap;
+
+  var f = file.load({ id: fileId });
+  var content = f.getContents() || '';
+  if (!content) return resultMap;
+
+  var rows = content.split('\n');
+  rows = rows.map(function(row) {
+    return row.replace(/\r$/, '');
+  });
+
+  if (rows.length <= 1) return resultMap;
+
+  var headers = splitCsvRow(rows[0]).map(function(h) {
+    return cleanHeader(h).toLowerCase();
+  });
+
+  // update these header names based on your CSV
+  var itemIdCol = headers.indexOf('internalid');
+  var billedDateCol = headers.indexOf('maximum of date');
+
+  if (itemIdCol === -1 || billedDateCol === -1) {
+    log.error('getBilledDateMap', 'Required columns not found. Headers: ' + JSON.stringify(headers));
+    return resultMap;
+  }
+
+  for (var i = 1; i < rows.length; i++) {
+    var line = rows[i];
+    if (!line || !line.trim()) continue;
+
+    var cols = splitCsvRow(line);
+
+    var itemId = String(cols[itemIdCol] || '').replace(/"/g, '').trim();
+    var billedDate = String(cols[billedDateCol] || '').replace(/"/g, '').trim();
+
+    if (!itemId) continue;
+
+    resultMap[itemId] = billedDate;
+  }
+
+  return resultMap;
+}
+
+
   function generateCsvFile(isCron) {
     // ====== 1) Get latest file from all three folders ======
     var fileIdItem     = null;
     var fileIdInv      = null;
     var fileIdAssembly = null;
+    var fileIdBilled   = null;
     
     var folderSearch = search.create({
       type: 'folder',
@@ -99,7 +149,8 @@ function (ui, file, log, search, runtime, crypto) {
         ['internalid', 'anyof',
           String(FOLDER_ITEM_LIST),
           String(FOLDER_INV_ITEM_LIST),
-          String(FOLDER_ASSEMBLY)
+          String(FOLDER_ASSEMBLY),
+          String(lastBilledFile)
         ],
         'AND',
         ['file.documentsize', 'greaterthan', '10']
@@ -123,11 +174,13 @@ function (ui, file, log, search, runtime, crypto) {
         fileIdInv = fId;
       } else if (folderId === FOLDER_ASSEMBLY) {
         fileIdAssembly = fId;
+      } else if (folderId === lastBilledFile) {
+        fileIdBilled = fId;
       }
       return true;
     });
     
-    if (!fileIdItem && !fileIdInv && !fileIdAssembly) {
+    if (!fileIdItem && !fileIdInv && !fileIdAssembly && !fileIdBilled) {
       throw new Error('No files found in the specified folders.');
     }
     
@@ -135,6 +188,7 @@ function (ui, file, log, search, runtime, crypto) {
     var rowsItem     = loadCsvRows(fileIdItem);
     var rowsInv      = loadCsvRows(fileIdInv);
     var rowsAssembly = loadCsvRows(fileIdAssembly);
+    var rowsBilled   = getBilledExpiryMap(fileIdBilled);
     
     if (!rowsItem || rowsItem.length === 0) {
       throw new Error('Item list file is empty or missing header.');
@@ -154,6 +208,9 @@ function (ui, file, log, search, runtime, crypto) {
     var newContent = [];
     var headers = splitCsvRow(headerRow);
     var headersClean = headers.map(cleanHeader);
+    headersClean.push('Last Billed Date');
+    headersClean.push('Expire Date');
+    headersClean.push('Expiry Status');
     newContent.push(headersClean);
     
     // ===== NEW: dedupe, skip blank Item ID, then sort by Item ID =====
@@ -273,6 +330,19 @@ function (ui, file, log, search, runtime, crypto) {
         }
     
         displayRow.push(txt);
+
+        if (cIdx + 1 == cleaned.length) {
+          if (rowsBilled && rowsBilled[itemId]) {
+            var relatedDate = rowsBilled[itemId];
+            displayRow.push(relatedDate.billedDate);
+            displayRow.push(relatedDate.expireDate);
+            displayRow.push(relatedDate.stat);
+            cleaned.push(relatedDate.billedDate);
+            cleaned.push(relatedDate.expireDate);
+            cleaned.push(relatedDate.stat);
+          }
+          
+        }
       }
     
       newContent.push(cleaned);
@@ -770,6 +840,60 @@ function (ui, file, log, search, runtime, crypto) {
     
     return resultMap;
   }
+
+
+  function getBilledExpiryMap(fileId) {
+
+  var resultMap = {};
+  if (!fileId) return resultMap;
+
+  var f = file.load({ id: fileId });
+  var rows = f.getContents().split('\n');
+
+  var today = new Date();
+  today = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+  for (var i = 1; i < rows.length; i++) {
+
+    var line = rows[i];
+    if (!line) continue;
+
+    var cols = splitCsvRow(line);
+
+    var itemId = (cols[0] || '').replace(/"/g,'').trim();
+    var maxDate = (cols[1] || '').replace(/"/g,'').trim();
+    var shelfLife = parseInt(cols[2],10) || 0;
+
+    if (!itemId || !maxDate) continue;
+
+    var d = maxDate.split('/');
+    var billedDate = new Date(d[2], d[0]-1, d[1]);
+
+    // expiry date
+    var expiryDate = new Date(billedDate);
+    expiryDate.setDate(expiryDate.getDate() + shelfLife);
+
+    var diffDays = Math.floor((expiryDate - today) / (1000*60*60*24));
+
+    var status = "OK";
+
+    if (today > expiryDate) {
+      status = "Expired";
+    }
+    else if (diffDays <= 120) {
+      status = "Expiring";
+    }
+
+    resultMap[itemId] = {
+      billedDate: maxDate,
+      expireDate: (expiryDate.getMonth()+1) + "/" + expiryDate.getDate() + "/" + expiryDate.getFullYear(),
+      stat: status
+    };
+  }
+
+  return resultMap;
+}
+
 
   return {
     onRequest: onRequest
