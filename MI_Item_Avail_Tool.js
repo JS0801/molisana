@@ -595,7 +595,8 @@ function (ui, file, log, search, runtime, crypto) {
       'var activeLegendFilters = new Set();' +
       'var expiryStatusColIdx = -1;' +
       'for (var i = 0; i < table.tHead.rows[0].cells.length; i++) {' +
-      '  var hdr = (table.tHead.rows[0].cells[i].textContent || "").trim().toLowerCase();' +
+      '  var labelNode = table.tHead.rows[0].cells[i].querySelector(".th-label");' +
+      '  var hdr = labelNode ? (labelNode.textContent || "").trim().toLowerCase() : "";' +
       '  if (hdr === "expiry status") {' +
       '    expiryStatusColIdx = i;' +
       '    break;' +
