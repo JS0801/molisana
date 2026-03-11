@@ -281,7 +281,11 @@ function (ui, file, log, search, runtime, crypto) {
     
         displayRow.push(txt);
 
-        if (cIdx + 1 == cleaned.length) {
+        
+      }
+
+
+      if (cIdx + 1 == cleaned.length) {
           if (rowsBilled && rowsBilled[itemid]) {
             var relatedDate = rowsBilled[itemid];
             displayRow.push(relatedDate.billedDate);
@@ -292,8 +296,15 @@ function (ui, file, log, search, runtime, crypto) {
             cleaned.push(relatedDate.stat);
           }
           
-        }
-      }
+        } else {
+    displayRow.push('');
+    displayRow.push('');
+    displayRow.push('');
+
+    cleaned.push('');
+    cleaned.push('');
+    cleaned.push('');
+  }
     
       newContent.push(cleaned);
       displayRows.push(displayRow);
@@ -335,10 +346,12 @@ function (ui, file, log, search, runtime, crypto) {
   
   // ====== MAIN ======
   function onRequest(context) {
+    log.debug('Triggered')
     if (context.request.method !== 'GET') {
       context.response.write('This Suitelet only supports GET.');
       return;
     }
+    
     
     var q = context.request.parameters || {};
     var mode    = q.mode || '';
