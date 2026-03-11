@@ -478,6 +478,12 @@ function (ui, file, log, search, runtime, crypto) {
       '.row-warning td{background-color:#ffd6d6 !important;}' +
       '.row-warning .sticky-col{background-color:#ffd6d6 !important;}' +
 
+      '.row-expired td{background-color:#ead6ff !important;}' +
+      '.row-expired .sticky-col{background-color:#ead6ff !important;}' +
+
+      '.row-expiring td{background-color:#fff7bf !important;}' +
+      '.row-expiring .sticky-col{background-color:#fff7bf !important;}' +
+
       
       '.th-filter-wrap{position:relative;display:inline-flex;align-items:center;gap:6px;}' +
       '.th-filter-btn{cursor:pointer;border:1px solid #cbd5e1;background:#fff;padding:2px 4px;border-radius:4px;line-height:1;font-size:11px;}' +
@@ -551,10 +557,16 @@ function (ui, file, log, search, runtime, crypto) {
     result.displayRows.forEach(function (row) {
   var rowClass = '';
   var warningLessThan2 = String(row[8] || '').trim().toLowerCase();
+  var expiryStatus = String(row[33] || '').trim().toLowerCase();
 
   if (warningLessThan2 === 'yes') {
     rowClass = ' class="row-warning"';
+  } else if (expiryStatus === 'expired') {
+    rowClass = ' class="row-expired"';
+  } else if (expiryStatus === 'expiring') {
+    rowClass = ' class="row-expiring"';
   }
+
 
   html += '<tr' + rowClass + '>';
 
