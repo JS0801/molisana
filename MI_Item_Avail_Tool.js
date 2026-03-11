@@ -189,6 +189,7 @@ function (ui, file, log, search, runtime, crypto) {
     var rowsInv      = loadCsvRows(fileIdInv);
     var rowsAssembly = loadCsvRows(fileIdAssembly);
     var rowsBilled   = getBilledExpiryMap(fileIdBilled);
+    log.debug('rowsBilled', rowsBilled)
     
     if (!rowsItem || rowsItem.length === 0) {
       throw new Error('Item list file is empty or missing header.');
