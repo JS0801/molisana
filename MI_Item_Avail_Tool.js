@@ -828,7 +828,7 @@ function (ui, file, log, search, runtime, crypto) {
 
     if (!itemId || !maxDate) continue;
 
-    if (shelfLife && shelfLife > 0) {
+    if (!shelfLife || shelfLife == 0) {
       resultMap[itemId] = {
       billedDate: maxDate,
       expireDate: '',
