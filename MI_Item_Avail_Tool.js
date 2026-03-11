@@ -88,7 +88,6 @@ function (ui, file, log, search, runtime, crypto) {
     return rows;
   }
 
-
   function generateCsvFile(isCron) {
     // ====== 1) Get latest file from all three folders ======
     var fileIdItem     = null;
@@ -142,8 +141,8 @@ function (ui, file, log, search, runtime, crypto) {
     var rowsInv      = loadCsvRows(fileIdInv);
     var rowsAssembly = loadCsvRows(fileIdAssembly);
     var rowsBilled   = getBilledExpiryMap(fileIdBilled);
-    log.debug('fileIdBilled', fileIdBilled)
-    log.debug('rowsBilled', rowsBilled)
+    log.debug('fileIdBilled', fileIdBilled);
+    log.debug('rowsBilled', rowsBilled);
     
     if (!rowsItem || rowsItem.length === 0) {
       throw new Error('Item list file is empty or missing header.');
@@ -215,7 +214,6 @@ function (ui, file, log, search, runtime, crypto) {
     
       for (var cIdx = 0; cIdx < cleaned.length; cIdx++) {
         var value  = cleaned[cIdx];
-        
     
         var good = 0;
         var bad  = 0;
@@ -234,15 +232,14 @@ function (ui, file, log, search, runtime, crypto) {
     
         var txt = String(value || '').replace(/^"+|"+$/g, '');
     
-        // ----- IMPORTANT: also update cleaned[cIdx] so newContent has the changes -----
-        if (cIdx === 11)  { txt = bad;                                   cleaned[cIdx] = bad; }
-        if (cIdx === 13)  { txt = good;                                  cleaned[cIdx] = good; }
-        if (cIdx === 14)  { txt = total;                                 cleaned[cIdx] = total; }
+        if (cIdx === 11)  { txt = bad; cleaned[cIdx] = bad; }
+        if (cIdx === 13)  { txt = good; cleaned[cIdx] = good; }
+        if (cIdx === 14)  { txt = total; cleaned[cIdx] = total; }
         if (cIdx === 16)  {
           txt = parseFloat(good) + parseFloat(inTransit || 0);
           cleaned[cIdx] = txt;
         }
-        if (cIdx === 17)  { txt = onOrder;                               cleaned[cIdx] = onOrder; }
+        if (cIdx === 17)  { txt = onOrder; cleaned[cIdx] = onOrder; }
         if (cIdx === 18)  {
           var qty15 = Number(cleaned[16]) || 0;
           var qty16 = Number(cleaned[17]) || 0;
@@ -281,29 +278,25 @@ function (ui, file, log, search, runtime, crypto) {
         }
     
         displayRow.push(txt);
-
-        
       }
 
-        
-          if (rowsBilled && rowsBilled[itemid]) {
-            var relatedDate = rowsBilled[itemid];
-            log.audit('relatedDate', relatedDate)
-            displayRow.push(relatedDate.billedDate);
-            displayRow.push(relatedDate.expireDate);
-            displayRow.push(relatedDate.stat);
-            cleaned.push(relatedDate.billedDate);
-            cleaned.push(relatedDate.expireDate);
-            cleaned.push(relatedDate.stat);
-          }else {
-    displayRow.push('');
-    displayRow.push('');
-    displayRow.push('');
-
-    cleaned.push('');
-    cleaned.push('');
-    cleaned.push('');
-  }
+      if (rowsBilled && rowsBilled[itemid]) {
+        var relatedDate = rowsBilled[itemid];
+        log.audit('relatedDate', relatedDate);
+        displayRow.push(relatedDate.billedDate);
+        displayRow.push(relatedDate.expireDate);
+        displayRow.push(relatedDate.stat);
+        cleaned.push(relatedDate.billedDate);
+        cleaned.push(relatedDate.expireDate);
+        cleaned.push(relatedDate.stat);
+      } else {
+        displayRow.push('');
+        displayRow.push('');
+        displayRow.push('');
+        cleaned.push('');
+        cleaned.push('');
+        cleaned.push('');
+      }
     
       newContent.push(cleaned);
       displayRows.push(displayRow);
@@ -316,8 +309,8 @@ function (ui, file, log, search, runtime, crypto) {
 
     var targetFolder = isCron ? FOLDER_DOWNLOAD_CRON : FOLDER_DOWNLOAD_UI;
     var fileName = isCron
-        ? 'Item Avail Tool.csv'
-        : 'Avail_Download_' + (new Date().getTime()) + '.csv';
+      ? 'Item Avail Tool.csv'
+      : 'Avail_Download_' + (new Date().getTime()) + '.csv';
     
     var newFileObj = file.create({
       name: fileName,
@@ -345,12 +338,11 @@ function (ui, file, log, search, runtime, crypto) {
   
   // ====== MAIN ======
   function onRequest(context) {
-    log.debug('Triggered')
+    log.debug('Triggered');
     if (context.request.method !== 'GET') {
       context.response.write('This Suitelet only supports GET.');
       return;
     }
-    
     
     var q = context.request.parameters || {};
     var mode    = q.mode || '';
@@ -484,19 +476,16 @@ function (ui, file, log, search, runtime, crypto) {
       '.row-expiring td{background-color:#fff7bf !important;}' +
       '.row-expiring .sticky-col{background-color:#fff7bf !important;}' +
 
-
       '.toolbar-wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px;}' +
-'.legend-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}' +
-'.legend-label{font-size:12px;font-weight:600;color:#333;}' +
-'.legend-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid #ccc;border-radius:999px;cursor:pointer;background:#fff;font-size:12px;user-select:none;}' +
-'.legend-pill:hover{background:#f8f8f8;}' +
-'.legend-pill.active{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12);}' +
-'.legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid rgba(0,0,0,.15);}' +
-'.legend-red .legend-dot{background:#ffd6d6;}' +
-'.legend-purple .legend-dot{background:#ead6ff;}' +
-'.legend-yellow .legend-dot{background:#fff7bf;}' +
-
-
+      '.legend-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}' +
+      '.legend-label{font-size:12px;font-weight:600;color:#333;}' +
+      '.legend-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid #ccc;border-radius:999px;cursor:pointer;background:#fff;font-size:12px;user-select:none;}' +
+      '.legend-pill:hover{background:#f8f8f8;}' +
+      '.legend-pill.active{border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.12);}' +
+      '.legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid rgba(0,0,0,.15);}' +
+      '.legend-red .legend-dot{background:#ffd6d6;}' +
+      '.legend-purple .legend-dot{background:#ead6ff;}' +
+      '.legend-yellow .legend-dot{background:#fff7bf;}' +
       
       '.th-filter-wrap{position:relative;display:inline-flex;align-items:center;gap:6px;}' +
       '.th-filter-btn{cursor:pointer;border:1px solid #cbd5e1;background:#fff;padding:2px 4px;border-radius:4px;line-height:1;font-size:11px;}' +
@@ -512,7 +501,6 @@ function (ui, file, log, search, runtime, crypto) {
       '.th-filter-panel .actions button[data-act="clear"]{color:#7f1d1d;border-color:#f3d2d2;}' +
       '.th-filter-active .th-filter-btn{border-color:#2563eb;background:#eff6ff;}' +
       
-      /* STICKY FIRST 4 COLUMNS (0–3) */
       '.sticky-col{position:sticky;background:#f9f9f9;background-clip:padding-box;z-index:11;}' +
       'thead th.sticky-col{z-index:30;}' +
       '.sticky-col.sep-left{border-left-color:transparent;box-shadow:inset 1px 0 0 #ccc;}' +
@@ -523,32 +511,30 @@ function (ui, file, log, search, runtime, crypto) {
       '</style>';
     
     html += '<div class="toolbar-wrap">' +
-  '<button id="downloadCsvBtn" class="download-btn" type="button">' +
-  '<img src="https://cdn-icons-png.flaticon.com/512/10630/10630240.png" ' +
-  'alt="csv-icon" style="width:16px;vertical-align:middle;margin-right:6px;" />' +
-  'Download CSV</button>' +
+      '<button id="downloadCsvBtn" class="download-btn" type="button">' +
+      '<img src="https://cdn-icons-png.flaticon.com/512/10630/10630240.png" ' +
+      'alt="csv-icon" style="width:16px;vertical-align:middle;margin-right:6px;" />' +
+      'Download CSV</button>' +
 
-  '<div class="legend-wrap" id="colorLegendWrap">' +
-    '<span class="legend-label">Color Legend:</span>' +
-    '<span class="legend-pill legend-red" data-row-filter="row-warning">' +
-      '<span class="legend-dot"></span><span>Less than 2 Months</span>' +
-    '</span>' +
-    '<span class="legend-pill legend-purple" data-row-filter="row-expired">' +
-      '<span class="legend-dot"></span><span>Expired</span>' +
-    '</span>' +
-    '<span class="legend-pill legend-yellow" data-row-filter="row-expiring">' +
-      '<span class="legend-dot"></span><span>Expiring</span>' +
-    '</span>' +
-  '</div>' +
-'</div>';
+      '<div class="legend-wrap" id="colorLegendWrap">' +
+        '<span class="legend-label">Color Legend:</span>' +
+        '<span class="legend-pill legend-red" data-row-filter="row-warning">' +
+          '<span class="legend-dot"></span><span>Less than 2 Months</span>' +
+        '</span>' +
+        '<span class="legend-pill legend-purple" data-row-filter="row-expired">' +
+          '<span class="legend-dot"></span><span>Expired</span>' +
+        '</span>' +
+        '<span class="legend-pill legend-yellow" data-row-filter="row-expiring">' +
+          '<span class="legend-dot"></span><span>Expiring</span>' +
+        '</span>' +
+      '</div>' +
+    '</div>';
 
-    
     html += '<div id="filter-portal"></div>';
     
     html += '<div class="h-scroll" id="topScroll"><div class="h-scroll-inner" id="topScrollInner"></div></div>';
     html += '<div class="table-container"><table id="excelTable"><thead><tr>';
     
-    // Header row
     result.headersClean.forEach(function (hVal, idx) {
       var label = hVal || ('Col ' + (idx + 1));
       var thCls = '';
@@ -561,68 +547,46 @@ function (ui, file, log, search, runtime, crypto) {
     });
     
     html += '</tr></thead><tbody>';
-    
-    // result.displayRows.forEach(function (row) {
-    //   html += '<tr>';
 
-    //   for (var cIdx = 0; cIdx < row.length; cIdx++) {
-    //     var txt = row[cIdx];
-    //     var tdCls = '';
-
-    //     if (cIdx === 8) {
-    //       html += '<td' + tdCls +
-    //         ' style="width:80px;min-width:80px;max-width:80px;">' +
-    //         '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
-    //         '" style="width:100%;box-sizing:border-box;" />' +
-    //         '</td>';
-    //     } else {
-    //       html += '<td' + tdCls + '>' + txt + '</td>';
-    //     }
-    //   }
-
-    //   html += '</tr>';
-    // });
+    var expiryStatusIndex = result.headersClean.indexOf('Expiry Status');
 
     result.displayRows.forEach(function (row) {
-  var rowClass = '';
-  var warningLessThan2 = String(row[8] || '').trim().toLowerCase();
-  var expiryStatus = String(row[34] || '').trim().toLowerCase();
+      var rowClass = '';
+      var warningLessThan2 = String(row[8] || '').trim().toLowerCase();
+      var expiryStatus = String(row[expiryStatusIndex] || '').trim().toLowerCase();
 
-  if (warningLessThan2 === 'yes') {
-    rowClass = ' class="row-warning"';
-  } else if (expiryStatus === 'expired') {
-    rowClass = ' class="row-expired"';
-  } else if (expiryStatus === 'expiring') {
-    rowClass = ' class="row-expiring"';
-  }
+      if (warningLessThan2 === 'yes') {
+        rowClass = ' class="row-warning"';
+      } else if (expiryStatus === 'expired') {
+        rowClass = ' class="row-expired"';
+      } else if (expiryStatus === 'expiring') {
+        rowClass = ' class="row-expiring"';
+      }
 
+      html += '<tr' + rowClass + '>';
 
-  html += '<tr' + rowClass + '>';
+      for (var cIdx = 0; cIdx < row.length; cIdx++) {
+        var txt = row[cIdx];
+        var tdCls = '';
 
-  for (var cIdx = 0; cIdx < row.length; cIdx++) {
-    var txt = row[cIdx];
-    var tdCls = '';
+        if (cIdx === 9) {
+          html += '<td' + tdCls +
+            ' style="width:80px;min-width:80px;max-width:80px;">' +
+            '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
+            '" style="width:100%;box-sizing:border-box;" />' +
+            '</td>';
+        } else {
+          html += '<td' + tdCls + '>' + txt + '</td>';
+        }
+      }
 
-    if (cIdx === 9) {
-      html += '<td' + tdCls +
-        ' style="width:80px;min-width:80px;max-width:80px;">' +
-        '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
-        '" style="width:100%;box-sizing:border-box;" />' +
-        '</td>';
-    } else {
-      html += '<td' + tdCls + '>' + txt + '</td>';
-    }
-  }
+      html += '</tr>';
+    });
 
-  html += '</tr>';
-});
-
-    
     html += '</tbody></table></div>';
     
     html += '<script>window.DOWNLOAD_URL = ' + JSON.stringify(result.url) + ';</script>';
     
-    // ====== 5) JS: Download + Filters + top scrollbar ======
     html += '<script>' +
       'document.addEventListener("DOMContentLoaded", function(){' +
       'var exportBtn = document.getElementById("downloadCsvBtn");' +
@@ -645,27 +609,10 @@ function (ui, file, log, search, runtime, crypto) {
       'updateTopScrollbarWidth();' +
       'window.addEventListener("resize", updateTopScrollbarWidth);' +
       
-      'var activeFilters = {}; var activeRowColorFilters = new Set();' 
-     html += `var legendWrap = document.getElementById("colorLegendWrap");
-if(legendWrap){
-  legendWrap.addEventListener("click", function(e){
-    var pill = e.target.closest(".legend-pill");
-    if(!pill) return;
-    var cls = pill.getAttribute("data-row-filter") || "";
-    if(!cls) return;
+      'var activeFilters = {};' +
+      'var activeRowColorFilters = new Set();' +
 
-    if(activeRowColorFilters.has(cls)){
-      activeRowColorFilters.delete(cls);
-      pill.classList.remove("active");
-    } else {
-      activeRowColorFilters.add(cls);
-      pill.classList.add("active");
-    }
-
-    applyFilters();
-  });
-}`;
-      html += 'function bodyRows(){return table && table.tBodies[0] ? table.tBodies[0].rows : [];}' +
+      'function bodyRows(){return table && table.tBodies[0] ? table.tBodies[0].rows : [];}' +
       'function getCellText(row, idx){var cells=row.cells;if(!cells||idx<0||idx>=cells.length) return "";var t=cells[idx].textContent||"";return String(t).trim();}' +
       'function normalizeVal(v){var s=String(v==null?"":v).trim();if(/^-+\\s*none\\s*-+$/i.test(s))s="";if(/^nan$/i.test(s))s="";return s.toLowerCase();}' +
       
@@ -698,54 +645,46 @@ if(legendWrap){
       'counts[key]=(counts[key]||0)+1;' +
       '}' +
       'return counts;' +
-      '}' 
-
-      html += `function applyFilters(){
-  var rows=bodyRows(),pairs=[];
-  for(var k in activeFilters){
-    if(!Object.prototype.hasOwnProperty.call(activeFilters,k)) continue;
-    var s=activeFilters[k];
-    if(s&&s.size>0) pairs.push([parseInt(k,10),s]);
-  }
-
-  for(var r=0;r<rows.length;r++){
-    var row=rows[r],show=true;
-
-    // column filters
-    for(var i=0;i<pairs.length && show;i++){
-      var colIdx=pairs[i][0],set=pairs[i][1];
-      var val=getCellText(row,colIdx).toLowerCase();
-      if(!set.has(val)) show=false;
-    }
-
-    // color filters
-    if(show && activeRowColorFilters.size > 0){
-      var matched = false;
-      activeRowColorFilters.forEach(function(cls){
-        if(row.classList.contains(cls)) matched = true;
-      });
-      if(!matched) show = false;
-    }
-
-    row.style.display = show ? "" : "none";
-  }
-}`
+      '}' +
       
-      // 'function applyFilters(){' +
-      // 'var rows=bodyRows(),pairs=[];' +
-      // 'for(var k in activeFilters){if(!Object.prototype.hasOwnProperty.call(activeFilters,k))continue;var s=activeFilters[k];if(s&&s.size>0)pairs.push([parseInt(k,10),s]);}' +
-      // 'for(var r=0;r<rows.length;r++){' +
-      // 'var row=rows[r],show=true;' +
-      // 'for(var i=0;i<pairs.length && show;i++){' +
-      // 'var colIdx=pairs[i][0],set=pairs[i][1];' +
-      // 'var val=getCellText(row,colIdx).toLowerCase();' +
-      // 'if(!set.has(val)) show=false;' +
-      // '}' +
-      // 'row.style.display = show ? "" : "none";' +
-      // '}' +
-      // '}' +
+      'function applyFilters(){' +
+      'var rows=bodyRows(),pairs=[];' +
+      'for(var k in activeFilters){if(!Object.prototype.hasOwnProperty.call(activeFilters,k))continue;var s=activeFilters[k];if(s&&s.size>0)pairs.push([parseInt(k,10),s]);}' +
+      'for(var r=0;r<rows.length;r++){' +
+      'var row=rows[r],show=true;' +
+      'for(var i=0;i<pairs.length && show;i++){' +
+      'var colIdx=pairs[i][0],set=pairs[i][1];' +
+      'var val=getCellText(row,colIdx).toLowerCase();' +
+      'if(!set.has(val)) show=false;' +
+      '}' +
+      'if(show && activeRowColorFilters.size > 0){' +
+      'var matched = false;' +
+      'activeRowColorFilters.forEach(function(cls){if(row.classList.contains(cls)) matched = true;});' +
+      'if(!matched) show = false;' +
+      '}' +
+      'row.style.display = show ? "" : "none";' +
+      '}' +
+      '}' +
+
+      'var legendWrap = document.getElementById("colorLegendWrap");' +
+      'if(legendWrap){' +
+      'legendWrap.addEventListener("click", function(e){' +
+      'var pill = e.target.closest(".legend-pill");' +
+      'if(!pill) return;' +
+      'var cls = pill.getAttribute("data-row-filter") || "";' +
+      'if(!cls) return;' +
+      'if(activeRowColorFilters.has(cls)){' +
+      'activeRowColorFilters.delete(cls);' +
+      'pill.classList.remove("active");' +
+      '} else {' +
+      'activeRowColorFilters.add(cls);' +
+      'pill.classList.add("active");' +
+      '}' +
+      'applyFilters();' +
+      '});' +
+      '}' +
       
-      html += 'function openFilterPanel(btn,colIdx){' +
+      'function openFilterPanel(btn,colIdx){' +
       'var th=btn.closest("th");' +
       'var oldPanel=document.querySelector("#filter-portal .th-filter-panel");' +
       'if(oldPanel){var same=(oldPanel.__ownerTH===th);oldPanel.remove();if(th)th.classList.remove("th-filter-active");if(same)return;}' +
@@ -792,8 +731,7 @@ if(legendWrap){
       'var checked=tempSel.has(k);' +
       'var cnt=visibleCounts[k]||0;' +
       'var row=document.createElement("div");row.className="row";row.dataset.key=k;' +
-      'row.innerHTML="<input type=\\"checkbox\\" id=\\""+id+"\\" "+(checked?"checked":"")+">" +' +
-      '"<label for=\\""+id+"\\">"+labelText+(cnt?"  ("+cnt+")":"")+"</label>";' +
+      'row.innerHTML="<input type=\\"checkbox\\" id=\\""+id+"\\" "+(checked?"checked":"")+">" +"<label for=\\""+id+"\\">"+labelText+(cnt?"  ("+cnt+")":"")+"</label>";' +
       'list.appendChild(row);' +
       '});' +
       '}' +
@@ -894,68 +832,62 @@ if(legendWrap){
     return resultMap;
   }
 
-
   function getBilledExpiryMap(fileId) {
+    var resultMap = {};
+    if (!fileId) return resultMap;
 
-  var resultMap = {};
-  if (!fileId) return resultMap;
+    var f = file.load({ id: fileId });
+    var rows = f.getContents().split('\n');
 
-  var f = file.load({ id: fileId });
-  var rows = f.getContents().split('\n');
+    var today = new Date();
+    today = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
-  var today = new Date();
-  today = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    for (var i = 1; i < rows.length; i++) {
+      var line = rows[i];
+      if (!line) continue;
 
-  for (var i = 1; i < rows.length; i++) {
+      var cols = splitCsvRow(line);
 
-    var line = rows[i];
-    if (!line) continue;
+      var itemId = (cols[0] || '').replace(/"/g,'').trim();
+      var maxDate = (cols[1] || '').replace(/"/g,'').trim();
+      var shelfLife = parseInt(cols[2],10) || 0;
 
-    var cols = splitCsvRow(line);
+      if (!itemId || !maxDate) continue;
 
-    var itemId = (cols[0] || '').replace(/"/g,'').trim();
-    var maxDate = (cols[1] || '').replace(/"/g,'').trim();
-    var shelfLife = parseInt(cols[2],10) || 0;
+      if (!shelfLife || shelfLife == 0) {
+        resultMap[itemId] = {
+          billedDate: maxDate,
+          expireDate: '',
+          stat: ''
+        };
+        continue;
+      }
 
-    if (!itemId || !maxDate) continue;
+      var d = maxDate.split('/');
+      var billedDate = new Date(d[2], d[0]-1, d[1]);
 
-    if (!shelfLife || shelfLife == 0) {
+      var expiryDate = new Date(billedDate);
+      expiryDate.setDate(expiryDate.getDate() + shelfLife);
+
+      var diffDays = Math.floor((expiryDate - today) / (1000*60*60*24));
+
+      var status = "OK";
+
+      if (today > expiryDate) {
+        status = "Expired";
+      } else if (diffDays <= 120) {
+        status = "Expiring";
+      }
+
       resultMap[itemId] = {
-      billedDate: maxDate,
-      expireDate: '',
-      stat: ''
-    };
-      continue;
+        billedDate: maxDate,
+        expireDate: (expiryDate.getMonth()+1) + "/" + expiryDate.getDate() + "/" + expiryDate.getFullYear(),
+        stat: status
+      };
     }
 
-    var d = maxDate.split('/');
-    var billedDate = new Date(d[2], d[0]-1, d[1]);
-
-    // expiry date
-    var expiryDate = new Date(billedDate);
-    expiryDate.setDate(expiryDate.getDate() + shelfLife);
-
-    var diffDays = Math.floor((expiryDate - today) / (1000*60*60*24));
-
-    var status = "OK";
-
-    if (today > expiryDate) {
-      status = "Expired";
-    }
-    else if (diffDays <= 120) {
-      status = "Expiring";
-    }
-
-    resultMap[itemId] = {
-      billedDate: maxDate,
-      expireDate: (expiryDate.getMonth()+1) + "/" + expiryDate.getDate() + "/" + expiryDate.getFullYear(),
-      stat: status
-    };
+    return resultMap;
   }
-
-  return resultMap;
-}
-
 
   return {
     onRequest: onRequest
