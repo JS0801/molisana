@@ -285,8 +285,6 @@ function (ui, file, log, search, runtime, crypto) {
         
       }
 
-
-      if (cIdx + 1 == cleaned.length) {
         
           if (rowsBilled && rowsBilled[itemid]) {
             var relatedDate = rowsBilled[itemid];
@@ -306,8 +304,6 @@ function (ui, file, log, search, runtime, crypto) {
     cleaned.push('');
     cleaned.push('');
   }
-          
-        } 
     
       newContent.push(cleaned);
       displayRows.push(displayRow);
