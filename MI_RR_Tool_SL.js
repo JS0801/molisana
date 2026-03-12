@@ -14,8 +14,11 @@ define([
 
   var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
   var RETURN_URL_BASE = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2108&deploy=1&compid=4975346&ns-at=AAEJ7tMQmJxVsovhMpsEMUF39xnBuyMwWM4G2T7SnvA62twq8hg';
-  var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
   var TOKEN_TTL_MS = 30 * 60 * 1000;
+
+function getSecret() {
+  return runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
+}
 
   var SOURCE_FOLDERS = {
     MAIN: 402335,
@@ -1247,10 +1250,11 @@ if (cfg.showTopFilters) {
   }
 
   function sign(empid, ts) {
-    var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
-    h.update({ input: empid + '|' + ts + '|' + SECRET });
-    return h.digest({ outputEncoding: crypto.Encoding.HEX });
-  }
+  var secret = getSecret();
+  var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
+  h.update({ input: empid + '|' + ts + '|' + secret });
+  return h.digest({ outputEncoding: crypto.Encoding.HEX });
+}
 
   function verify(empid, ts, sig) {
     if (!empid || !ts || !sig) return false;
