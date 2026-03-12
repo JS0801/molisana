@@ -8,14 +8,14 @@ function (ui, file, log, search, runtime, crypto) {
   // ====== CONFIG ======
   var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
   
-  var FOLDER_ITEM_LIST     = 423668;  // Item list folder
-  var FOLDER_INV_ITEM_LIST = 423667;  // Inventory item list folder
-  var FOLDER_ASSEMBLY      = 423666;  // Assembly folder
-  var FOLDER_DOWNLOAD_UI   = 423669;  // Download folder
+  var FOLDER_ITEM_LIST     = 423668;
+  var FOLDER_INV_ITEM_LIST = 423667;
+  var FOLDER_ASSEMBLY      = 423666;
+  var FOLDER_DOWNLOAD_UI   = 423669;
   var FOLDER_DOWNLOAD_CRON = 279208;
   var lastBilledFile       = 447164;
   
-  const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+  const TOKEN_TTL_MS = 30 * 60 * 1000;
   
   function sign(empid, ts) {
     var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
@@ -88,8 +88,116 @@ function (ui, file, log, search, runtime, crypto) {
     return rows;
   }
 
+  function getInventoryBalanceMap() {
+    var resultMap = {};
+    
+    var inventorybalanceSearchObj = search.create({
+      type: 'inventorybalance',
+      filters: [
+        ['status', 'anyof', '6', '1'],
+        'AND',
+        ['item.isinactive', 'is', 'F']
+      ],
+      columns: [
+        search.createColumn({
+          name: 'item',
+          summary: 'GROUP'
+        }),
+        search.createColumn({
+          name: 'formulanumeric',
+          summary: 'SUM',
+          formula: "case when {status} = 'Good' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: 'formulanumeric1',
+          summary: 'SUM',
+          formula: "case when {status} = 'Deviation' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: 'available',
+          summary: 'SUM',
+          label: 'Available'
+        })
+      ]
+    });
+    
+    inventorybalanceSearchObj.run().each(function(result) {
+      var itemId = result.getValue({ name: 'item', summary: 'GROUP' });
+      var goodQty = parseFloat(result.getValue({ name: 'formulanumeric', summary: 'SUM' })) || 0;
+      var badQty  = parseFloat(result.getValue({ name: 'formulanumeric1', summary: 'SUM' })) || 0;
+      var total = parseFloat((goodQty + badQty).toFixed(2));
+      var avail = parseFloat(result.getValue({ name: 'available', summary: 'SUM' })) || 0;
+      
+      resultMap[itemId] = {
+        good: goodQty,
+        bad: badQty,
+        total: total,
+        avail: avail
+      };
+      return true;
+    });
+    
+    return resultMap;
+  }
+
+  function getBilledExpiryMap(fileId) {
+    var resultMap = {};
+    if (!fileId) return resultMap;
+
+    var f = file.load({ id: fileId });
+    var rows = f.getContents().split('\n');
+
+    var today = new Date();
+    today = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    for (var i = 1; i < rows.length; i++) {
+      var line = rows[i];
+      if (!line) continue;
+
+      var cols = splitCsvRow(line);
+
+      var itemId = (cols[0] || '').replace(/"/g, '').trim();
+      var maxDate = (cols[1] || '').replace(/"/g, '').trim();
+      var shelfLife = parseInt(cols[2], 10) || 0;
+
+      if (!itemId || !maxDate) continue;
+
+      if (!shelfLife || shelfLife === 0) {
+        resultMap[itemId] = {
+          billedDate: maxDate,
+          expireDate: '',
+          stat: ''
+        };
+        continue;
+      }
+
+      var d = maxDate.split('/');
+      var billedDate = new Date(d[2], d[0] - 1, d[1]);
+
+      var expiryDate = new Date(billedDate);
+      expiryDate.setDate(expiryDate.getDate() + shelfLife);
+
+      var diffDays = Math.floor((expiryDate - today) / (1000 * 60 * 60 * 24));
+
+      var status = 'OK';
+
+      if (today > expiryDate) {
+        status = 'Expired';
+      } else if (diffDays <= 120) {
+        status = 'Expiring';
+      }
+
+      resultMap[itemId] = {
+        billedDate: maxDate,
+        expireDate: (expiryDate.getMonth() + 1) + '/' + expiryDate.getDate() + '/' + expiryDate.getFullYear(),
+        stat: status
+      };
+    }
+
+    return resultMap;
+  }
+
   function generateCsvFile(isCron) {
-    // ====== 1) Get latest file from all three folders ======
     var fileIdItem     = null;
     var fileIdInv      = null;
     var fileIdAssembly = null;
@@ -114,10 +222,7 @@ function (ui, file, log, search, runtime, crypto) {
     });
     
     folderSearch.run().each(function (result) {
-      var folderId = parseInt(
-        result.getValue({ name: 'internalid', summary: 'GROUP' }),
-        10
-      );
+      var folderId = parseInt(result.getValue({ name: 'internalid', summary: 'GROUP' }), 10);
       var fId = result.getValue({ name: 'internalid', join: 'file', summary: 'MAX' });
       
       if (folderId === FOLDER_ITEM_LIST) {
@@ -136,11 +241,11 @@ function (ui, file, log, search, runtime, crypto) {
       throw new Error('No files found in the specified folders.');
     }
     
-    // ====== 2) Load & merge CSV contents ======
     var rowsItem     = loadCsvRows(fileIdItem);
     var rowsInv      = loadCsvRows(fileIdInv);
     var rowsAssembly = loadCsvRows(fileIdAssembly);
     var rowsBilled   = getBilledExpiryMap(fileIdBilled);
+
     log.debug('fileIdBilled', fileIdBilled);
     log.debug('rowsBilled', rowsBilled);
     
@@ -158,7 +263,6 @@ function (ui, file, log, search, runtime, crypto) {
       allRows = allRows.concat(rowsItem.slice(1));
     }
     
-    // ====== 3) Build cleaned content ======
     var newContent = [];
     var headers = splitCsvRow(headerRow);
     var headersClean = headers.map(cleanHeader);
@@ -655,7 +759,7 @@ function (ui, file, log, search, runtime, crypto) {
       '    if (show && activeLegendFilters.size > 0) {' +
       '      var matched = false;' +
       '      var lessThan2Val = getCellText(row, 8).toLowerCase();' +
-      '      var expiryVal = expiryStatusColIdx >= 0 ? getCellText(row, expiryStatusColIdx).toLowerCase() : ""; console.log("expiryVal", expiryVal)' +
+      '      var expiryVal = expiryStatusColIdx >= 0 ? getCellText(row, expiryStatusColIdx).toLowerCase() : "";' +
       '      activeLegendFilters.forEach(function(key){' +
       '        if (key === "warning" && lessThan2Val === "yes") matched = true;' +
       '        if (key === "expired" && expiryVal === "expired") matched = true;' +
@@ -784,110 +888,6 @@ function (ui, file, log, search, runtime, crypto) {
     
     htmlField.defaultValue = html;
     context.response.writePage(form);
-  }
-
-  function getInventoryBalanceMap() {
-    var resultMap = {};
-    
-    var inventorybalanceSearchObj = search.create({
-      type: "inventorybalance",
-      filters: [
-        ["status", "anyof", "6", "1"],
-        "AND",
-        ["item.isinactive", "is", "F"]
-      ],
-      columns: [
-        search.createColumn({
-          name: "item",
-          summary: "GROUP"
-        }),
-        search.createColumn({
-          name: "formulanumeric",
-          summary: "SUM",
-          formula: "case when {status} = 'Good' then {onhand} else 0 end"
-        }),
-        search.createColumn({
-          name: "formulanumeric1",
-          summary: "SUM",
-          formula: "case when {status} = 'Deviation' then {onhand} else 0 end"
-        }),
-        search.createColumn({
-          name: "available",
-          summary: "SUM",
-          label: "Available"
-        })
-      ]
-    });
-    
-    inventorybalanceSearchObj.run().each(function(result) {
-      var itemId = result.getValue({ name: "item", summary: "GROUP" });
-      var goodQty = parseFloat(result.getValue({ name: "formulanumeric", summary: "SUM" })) || 0;
-      var badQty  = parseFloat(result.getValue({ name: "formulanumeric1", summary: "SUM" })) || 0;
-      var total = parseFloat((goodQty + badQty).toFixed(2));
-      var avail = parseFloat(result.getValue({ name: "available", summary: "SUM" })) || 0;
-      
-      resultMap[itemId] = { good: goodQty, bad: badQty, total: total, avail: avail };
-      return true;
-    });
-    
-    return resultMap;
-  }
-
-  function getBilledExpiryMap(fileId) {
-    var resultMap = {};
-    if (!fileId) return resultMap;
-
-    var f = file.load({ id: fileId });
-    var rows = f.getContents().split('\n');
-
-    var today = new Date();
-    today = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-    for (var i = 1; i < rows.length; i++) {
-      var line = rows[i];
-      if (!line) continue;
-
-      var cols = splitCsvRow(line);
-
-      var itemId = (cols[0] || '').replace(/"/g,'').trim();
-      var maxDate = (cols[1] || '').replace(/"/g,'').trim();
-      var shelfLife = parseInt(cols[2],10) || 0;
-
-      if (!itemId || !maxDate) continue;
-
-      if (!shelfLife || shelfLife == 0) {
-        resultMap[itemId] = {
-          billedDate: maxDate,
-          expireDate: '',
-          stat: ''
-        };
-        continue;
-      }
-
-      var d = maxDate.split('/');
-      var billedDate = new Date(d[2], d[0]-1, d[1]);
-
-      var expiryDate = new Date(billedDate);
-      expiryDate.setDate(expiryDate.getDate() + shelfLife);
-
-      var diffDays = Math.floor((expiryDate - today) / (1000*60*60*24));
-
-      var status = "OK";
-
-      if (today > expiryDate) {
-        status = "Expired";
-      } else if (diffDays <= 120) {
-        status = "Expiring";
-      }
-
-      resultMap[itemId] = {
-        billedDate: maxDate,
-        expireDate: (expiryDate.getMonth()+1) + "/" + expiryDate.getDate() + "/" + expiryDate.getFullYear(),
-        stat: status
-      };
-    }
-
-    return resultMap;
   }
 
   return {
