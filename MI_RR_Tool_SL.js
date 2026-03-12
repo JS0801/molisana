@@ -13,15 +13,28 @@ define([
 ], function (ui, file, log, search, record, runtime, crypto) {
 
   var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
+  var RETURN_URL_BASE = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2108&deploy=1&compid=4975346&ns-at=AAEJ7tMQmJxVsovhMpsEMUF39xnBuyMwWM4G2T7SnvA62twq8hg';
+  var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
+  var TOKEN_TTL_MS = 30 * 60 * 1000;
 
-  var SOURCE_FOLDER_1 = 402335;
-  var SOURCE_FOLDER_2 = 402334;
-  var SOURCE_FOLDER_3 = 413248;
+  var SOURCE_FOLDERS = {
+    MAIN: 402335,
+    SECONDARY: 402334,
+    THIRD: 413248
+  };
 
   var DOWNLOAD_FOLDER_UI = 378271;
   var DOWNLOAD_FOLDER_CRON = 279208;
 
-  var TOKEN_TTL_MS = 30 * 60 * 1000;
+  var HEADER_INDEX = {
+    ITEM: 2,
+    VENDOR: 35,
+    BRAND_CATEGORY: 33,
+    BRAND: 32,
+    DEPT: 52,
+    POL: 36,
+    PRODUCT: 53
+  };
 
   function onRequest(context) {
     try {
@@ -32,288 +45,48 @@ define([
       }
     } catch (e) {
       log.error('onRequest error', e);
-      context.response.write('<html><body><h3>Unexpected error</h3><pre>' + escapeHtml(e.name + ': ' + e.message) + '</pre></body></html>');
+      context.response.write(
+        '<html><body style="font-family:Arial;padding:20px;color:red;">Error: ' +
+        escapeHtml(e && e.message ? e.message : String(e)) +
+        '</body></html>'
+      );
     }
   }
 
   function handleGet(context) {
-    var req = context.request;
-    var q = req.parameters || {};
-
+    var q = context.request.parameters || {};
     var typeParam = String(q.type || '3');
-    var showTopFilters = (typeParam !== '4');
+    var showTopFilters = typeParam !== '4';
     var formName = 'MI Reorder Tool (' + (typeParam === '4' ? 'Basic' : 'Admin') + ')';
 
     var mode = String(q.mode || '').toLowerCase();
     var cronTs = q.cronts || '';
     var cronSig = q.cronsig || '';
-    var isCron = (mode === 'cron' && verifyCron(cronTs, cronSig));
-
-    var form = ui.createForm({ title: formName });
+    var isCron = mode === 'cron' && verifyCron(cronTs, cronSig);
 
     var empid = q.empid || '';
     var ts = q.ts || '';
     var sig = q.sig || '';
     var selectedEmp = q.custpage_id || '';
 
-    if (empid && ts && sig && verifyUser(empid, ts, sig)) {
+    if (empid && ts && sig && verify(empid, ts, sig)) {
       selectedEmp = empid;
     }
 
     if (!selectedEmp && !isCron) {
-      context.response.write(
-        '<html><head>' +
-        '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(PORTAL_URL) + '; }, 1200);</script>' +
-        '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
-        '</head><body><div class="message">Login Required</div></body></html>'
-      );
+      writeLoginRequired(context.response);
       return;
     }
 
-    addHiddenFields(form, selectedEmp, ts, sig);
+    var form = ui.createForm({ title: formName });
 
-    var htmlField = form.addField({
-      id: 'custpage_excel_html',
-      type: ui.FieldType.INLINEHTML,
-      label: 'Excel Table'
-    });
-
-    var selectedField = form.addField({
-      id: 'custpage_selected',
-      type: ui.FieldType.LONGTEXT,
-      label: 'Selected Rows JSON'
-    });
-    selectedField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-
-    form.addSubmitButton({ label: 'Submit' });
-
-    var latestFiles = getLatestFilesFromFolders();
-    if (!latestFiles.file1) {
-      htmlField.defaultValue = '<p style="color:red;">No source file found.</p>';
-      context.response.writePage(form);
-      return;
-    }
-
-    var sourceRows = buildMergedRows(latestFiles);
-    if (!sourceRows || sourceRows.length <= 1) {
-      htmlField.defaultValue = '<p style="color:red;">No valid data found in source files.</p>';
-      context.response.writePage(form);
-      return;
-    }
-
-    var headers = parseCsvLine(sourceRows[0]);
-    var normalizedHeaders = [];
-    var i;
-    for (i = 0; i < headers.length; i++) {
-      normalizedHeaders.push(normHeader(headers[i]));
-    }
-
-    var adminCsvIndex = normalizedHeaders.indexOf('admin portal');
-    if (adminCsvIndex < 0) {
-      for (i = 0; i < normalizedHeaders.length; i++) {
-        if (
-          normalizedHeaders[i] === 'admin' ||
-          normalizedHeaders[i].indexOf('admin portal') !== -1
-        ) {
-          adminCsvIndex = i;
-          break;
-        }
-      }
-    }
-
-    var truncateAfterAdmin = (typeParam === '4');
-    var removeJustAdmin = (typeParam === '3');
-
-    var processed = processRows({
-      sourceRows: sourceRows,
-      headers: headers,
-      adminCsvIndex: adminCsvIndex,
-      truncateAfterAdmin: truncateAfterAdmin,
-      removeJustAdmin: removeJustAdmin,
-      showTopFilters: showTopFilters
-    });
-
-    var finalCsv = buildCsvString(processed.newContent);
-    var uiFileId = saveCsvFile('Download_MI_Reorder.csv', finalCsv, DOWNLOAD_FOLDER_UI, true);
-    var cronFileId = saveCsvFile('RR Tool Details.csv', finalCsv, DOWNLOAD_FOLDER_CRON, true);
-    var cronFileObj = file.load({ id: cronFileId });
-    var dlUrl = cronFileObj.url;
-
-    var fileField = form.addField({
-      id: 'custpage_file_id',
-      type: ui.FieldType.TEXT,
-      label: 'File ID'
-    });
-    fileField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-    fileField.defaultValue = String(uiFileId || '');
-
-    if (isCron) {
-      context.response.setHeader({ name: 'Content-Type', value: 'application/json' });
-      context.response.write(JSON.stringify({
-        ok: true,
-        fileId: uiFileId,
-        url: dlUrl,
-        name: cronFileObj.name
-      }));
-      return;
-    }
-
-    htmlField.defaultValue = buildHtml({
-      tableHeaders: processed.tableHeaders,
-      rowHtml: processed.rowHtml,
-      filtersData: processed.filtersData,
-      showTopFilters: showTopFilters,
-      downloadUrl: dlUrl,
-      adminCsvIndex: adminCsvIndex,
-      truncateAfterAdmin: truncateAfterAdmin,
-      removeJustAdmin: removeJustAdmin,
-      filterColumnMap: processed.filterColumnMap
-    });
-
-    form.clientScriptModulePath = './CL_RR_Tool.js';
-    context.response.writePage(form);
-  }
-
-  function handlePost(context) {
-    var params = context.request.parameters || {};
-
-    var fileId = params.custpage_file_id || '';
-    var postedEmp = params.custpage_empid || '';
-    var postedTs = params.custpage_ts || '';
-    var postedSig = params.custpage_sig || '';
-
-    var authorized = false;
-    if (postedEmp && postedTs && postedSig) {
-      authorized = verifyUser(postedEmp, postedTs, postedSig);
-    }
-
-    if (!authorized) {
-      context.response.write(
-        '<html><head>' +
-        '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(PORTAL_URL) + '; }, 1200);</script>' +
-        '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
-        '</head><body><div class="message">Session expired. Please log in again.</div></body></html>'
-      );
-      return;
-    }
-
-    var fileObj = file.load({ id: fileId });
-    var content = fileObj.getContents();
-    var rows = content.split(/\r?\n/);
-
-    var selectedRows = [];
-    var selectedJson = params.custpage_selected || '';
-    var createdCount = 0;
-
-    if (selectedJson) {
-      try {
-        var picked = JSON.parse(selectedJson);
-        var i;
-        for (i = 0; i < picked.length; i++) {
-          var p = picked[i] || {};
-          var rowId = String(p.rowId || '').trim();
-          if (!rowId) continue;
-
-          var csvRow = rows[parseInt(rowId, 10)] || '';
-          if (!csvRow) continue;
-
-          var columns = parseCsvLine(csvRow);
-          var c;
-          for (c = 0; c < columns.length; c++) {
-            columns[c] = sanitizeCsvText(unquoteCsv(columns[c]));
-          }
-
-          selectedRows.push({
-            rowId: rowId,
-            qty: safeParseInt(p.qty),
-            memo: sanitizeCsvText(p.memo || ''),
-            monthStock: safeParseFloat(p.mos),
-            columns: columns
-          });
-        }
-      } catch (e) {
-        log.error('Bad custpage_selected JSON', e);
-      }
-    }
-
-    if (!selectedRows.length) {
-      var key;
-      for (key in params) {
-        if (key.indexOf('row_select_') === 0) {
-          var fallbackRowId = key.split('_')[2];
-          var fallbackQty = safeParseInt(params['qty_input_' + fallbackRowId]);
-          var fallbackMemo = sanitizeCsvText(params['memo_input_' + fallbackRowId] || '');
-          var fallbackCsvRow = rows[parseInt(fallbackRowId, 10)] || '';
-          if (!fallbackCsvRow) continue;
-
-          var fallbackCols = parseCsvLine(fallbackCsvRow);
-          var j;
-          for (j = 0; j < fallbackCols.length; j++) {
-            fallbackCols[j] = sanitizeCsvText(unquoteCsv(fallbackCols[j]));
-          }
-
-          selectedRows.push({
-            rowId: fallbackRowId,
-            qty: fallbackQty,
-            memo: fallbackMemo,
-            monthStock: 0,
-            columns: fallbackCols
-          });
-        }
-      }
-    }
-
-    log.debug('selectedRows count', selectedRows.length);
-
-    var k;
-    for (k = 0; k < selectedRows.length; k++) {
-      var entry = selectedRows[k];
-      var cols = entry.columns || [];
-
-      try {
-        var monStock = entry.monthStock;
-        if (!isFinite(monStock)) monStock = 0;
-
-        record.create({
-          type: 'customrecord_mi_planned_po',
-          isDynamic: true
-        })
-        .setValue({ fieldId: 'custrecord_mi_item', value: cols[3] || '' })
-        .setValue({ fieldId: 'custrecord_mi_order_qty', value: entry.qty || 0 })
-        .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: entry.memo || '' })
-        .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(monStock) })
-        .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[24]) })
-        .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[31]) })
-        .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[25]) })
-        .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(cols[16]) })
-        .save();
-
-        createdCount++;
-      } catch (e2) {
-        log.error('Error creating custom record for row ' + entry.rowId, e2);
-      }
-    }
-
-    context.response.write(
-      '<html><head>' +
-      '<meta http-equiv="refresh" content="5;URL=https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2108&deploy=1&compid=4975346&ns-at=AAEJ7tMQmJxVsovhMpsEMUF39xnBuyMwWM4G2T7SnvA62twq8hg&empid=' + encodeURIComponent(postedEmp) + '&ts=' + encodeURIComponent(postedTs) + '&sig=' + encodeURIComponent(postedSig) + '" />' +
-      '<style>' +
-      'body{font-family:Arial,sans-serif;text-align:center;padding-top:100px;}' +
-      '.message-box{display:inline-block;background-color:#f3f9ff;padding:20px 30px;border:1px solid #a3d2f2;border-radius:8px;color:#005b99;font-size:16px;}' +
-      '</style></head><body>' +
-      '<div class="message-box"><strong>' + createdCount + '</strong> Planned Purchase Order(s) created.<br />You will be redirected to the main page in 5 seconds...</div>' +
-      '</body></html>'
-    );
-  }
-
-  function addHiddenFields(form, selectedEmp, ts, sig) {
     var empField = form.addField({
       id: 'custpage_empid',
       type: ui.FieldType.SELECT,
       label: 'Current Employee',
       source: 'employee'
     });
-    empField.defaultValue = selectedEmp || '';
+    empField.defaultValue = selectedEmp;
     empField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
 
     var tsField = form.addField({
@@ -331,165 +104,339 @@ define([
     });
     sigField.defaultValue = sig || '';
     sigField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-  }
 
-  function getLatestFilesFromFolders() {
-    var result = {
-      file1: null,
-      file2: null,
-      file3: null
-    };
+    var fileField = form.addField({
+      id: 'custpage_file_id',
+      type: ui.FieldType.TEXT,
+      label: 'File ID'
+    });
+    fileField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
 
-    var folderSearchObj = search.create({
-      type: 'folder',
-      filters: [
-        ['internalid', 'anyof', String(SOURCE_FOLDER_1), String(SOURCE_FOLDER_2), String(SOURCE_FOLDER_3)],
-        'AND',
-        ['file.documentsize', 'greaterthan', '5']
-      ],
-      columns: [
-        search.createColumn({ name: 'internalid', summary: 'GROUP' }),
-        search.createColumn({ name: 'internalid', join: 'file', summary: 'MAX' })
-      ]
+    var htmlField = form.addField({
+      id: 'custpage_excel_html',
+      type: ui.FieldType.INLINEHTML,
+      label: 'Excel Table'
     });
 
-    folderSearchObj.run().each(function (res) {
-      var folderId = res.getValue({ name: 'internalid', summary: 'GROUP' });
-      var latestFileId = res.getValue({ name: 'internalid', join: 'file', summary: 'MAX' });
+    var selectedField = form.addField({
+      id: 'custpage_selected',
+      type: ui.FieldType.LONGTEXT,
+      label: 'Selected Rows JSON'
+    });
+    selectedField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
 
-      if (String(folderId) === String(SOURCE_FOLDER_1)) result.file1 = latestFileId;
-      if (String(folderId) === String(SOURCE_FOLDER_2)) result.file2 = latestFileId;
-      if (String(folderId) === String(SOURCE_FOLDER_3)) result.file3 = latestFileId;
-      return true;
+    form.addSubmitButton({ label: 'Submit' });
+
+    var latestFiles = getLatestFiles();
+    if (!latestFiles.mainId) {
+      htmlField.defaultValue = '<p style="color:red;">No file found in the specified folder.</p>';
+      context.response.writePage(form);
+      return;
+    }
+
+    var mainFile = file.load({ id: latestFiles.mainId });
+    var secondaryFile = latestFiles.secondaryId ? file.load({ id: latestFiles.secondaryId }) : null;
+    var thirdFile = latestFiles.thirdId ? file.load({ id: latestFiles.thirdId }) : null;
+
+    var mainRows = splitCsvLines(mainFile.getContents());
+    var secondRows = secondaryFile ? splitCsvLines(secondaryFile.getContents()) : [];
+    var thirdRows = thirdFile ? splitCsvLines(thirdFile.getContents()) : [];
+
+    if (!mainRows.length) {
+      htmlField.defaultValue = '<p style="color:red;">Source file is empty.</p>';
+      context.response.writePage(form);
+      return;
+    }
+
+    if (secondRows.length) secondRows.shift();
+    if (thirdRows.length) thirdRows.shift();
+
+    var rows = mainRows.concat(secondRows).concat(thirdRows);
+    var headers = parseCsvLine(rows[0]);
+
+    var headerMeta = buildHeaderMeta(headers, typeParam);
+    var balances = getInventoryBalanceMap();
+
+    var buildResult = buildOutputRows(rows, headerMeta, balances);
+    var cleanedCsvContent = buildCsvContent(buildResult.outputRows);
+
+    var uiFile = file.create({
+      name: 'Download_' + sanitizeFileName(mainFile.name),
+      fileType: file.Type.CSV,
+      contents: cleanedCsvContent,
+      encoding: file.Encoding.UTF8,
+      folder: DOWNLOAD_FOLDER_UI,
+      isOnline: true
+    });
+    var newFileId = uiFile.save();
+    fileField.defaultValue = String(newFileId);
+
+    var cronFile = file.create({
+      name: 'RR Tool Details.csv',
+      fileType: file.Type.CSV,
+      contents: cleanedCsvContent,
+      encoding: file.Encoding.UTF8,
+      folder: DOWNLOAD_FOLDER_CRON,
+      isOnline: true
+    });
+    var newFileId2 = cronFile.save();
+    var reloadFile = file.load({ id: newFileId2 });
+    var dlUrl = reloadFile.url || '';
+
+    if (isCron) {
+      context.response.setHeader({ name: 'Content-Type', value: 'application/json' });
+      context.response.write(JSON.stringify({
+        ok: true,
+        fileId: newFileId,
+        url: dlUrl,
+        name: reloadFile.name
+      }));
+      return;
+    }
+
+    htmlField.defaultValue = buildHtml({
+      downloadUrl: dlUrl,
+      typeParam: typeParam,
+      showTopFilters: showTopFilters,
+      headersForOutput: headerMeta.headersForOutput,
+      rowsHtml: buildResult.rowsHtml,
+      filterSets: buildResult.filterSets,
+      adminCsvIndex: headerMeta.adminCsvIndex,
+      truncateAfterAdmin: headerMeta.truncateAfterAdmin,
+      removeJustAdmin: headerMeta.removeJustAdmin
     });
 
-    return result;
+    form.clientScriptModulePath = './CL_RR_Tool.js';
+    context.response.writePage(form);
   }
 
-  function buildMergedRows(latestFiles) {
-    var rows = [];
-    var rows1 = loadRows(latestFiles.file1);
-    var rows2 = loadRows(latestFiles.file2);
-    var rows3 = loadRows(latestFiles.file3);
+  function handlePost(context) {
+    var params = context.request.parameters || {};
+    var fileId = params.custpage_file_id;
 
-    if (rows1.length) {
-      rows = rows1.slice();
+    var postedEmp = params.custpage_empid || '';
+    var postedTs = params.custpage_ts || '';
+    var postedSig = params.custpage_sig || '';
+
+    var authorized = false;
+    if (postedEmp && postedTs && postedSig) {
+      authorized = verify(postedEmp, postedTs, postedSig);
     }
 
-    if (rows2.length) {
-      rows2.shift();
-      rows = rows.concat(rows2);
+    if (!authorized) {
+      writeSessionExpired(context.response);
+      return;
     }
 
-    if (rows3.length) {
-      rows3.shift();
-      rows = rows.concat(rows3);
-    }
-
-    return rows;
-  }
-
-  function loadRows(fileId) {
-    if (!fileId) return [];
     var fileObj = file.load({ id: fileId });
-    var content = fileObj.getContents() || '';
-    content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    return content.split('\n');
+    var content = fileObj.getContents();
+    var rows = splitCsvLines(content);
+
+    var selectedRows = [];
+    var createdCount = 0;
+
+    if (params.custpage_selected) {
+      try {
+        var picked = JSON.parse(params.custpage_selected);
+        picked.forEach(function (p) {
+          var rowId = String(p.rowId || '').trim();
+          var qty = parseInt(p.qty, 10) || 0;
+          var memo = p.memo || '';
+          var mos = parseFloat(p.mos);
+          if (!rowId || !rows[rowId]) return;
+
+          var columns = parseCsvLine(rows[rowId]).map(function (val) {
+            return cleanDisplayValue(val);
+          });
+
+          selectedRows.push({
+            rowId: rowId,
+            qty: qty,
+            memo: memo,
+            monthStock: mos,
+            columns: columns
+          });
+        });
+      } catch (e) {
+        log.error('Bad custpage_selected JSON', e);
+      }
+    }
+
+    if (!selectedRows.length) {
+      Object.keys(params).forEach(function (key) {
+        if (key.indexOf('row_select_') === 0) {
+          var rowId = key.split('_')[2];
+          if (!rows[rowId]) return;
+          var qty = parseInt(params['qty_input_' + rowId], 10) || 0;
+          var memo = params['memo_input_' + rowId] || '';
+          var columns = parseCsvLine(rows[rowId]).map(function (val) {
+            return cleanDisplayValue(val);
+          });
+          selectedRows.push({
+            rowId: rowId,
+            qty: qty,
+            memo: memo,
+            columns: columns
+          });
+        }
+      });
+    }
+
+    selectedRows.forEach(function (entry) {
+      var cols = entry.columns;
+      var monStock = entry.monthStock;
+
+      if (
+        monStock == null ||
+        monStock === '' ||
+        monStock === 'null' ||
+        monStock === 'Infinity' ||
+        monStock === 'infinity' ||
+        monStock === 'NaN' ||
+        monStock === 'nan'
+      ) {
+        monStock = 0;
+      }
+
+      try {
+        record.create({
+          type: 'customrecord_mi_planned_po',
+          isDynamic: true
+        })
+          .setValue({ fieldId: 'custrecord_mi_item', value: cols[3] })
+          .setValue({ fieldId: 'custrecord_mi_order_qty', value: entry.qty })
+          .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: entry.memo === 0 ? '' : entry.memo })
+          .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(monStock) })
+          .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[24]) })
+          .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[31]) })
+          .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[25]) })
+          .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(cols[16]) })
+          .save();
+
+        createdCount++;
+      } catch (e) {
+        log.error('Error creating custom record for row ' + entry.rowId, e);
+      }
+    });
+
+    context.response.write(
+      '<html>' +
+      '<head>' +
+      '<meta http-equiv="refresh" content="5;URL=' + escapeHtmlAttr(
+        RETURN_URL_BASE +
+        '&empid=' + encodeURIComponent(postedEmp) +
+        '&ts=' + encodeURIComponent(postedTs) +
+        '&sig=' + encodeURIComponent(postedSig)
+      ) + '" />' +
+      '<style>' +
+      'body{font-family:Arial,sans-serif;text-align:center;padding-top:100px;}' +
+      '.message-box{display:inline-block;background-color:#f3f9ff;padding:20px 30px;border:1px solid #a3d2f2;border-radius:8px;color:#005b99;font-size:16px;}' +
+      '</style>' +
+      '</head>' +
+      '<body>' +
+      '<div class="message-box"><strong>' + createdCount + '</strong> Planned Purchase Order(s) created.<br />You will be redirected to the main page in 5 seconds...</div>' +
+      '</body>' +
+      '</html>'
+    );
   }
 
-  function processRows(opts) {
-    var rows = opts.sourceRows;
-    var headers = opts.headers;
-    var adminCsvIndex = opts.adminCsvIndex;
-    var truncateAfterAdmin = opts.truncateAfterAdmin;
-    var removeJustAdmin = opts.removeJustAdmin;
+  function buildHeaderMeta(headers, typeParam) {
+    var rawHeaders = headers.slice();
+    var normalized = rawHeaders.map(function (h) {
+      return normalizeHeader(h);
+    });
 
-    var ITEM_INDEX = 2;
-    var VENDOR_INDEX = 35;
-    var BRAND_CATEGORY_INDEX = 33;
-    var BRAND_INDEX = 32;
-    var DEPT_INDEX = 52;
-    var POL_INDEX = 36;
-    var PRODUCT_INDEX = 53;
+    var adminCsvIndex = normalized.indexOf('admin portal');
+    if (adminCsvIndex < 0) {
+      for (var i = 0; i < normalized.length; i++) {
+        if (
+          normalized[i] === 'admin' ||
+          normalized[i].indexOf('admin portal') === 0 ||
+          normalized[i].indexOf('admin portal') >= 0
+        ) {
+          adminCsvIndex = i;
+          break;
+        }
+      }
+    }
 
-    var tableHeaders = getOutputHeaders(headers, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-    var newContent = [];
-    var rowHtml = [];
+    var truncateAfterAdmin = typeParam === '4';
+    var removeJustAdmin = typeParam === '3';
 
-    var filtersData = {
+    var headersForOutput;
+    if (adminCsvIndex >= 0) {
+      if (truncateAfterAdmin) {
+        headersForOutput = rawHeaders.slice(0, adminCsvIndex);
+      } else if (removeJustAdmin) {
+        headersForOutput = rawHeaders.filter(function (_v, idx) {
+          return idx !== adminCsvIndex;
+        });
+      } else {
+        headersForOutput = rawHeaders.slice();
+      }
+    } else {
+      headersForOutput = rawHeaders.slice();
+    }
+
+    headersForOutput.push('Filter');
+
+    return {
+      rawHeaders: rawHeaders,
+      headersForOutput: headersForOutput,
+      adminCsvIndex: adminCsvIndex,
+      truncateAfterAdmin: truncateAfterAdmin,
+      removeJustAdmin: removeJustAdmin
+    };
+  }
+
+  function buildOutputRows(rows, headerMeta, balances) {
+    var outputRows = [];
+    outputRows.push(headerMeta.headersForOutput);
+
+    var filterSets = {
       items: {},
       vendors: {},
       brands: {},
-      brandCategories: {},
-      departments: {},
+      brandCats: {},
+      depts: {},
       pols: {},
       products: {}
     };
 
-    var filterColumnMap = {
-      item: null,
-      vendor: null,
-      brand: null,
-      brandCategory: null,
-      department: null,
-      pol: null,
-      product: null
-    };
-
-    var inventoryMap = getInventoryBalanceMap();
-    var alreadyExist = {};
-
-    var finalHeadersForCsv = tableHeaders.slice();
-    finalHeadersForCsv.push('Filter');
-    newContent.push(finalHeadersForCsv);
-
-    filterColumnMap.item = getOutputIndexForOriginalCsvIndex(ITEM_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-    filterColumnMap.vendor = getOutputIndexForOriginalCsvIndex(VENDOR_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-    filterColumnMap.brand = getOutputIndexForOriginalCsvIndex(BRAND_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-    filterColumnMap.brandCategory = getOutputIndexForOriginalCsvIndex(BRAND_CATEGORY_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-    filterColumnMap.department = getOutputIndexForOriginalCsvIndex(DEPT_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-    filterColumnMap.pol = getOutputIndexForOriginalCsvIndex(POL_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-    filterColumnMap.product = getOutputIndexForOriginalCsvIndex(PRODUCT_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-
     var redRows = [];
     var blackRows = [];
+    var alreadyExists = {};
 
-    var r;
-    for (r = 1; r < rows.length; r++) {
-      var rawRow = rows[r];
-      if (!rawRow || !rawRow.trim()) continue;
+    rows.slice(1).forEach(function (rowLine) {
+      if (!rowLine || !String(rowLine).trim()) return;
 
-      var columns = parseCsvLine(rawRow);
-      if (!columns || !columns.length) continue;
+      var columns = parseCsvLine(rowLine);
+      if (!columns.length) return;
 
-      if (truncateAfterAdmin && adminCsvIndex >= 0) {
-        var adminCellVal = sanitizeCsvText(columns[adminCsvIndex] || '').toLowerCase();
-        if (adminCellVal !== 'admin portal') {
-          continue;
-        }
+      if (headerMeta.truncateAfterAdmin && headerMeta.adminCsvIndex >= 0) {
+        var adminCellVal = cleanDisplayValue(columns[headerMeta.adminCsvIndex]).toLowerCase();
+        if (adminCellVal !== 'admin portal') return;
       }
 
       var calcCols = columns.slice();
+      var monthAvg = safeParseFloat(calcCols[csvIndexIsExposed(11, headerMeta)]);
+      var itemid = cleanDisplayValue(calcCols[csvIndexIsExposed(3, headerMeta)]);
 
-      var itemid = sanitizeCsvText(unquoteCsv(calcCols[3] || ''));
-      if (!itemid) continue;
-      if (alreadyExist[itemid]) continue;
-      alreadyExist[itemid] = true;
+      if (!itemid || alreadyExists[itemid]) return;
+      alreadyExists[itemid] = true;
 
-      addToSetMap(filtersData.items, sanitizeCsvText(unquoteCsv(calcCols[ITEM_INDEX] || '')));
-      addToSetMap(filtersData.vendors, sanitizeCsvText(unquoteCsv(calcCols[VENDOR_INDEX] || '')));
-      addToSetMap(filtersData.brands, sanitizeCsvText(unquoteCsv(calcCols[BRAND_INDEX] || '')));
-      addToSetMap(filtersData.brandCategories, sanitizeCsvText(unquoteCsv(calcCols[BRAND_CATEGORY_INDEX] || '')));
-      addToSetMap(filtersData.departments, sanitizeCsvText(unquoteCsv(calcCols[DEPT_INDEX] || '')));
-      addToSetMap(filtersData.pols, sanitizeCsvText(unquoteCsv(calcCols[POL_INDEX] || '')));
-      addToSetMap(filtersData.products, sanitizeCsvText(unquoteCsv(calcCols[PRODUCT_INDEX] || '')));
+      addUnique(filterSets.items, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.ITEM, headerMeta)]));
+      addUnique(filterSets.vendors, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.VENDOR, headerMeta)]));
+      addUnique(filterSets.brands, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.BRAND, headerMeta)]));
+      addUnique(filterSets.brandCats, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.BRAND_CATEGORY, headerMeta)]));
+      addUnique(filterSets.depts, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.DEPT, headerMeta)]));
+      addUnique(filterSets.pols, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.POL, headerMeta)]));
+      addUnique(filterSets.products, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.PRODUCT, headerMeta)]));
 
-      var monthAvg = safeParseFloat(unquoteCsv(calcCols[11]));
-      var val43 = safeParseFloat(unquoteCsv(calcCols[25]));
-      var val41 = safeParseFloat(unquoteCsv(calcCols[20]));
+      var val43 = safeParseFloat(calcCols[csvIndexIsExposed(25, headerMeta)]);
+      var val41 = safeParseFloat(calcCols[csvIndexIsExposed(20, headerMeta)]);
       var diff = Math.abs(val43 - val41);
-
-      calcCols[25] = String(diff || '');
+      calcCols[csvIndexIsExposed(25, headerMeta)] = diff === 0 ? '' : String(diff);
 
       var good = 0;
       var bad = 0;
@@ -499,421 +446,605 @@ define([
       var total = 0;
       var avail = 0;
 
-      if (inventoryMap[itemid]) {
-        good = safeParseFloat(inventoryMap[itemid].good);
-        bad = safeParseFloat(inventoryMap[itemid].bad);
-        hold = safeParseFloat(inventoryMap[itemid].hold);
-        inspect = safeParseFloat(inventoryMap[itemid].inspect);
-        label = safeParseFloat(inventoryMap[itemid].label);
-        total = safeParseFloat(inventoryMap[itemid].total);
-        avail = safeParseFloat(inventoryMap[itemid].avail);
+      if (balances[itemid]) {
+        good = safeParseFloat(balances[itemid].good);
+        bad = safeParseFloat(balances[itemid].bad);
+        hold = safeParseFloat(balances[itemid].hold);
+        inspect = safeParseFloat(balances[itemid].inspect);
+        label = safeParseFloat(balances[itemid].label);
+        total = safeParseFloat(balances[itemid].total);
+        avail = safeParseFloat(balances[itemid].avail);
       }
 
-      var col12Val = safeParseFloat(unquoteCsv(calcCols[12]));
-      var availToProm = good - col12Val;
+      var col12Val = safeParseFloat(calcCols[csvIndexIsExposed(12, headerMeta)]);
+      var availtoProm = good - col12Val;
 
-      calcCols[12] = numText(availToProm);
-      calcCols[13] = numText(good);
-      calcCols[14] = numText(bad);
-      calcCols[15] = numText(inspect);
-      calcCols[16] = numText(label);
-      calcCols[17] = numText(hold);
-      calcCols[18] = numText(total);
-      calcCols[19] = monthAvg ? numText(total / monthAvg) : '0';
-      calcCols[23] = numText(total + val41);
-      calcCols[24] = monthAvg ? numText((total + val41) / monthAvg) : '0';
-      calcCols[26] = numText(total + val43);
-      calcCols[27] = monthAvg ? numText((total + val43) / monthAvg) : '0';
-      calcCols[31] = numText(avail);
-      calcCols[63] = numText(normalizeMovement(monthAvg));
-      calcCols[64] = numText(safeParseFloat(normalizeMovement(monthAvg)) * 4);
+      calcCols[calcCols.length] = 'Black';
+      calcCols[csvIndexIsExposed(12, headerMeta)] = String(availtoProm);
+      calcCols[csvIndexIsExposed(13, headerMeta)] = String(good);
+      calcCols[csvIndexIsExposed(14, headerMeta)] = String(bad);
+      calcCols[csvIndexIsExposed(15, headerMeta)] = String(inspect);
+      calcCols[csvIndexIsExposed(16, headerMeta)] = String(label);
+      calcCols[csvIndexIsExposed(17, headerMeta)] = String(hold);
+      calcCols[csvIndexIsExposed(18, headerMeta)] = String(total);
+      calcCols[csvIndexIsExposed(19, headerMeta)] = monthAvg ? ((safeParseFloat(total)) / monthAvg).toFixed(2) : '';
+      calcCols[csvIndexIsExposed(24, headerMeta)] = monthAvg ? (((safeParseFloat(total)) + safeParseFloat(val41)) / monthAvg).toFixed(2) : '';
+      calcCols[csvIndexIsExposed(23, headerMeta)] = (safeParseFloat(total) + safeParseFloat(val41)).toFixed(2);
+      calcCols[csvIndexIsExposed(27, headerMeta)] = monthAvg ? ((safeParseFloat(total) + safeParseFloat(val43)) / monthAvg).toFixed(2) : '';
+      calcCols[csvIndexIsExposed(26, headerMeta)] = (safeParseFloat(total) + safeParseFloat(val43)).toFixed(2);
+      calcCols[csvIndexIsExposed(31, headerMeta)] = String(avail);
 
-      var qtytotal = diff + val41 + avail - col12Val;
-      var stockingQty = Math.ceil(safeParseFloat(unquoteCsv(calcCols[11])) * 4.5);
-      calcCols[11] = numText(normalizeMovement(monthAvg));
+      var col9 = normalizeMovement(monthAvg);
+      var qtytotal = diff + safeParseFloat(calcCols[csvIndexIsExposed(20, headerMeta)]) + safeParseFloat(avail) - safeParseFloat(col12Val);
+      var stockingQty = Math.ceil(safeParseFloat(calcCols[csvIndexIsExposed(11, headerMeta)]) * 4.5);
+      calcCols[csvIndexIsExposed(11, headerMeta)] = col9;
+
+      calcCols[csvIndexIsExposed(63, headerMeta)] = String(calcCols[csvIndexIsExposed(11, headerMeta)]);
+      calcCols[csvIndexIsExposed(64, headerMeta)] = String(safeParseFloat(calcCols[csvIndexIsExposed(11, headerMeta)]) * 4);
 
       var recommendedQty = 0;
       if (qtytotal < stockingQty) {
-        recommendedQty = safeParseFloat((stockingQty - qtytotal).toFixed(2));
+        recommendedQty = (stockingQty - qtytotal).toFixed(2);
       }
 
-      var monthsStock = monthAvg ? ((diff + avail + val41) / monthAvg) : 0;
-      var rowColor = 'Black';
+      var monthsStock = monthAvg ? ((diff + safeParseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(20, headerMeta)])) / monthAvg) : 0;
+
+      if (calcCols[1] == 0) calcCols[1] = '';
+      calcCols[1] = String(recommendedQty);
+
       var rowStyle = '';
-
       if (!isNaN(monthsStock) && monthsStock <= 4.5) {
-        rowColor = 'Red';
-        rowStyle = ' style="color:red;"';
+        rowStyle = 'color:#c62828;';
+        calcCols[calcCols.length - 1] = 'Red';
       }
 
-      var baseCols = calcCols.slice();
-      var displayCols = getOutputRowColumns(baseCols, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
-      displayCols.push(rowColor);
+      var statusVal = calcCols[calcCols.length - 1] || '';
+      var baseCols = calcCols.slice(0, -1);
+      var displayCols;
 
-      var cleanedCols = [];
-      var c;
-      for (c = 0; c < displayCols.length; c++) {
-        cleanedCols.push(cleanCsvValue(displayCols[c]));
-      }
-      newContent.push(cleanedCols);
-
-      var rowId = newContent.length - 1;
-      var htmlRow = '';
-      htmlRow += '<tr' + rowStyle + '>';
-      htmlRow += '<td class="sticky-col sticky-1"><input type="checkbox" name="row_select_' + rowId + '" /></td>';
-      htmlRow += '<td class="sticky-col sticky-2"><input type="number" name="qty_input_' + rowId + '" min="0" value="' + escapeAttr(String(recommendedQty)) + '" /></td>';
-      htmlRow += '<td class="sticky-col sticky-3 month-stock-cell">' + escapeHtml(numText(monthsStock)) + '</td>';
-      htmlRow += '<td class="sticky-col sticky-4 cubic-space-cell"></td>';
-      htmlRow += '<td class="sticky-col sticky-5 weight-cell"></td>';
-
-      for (c = 0; c < displayCols.length; c++) {
-        var cellValue = sanitizeCsvText(unquoteCsv(displayCols[c]));
-        if (cellValue === '- None -' || cellValue === 'NaN' || cellValue === 'Infinity') cellValue = '';
-        if (cellValue === '.00') cellValue = '0.00';
-
-        if (c === 0) {
-          htmlRow += '<td class="sticky-col sticky-6"><input type="text" name="memo_input_' + rowId + '" value="' + escapeAttr(cellValue) + '" /></td>';
-        } else {
-          htmlRow += '<td>' + escapeHtml(cellValue) + '</td>';
-        }
-      }
-
-      htmlRow += '</tr>';
-
-      var itemIdNum = safeParseInt(itemid);
-      if (rowColor === 'Red') {
-        redRows.push({ itemId: itemIdNum, html: htmlRow });
+      if (headerMeta.adminCsvIndex >= 0 && headerMeta.truncateAfterAdmin) {
+        displayCols = baseCols.slice(0, headerMeta.adminCsvIndex);
+      } else if (headerMeta.adminCsvIndex >= 0 && headerMeta.removeJustAdmin) {
+        displayCols = baseCols.filter(function (_v, idx) {
+          return idx !== headerMeta.adminCsvIndex;
+        });
       } else {
-        blackRows.push({ itemId: itemIdNum, html: htmlRow });
+        displayCols = baseCols.slice();
       }
-    }
+      displayCols.push(statusVal);
+
+      var cleanedCols = displayCols.map(function (value) {
+        return sanitizeCellForCsv(value);
+      });
+      outputRows.push(cleanedCols);
+
+      var rowId = outputRows.length - 1;
+      var rowHtml = buildTableRowHtml({
+        rowId: rowId,
+        rowStyle: rowStyle,
+        recommendedQty: recommendedQty,
+        monthsStock: monthsStock,
+        displayCols: displayCols,
+        item: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.ITEM, headerMeta)]),
+        vendor: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.VENDOR, headerMeta)]),
+        brand: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.BRAND, headerMeta)]),
+        brandCat: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.BRAND_CATEGORY, headerMeta)]),
+        dept: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.DEPT, headerMeta)]),
+        pol: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.POL, headerMeta)]),
+        product: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.PRODUCT, headerMeta)]),
+        itemSpace: '',
+        weight: ''
+      });
+
+      var bucket = rowStyle ? redRows : blackRows;
+      bucket.push({
+        itemId: safeParseInt(itemid),
+        html: rowHtml
+      });
+    });
 
     redRows.sort(function (a, b) { return a.itemId - b.itemId; });
     blackRows.sort(function (a, b) { return a.itemId - b.itemId; });
 
-    for (r = 0; r < redRows.length; r++) rowHtml.push(redRows[r].html);
-    for (r = 0; r < blackRows.length; r++) rowHtml.push(blackRows[r].html);
-
     return {
-      tableHeaders: tableHeaders,
-      rowHtml: rowHtml.join(''),
-      newContent: newContent,
-      filtersData: {
-        items: sortedKeys(filtersData.items),
-        vendors: sortedKeys(filtersData.vendors),
-        brands: sortedKeys(filtersData.brands),
-        brandCategories: sortedKeys(filtersData.brandCategories),
-        departments: sortedKeys(filtersData.departments),
-        pols: sortedKeys(filtersData.pols),
-        products: sortedKeys(filtersData.products)
-      },
-      filterColumnMap: filterColumnMap
+      outputRows: outputRows,
+      rowsHtml: redRows.map(function (r) { return r.html; }).join('') +
+        blackRows.map(function (r) { return r.html; }).join(''),
+      filterSets: {
+        items: objectKeysSorted(filterSets.items),
+        vendors: objectKeysSorted(filterSets.vendors),
+        brands: objectKeysSorted(filterSets.brands),
+        brandCats: objectKeysSorted(filterSets.brandCats),
+        depts: objectKeysSorted(filterSets.depts),
+        pols: objectKeysSorted(filterSets.pols),
+        products: objectKeysSorted(filterSets.products)
+      }
     };
   }
 
-  function buildHtml(opts) {
-    var tableHeaders = opts.tableHeaders || [];
-    var showTopFilters = opts.showTopFilters;
-    var filtersData = opts.filtersData || {};
-    var downloadUrl = opts.downloadUrl || '';
-    var filterColumnMap = opts.filterColumnMap || {};
-
+  function buildTableRowHtml(cfg) {
     var html = '';
+    html += '<tr style="' + escapeHtmlAttr(cfg.rowStyle || '') + '"' +
+      ' data-item="' + escapeHtmlAttr((cfg.item || '').toLowerCase()) + '"' +
+      ' data-vendor="' + escapeHtmlAttr((cfg.vendor || '').toLowerCase()) + '"' +
+      ' data-brand="' + escapeHtmlAttr((cfg.brand || '').toLowerCase()) + '"' +
+      ' data-brandcat="' + escapeHtmlAttr((cfg.brandCat || '').toLowerCase()) + '"' +
+      ' data-dept="' + escapeHtmlAttr((cfg.dept || '').toLowerCase()) + '"' +
+      ' data-pol="' + escapeHtmlAttr((cfg.pol || '').toLowerCase()) + '"' +
+      ' data-product="' + escapeHtmlAttr((cfg.product || '').toLowerCase()) + '"' +
+      '>';
 
-    html += '<style>';
-    html += 'body{font-family:Arial,sans-serif;}';
-    html += '.top-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap;}';
-    html += '.left-tools,.right-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}';
-    html += '.download-btn{background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;cursor:pointer;}';
-    html += '.download-btn:hover{background:#f8fafc;}';
-    html += '.filter-wrap{position:relative;display:inline-block;}';
-    html += '.filter-toggle{border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;}';
-    html += '.filter-toggle:hover{background:#f8fafc;}';
-    html += '.filter-panel{display:none;position:absolute;top:110%;left:0;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:12px;width:760px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:5000;}';
-    html += '.filter-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}';
-    html += '.filter-grid label{display:block;font-size:12px;font-weight:700;margin-bottom:4px;}';
-    html += '.filter-grid select{width:100%;min-height:110px;}';
-    html += '.totals-bar{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid #a3d2f2;border-radius:999px;background:#f3f9ff;}';
-    html += '.totals-label{font-size:12px;color:#005b99;font-weight:700;text-transform:uppercase;}';
-    html += '.totals-value{font-weight:700;font-size:14px;color:#003f6b;}';
-    html += '.table-shell{border:1px solid #d1d5db;border-radius:8px;overflow:hidden;}';
-    html += '.top-scroll{height:16px;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid #d1d5db;background:#f8fafc;}';
-    html += '.top-scroll-inner{height:1px;}';
-    html += '.table-container{max-height:850px;overflow:auto;position:relative;}';
-    html += '#excelTable{border-collapse:separate;border-spacing:0;table-layout:auto;min-width:100%;width:max-content;background:#fff;}';
-    html += '#excelTable th,#excelTable td{border-right:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;white-space:nowrap;font-size:12px;background:#fff;}';
-    html += '#excelTable thead th{position:sticky;top:0;background:#f3f4f6;z-index:30;}';
-    html += '.sticky-col{position:sticky;background:#f9fafb !important;z-index:20;}';
-    html += '#excelTable thead .sticky-col{z-index:40;}';
-    html += '.sticky-1{left:0;min-width:60px;max-width:60px;width:60px;}';
-    html += '.sticky-2{left:60px;min-width:100px;max-width:100px;width:100px;}';
-    html += '.sticky-3{left:160px;min-width:110px;max-width:110px;width:110px;}';
-    html += '.sticky-4{left:270px;min-width:110px;max-width:110px;width:110px;}';
-    html += '.sticky-5{left:380px;min-width:90px;max-width:90px;width:90px;}';
-    html += '.sticky-6{left:470px;min-width:220px;max-width:220px;width:220px;}';
-    html += 'input[type="number"],input[type="text"]{width:100%;box-sizing:border-box;padding:4px 6px;}';
-    html += '.th-filter-wrap{display:inline-flex;align-items:center;gap:6px;}';
-    html += '.th-filter-btn{cursor:pointer;border:1px solid #cbd5e1;background:#fff;padding:2px 5px;border-radius:4px;font-size:11px;}';
-    html += '.th-filter-btn:hover{background:#f8fafc;}';
-    html += '.th-filter-panel{position:fixed;top:0;left:0;width:260px;max-height:320px;overflow:auto;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:99999;}';
-    html += '.th-filter-panel .hdr{font-weight:700;font-size:12px;margin-bottom:6px;}';
-    html += '.th-filter-panel input[type="search"]{width:100%;box-sizing:border-box;padding:6px 8px;margin-bottom:8px;}';
-    html += '.th-filter-panel .list{max-height:190px;overflow:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px;}';
-    html += '.th-filter-panel .row{display:flex;align-items:center;gap:8px;padding:2px 0;font-size:12px;}';
-    html += '.th-filter-panel .actions{display:flex;justify-content:space-between;gap:8px;margin-top:8px;}';
-    html += '.th-filter-panel .actions button{padding:3px 7px;font-size:11px;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;}';
-    html += '.th-filter-active .th-filter-btn{border-color:#2563eb;background:#eff6ff;}';
-    html += '</style>';
+    html += '<td class="sticky-col c0"><input type="checkbox" name="row_select_' + cfg.rowId + '" /></td>';
+    html += '<td class="sticky-col c1"><input type="number" class="qty-input" name="qty_input_' + cfg.rowId + '" min="0" value="' + escapeHtmlAttr(String(cfg.recommendedQty || 0)) + '" /></td>';
+    html += '<td class="sticky-col c2 month-stock-cell">' + escapeHtml(isFinite(cfg.monthsStock) ? cfg.monthsStock.toFixed(2) : '') + '</td>';
+    html += '<td class="sticky-col c3 item-space-cell">' + escapeHtml(cleanDisplayValue(cfg.itemSpace)) + '</td>';
+    html += '<td class="sticky-col c4 weight-cell">' + escapeHtml(cleanDisplayValue(cfg.weight)) + '</td>';
 
-    html += '<div class="top-bar">';
-    html += '<div class="left-tools">';
-    html += '<button id="downloadCsvBtn" class="download-btn" type="button">Download CSV</button>';
-
-    if (showTopFilters) {
-      html += '<div class="filter-wrap" id="filterWrapper">';
-      html += '<button type="button" class="filter-toggle" id="filterToggle">Filters</button>';
-      html += '<div class="filter-panel" id="filterPanel">';
-      html += '<div class="filter-grid">';
-      html += buildTopSelect('itemFilter', 'Item', filtersData.items);
-      html += buildTopSelect('vendorFilter', 'Vendor', filtersData.vendors);
-      html += buildTopSelect('brandFilter', 'Brand', filtersData.brands);
-      html += buildTopSelect('brandCatFilter', 'Brand Category', filtersData.brandCategories);
-      html += buildTopSelect('deptFilter', 'Department', filtersData.departments);
-      html += buildTopSelect('polFilter', 'P.O.L', filtersData.pols);
-      html += buildTopSelect('productFilter', 'Product Type', filtersData.products);
-      html += '</div></div></div>';
-    }
-
-    html += '</div>';
-    html += '<div class="right-tools">';
-    html += '<div class="totals-bar"><span class="totals-label">Total Cubic Space</span><span id="totalCubicValue" class="totals-value">0</span></div>';
-    html += '<div class="totals-bar"><span class="totals-label">Total Weight</span><span id="totalWeightValue" class="totals-value">0</span></div>';
-    html += '</div>';
-    html += '</div>';
-
-    html += '<div class="table-shell">';
-    html += '<div id="topScroll" class="top-scroll"><div id="topScrollInner" class="top-scroll-inner"></div></div>';
-    html += '<div class="table-container" id="tableContainer">';
-    html += '<table id="excelTable">';
-    html += '<thead><tr>';
-    html += '<th class="sticky-col sticky-1">Select</th>';
-    html += '<th class="sticky-col sticky-2">Order Qty</th>';
-    html += '<th class="sticky-col sticky-3">Month of Stock</th>';
-    html += '<th class="sticky-col sticky-4">Item Space</th>';
-    html += '<th class="sticky-col sticky-5">Weight</th>';
-
-    var h;
-    for (h = 0; h < tableHeaders.length; h++) {
-      var domIndex = h + 5;
-      var stickyClass = (h === 0 ? ' sticky-col sticky-6' : '');
-      html += '<th class="' + stickyClass + '" data-col-index="' + domIndex + '">' +
-        '<span class="th-filter-wrap">' +
-        '<span>' + escapeHtml(sanitizeCsvText(unquoteCsv(tableHeaders[h]))) + '</span>' +
-        '<button type="button" class="th-filter-btn" data-col="' + domIndex + '">▾</button>' +
-        '</span></th>';
-    }
-    html += '</tr></thead><tbody>';
-    html += opts.rowHtml || '';
-    html += '</tbody></table></div></div>';
-    html += '<div id="filter-portal"></div>';
-
-    html += '<script>';
-    html += '(function(){';
-    html += 'var DOWNLOAD_URL=' + JSON.stringify(downloadUrl) + ';';
-    html += 'var FILTER_COL_MAP=' + JSON.stringify(filterColumnMap) + ';';
-    html += 'var topScroll=document.getElementById("topScroll");';
-    html += 'var topScrollInner=document.getElementById("topScrollInner");';
-    html += 'var container=document.getElementById("tableContainer");';
-    html += 'var table=document.getElementById("excelTable");';
-    html += 'var portal=document.getElementById("filter-portal");';
-    html += 'var activeHeaderFilters={};';
-
-    html += 'function syncTopScrollWidth(){if(!table||!topScrollInner)return;topScrollInner.style.width=Math.max(table.scrollWidth,container.clientWidth+2)+"px";}';
-    html += 'if(topScroll&&container){topScroll.addEventListener("scroll",function(){container.scrollLeft=topScroll.scrollLeft;});container.addEventListener("scroll",function(){topScroll.scrollLeft=container.scrollLeft;});}';
-    html += 'window.addEventListener("resize",syncTopScrollWidth);setTimeout(syncTopScrollWidth,50);setTimeout(syncTopScrollWidth,300);';
-
-    html += 'var downloadBtn=document.getElementById("downloadCsvBtn");';
-    html += 'if(downloadBtn){downloadBtn.addEventListener("click",function(e){e.preventDefault();if(DOWNLOAD_URL)window.open(DOWNLOAD_URL,"_blank");});}';
-
-    html += 'var filterWrapper=document.getElementById("filterWrapper");';
-    html += 'var filterToggle=document.getElementById("filterToggle");';
-    html += 'var filterPanel=document.getElementById("filterPanel");';
-    html += 'if(filterWrapper&&filterToggle&&filterPanel){';
-    html += 'filterToggle.addEventListener("click",function(e){e.stopPropagation();filterPanel.style.display=(filterPanel.style.display==="block"?"none":"block");});';
-    html += 'document.addEventListener("click",function(e){if(!filterWrapper.contains(e.target))filterPanel.style.display="none";});';
-    html += '}';
-
-    html += 'function getSelectedValues(selectId){var el=document.getElementById(selectId);if(!el)return [];var out=[];for(var i=0;i<el.options.length;i++){if(el.options[i].selected)out.push(String(el.options[i].value||"").toLowerCase());}return out;}';
-    html += 'function textOfCell(row, idx){if(idx==null||idx<0)return "";var cell=row.cells[idx];if(!cell)return "";return String(cell.textContent||"").trim().toLowerCase();}';
-
-    html += 'function passesTopFilters(row){';
-    html += 'var selectedItems=getSelectedValues("itemFilter");';
-    html += 'var selectedVendors=getSelectedValues("vendorFilter");';
-    html += 'var selectedBrands=getSelectedValues("brandFilter");';
-    html += 'var selectedBrandCats=getSelectedValues("brandCatFilter");';
-    html += 'var selectedDepts=getSelectedValues("deptFilter");';
-    html += 'var selectedPols=getSelectedValues("polFilter");';
-    html += 'var selectedProducts=getSelectedValues("productFilter");';
-
-    html += 'var item=textOfCell(row, FILTER_COL_MAP.item != null ? FILTER_COL_MAP.item + 5 : -1);';
-    html += 'var vendor=textOfCell(row, FILTER_COL_MAP.vendor != null ? FILTER_COL_MAP.vendor + 5 : -1);';
-    html += 'var brand=textOfCell(row, FILTER_COL_MAP.brand != null ? FILTER_COL_MAP.brand + 5 : -1);';
-    html += 'var brandCat=textOfCell(row, FILTER_COL_MAP.brandCategory != null ? FILTER_COL_MAP.brandCategory + 5 : -1);';
-    html += 'var dept=textOfCell(row, FILTER_COL_MAP.department != null ? FILTER_COL_MAP.department + 5 : -1);';
-    html += 'var pol=textOfCell(row, FILTER_COL_MAP.pol != null ? FILTER_COL_MAP.pol + 5 : -1);';
-    html += 'var product=textOfCell(row, FILTER_COL_MAP.product != null ? FILTER_COL_MAP.product + 5 : -1);';
-
-    html += 'var ok=true;';
-    html += 'if(selectedItems.length && selectedItems.indexOf(item)===-1) ok=false;';
-    html += 'if(selectedVendors.length && selectedVendors.indexOf(vendor)===-1) ok=false;';
-    html += 'if(selectedBrands.length && selectedBrands.indexOf(brand)===-1) ok=false;';
-    html += 'if(selectedBrandCats.length && selectedBrandCats.indexOf(brandCat)===-1) ok=false;';
-    html += 'if(selectedDepts.length && selectedDepts.indexOf(dept)===-1) ok=false;';
-    html += 'if(selectedPols.length && selectedPols.indexOf(pol)===-1) ok=false;';
-    html += 'if(selectedProducts.length && selectedProducts.indexOf(product)===-1) ok=false;';
-    html += 'return ok;';
-    html += '}';
-
-    html += 'function normalizeVal(v){v=String(v==null?"":v).trim();if(/^[-\\s]*none[-\\s]*$/i.test(v))v="";if(/^nan$/i.test(v))v="";return v.toLowerCase();}';
-    html += 'function getBodyRows(){return table && table.tBodies && table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];}';
-    html += 'function rowPassesHeaderFilters(row){for(var k in activeHeaderFilters){if(!activeHeaderFilters.hasOwnProperty(k))continue;var set=activeHeaderFilters[k];if(!set||!set.size)continue;var val=normalizeVal(row.cells[parseInt(k,10)] ? row.cells[parseInt(k,10)].textContent : "");if(!set.has(val))return false;}return true;}';
-    html += 'function applyAllFilters(){var rows=getBodyRows();for(var i=0;i<rows.length;i++){var row=rows[i];var show=passesTopFilters(row)&&rowPassesHeaderFilters(row);row.style.display=show?"":"none";}updateTotals();}';
-
-    html += '["itemFilter","vendorFilter","brandFilter","brandCatFilter","deptFilter","polFilter","productFilter"].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener("change",applyAllFilters);});';
-
-    html += 'function getCountsForColumn(colIdx){var rows=getBodyRows();var counts={};for(var i=0;i<rows.length;i++){var row=rows[i];if(!passesTopFilters(row))continue;var ok=true;for(var k in activeHeaderFilters){if(!activeHeaderFilters.hasOwnProperty(k))continue;if(parseInt(k,10)===colIdx)continue;var set=activeHeaderFilters[k];if(!set||!set.size)continue;var vv=normalizeVal(row.cells[parseInt(k,10)] ? row.cells[parseInt(k,10)].textContent : "");if(!set.has(vv)){ok=false;break;}}if(!ok)continue;var val=normalizeVal(row.cells[colIdx] ? row.cells[colIdx].textContent : "");counts[val]=(counts[val]||0)+1;}return counts;}';
-
-    html += 'function allValuesForColumn(colIdx){var rows=getBodyRows();var map={};for(var i=0;i<rows.length;i++){var label=String(rows[i].cells[colIdx] ? rows[i].cells[colIdx].textContent : "").trim();if(label===".00")label="0.00";if(label==="- None -"||label==="NaN"||label==="Infinity")label="";var key=normalizeVal(label);if(!map.hasOwnProperty(key))map[key]=key===""?"(blank)":label;}var keys=Object.keys(map).sort(function(a,b){if(a==="")return 1;if(b==="")return -1;return String(map[a]).localeCompare(String(map[b]),undefined,{numeric:true,sensitivity:"base"});});return {keys:keys,map:map};}';
-
-    html += 'function closeHeaderPanels(){var open=portal.querySelector(".th-filter-panel");if(open)open.remove();var activeThs=table.querySelectorAll("th.th-filter-active");for(var i=0;i<activeThs.length;i++)activeThs[i].classList.remove("th-filter-active");}';
-
-    html += 'function openHeaderFilter(btn,colIdx){closeHeaderPanels();var th=btn.closest("th");if(!th)return;';
-    html += 'var grouped=allValuesForColumn(colIdx);var counts=getCountsForColumn(colIdx);var existing=activeHeaderFilters[colIdx]||null;var temp=new Set();';
-    html += 'if(existing&&existing.size){grouped.keys.forEach(function(k){if(existing.has(k))temp.add(k);});}else{grouped.keys.forEach(function(k){if((counts[k]||0)>0)temp.add(k);});}';
-    html += 'var panel=document.createElement("div");panel.className="th-filter-panel";';
-    html += 'panel.innerHTML=\'<div class="hdr">Filter</div><input type="search" placeholder="Search values..."><div class="list"></div><div class="actions"><button type="button" data-act="clear">Clear</button><div style="display:flex;gap:6px;"><button type="button" data-act="selectall">Select all</button><button type="button" data-act="deselectall">Deselect all</button><button type="button" data-act="apply">Apply</button></div></div>\';';
-    html += 'var list=panel.querySelector(".list");';
-    html += 'function render(ft){list.innerHTML="";ft=String(ft||"").toLowerCase();grouped.keys.forEach(function(k){var label=grouped.map[k]||"(blank)";if(ft&&label.toLowerCase().indexOf(ft)===-1)return;var row=document.createElement("div");row.className="row";row.dataset.key=k;var id="f_"+colIdx+"_"+Math.random().toString(36).slice(2);row.innerHTML=\'<input type="checkbox" id="\'+id+\'" \'+(temp.has(k)?"checked":"")+\'><label for="\'+id+\'">\'+label+((counts[k]||0)?(" ("+counts[k]+")"):"")+\'</label>\';list.appendChild(row);});}';
-    html += 'render("");';
-    html += 'panel.querySelector("input[type=search]").addEventListener("input",function(){render(this.value);});';
-    html += 'list.addEventListener("change",function(e){var cb=e.target;if(!cb||cb.type!=="checkbox")return;var row=cb.closest(".row");if(!row)return;var key=row.dataset.key||"";if(cb.checked)temp.add(key);else temp.delete(key);});';
-    html += 'panel.querySelector(".actions").addEventListener("click",function(e){var act=e.target.getAttribute("data-act");if(!act)return;if(act==="clear"){delete activeHeaderFilters[colIdx];closeHeaderPanels();applyAllFilters();return;}if(act==="selectall"){var cbs=list.querySelectorAll("input[type=checkbox]");for(var i=0;i<cbs.length;i++){cbs[i].checked=true;temp.add(cbs[i].closest(".row").dataset.key||"");}return;}if(act==="deselectall"){var cbs2=list.querySelectorAll("input[type=checkbox]");for(var j=0;j<cbs2.length;j++){cbs2[j].checked=false;temp.delete(cbs2[j].closest(".row").dataset.key||"");}return;}if(act==="apply"){if(temp.size===grouped.keys.length){delete activeHeaderFilters[colIdx];}else{activeHeaderFilters[colIdx]=new Set(temp);}closeHeaderPanels();if(activeHeaderFilters[colIdx]&&activeHeaderFilters[colIdx].size){th.classList.add("th-filter-active");}else{th.classList.remove("th-filter-active");}applyAllFilters();}});';
-    html += 'portal.appendChild(panel);th.classList.add("th-filter-active");';
-    html += 'var rect=btn.getBoundingClientRect();var pw=260;var ph=panel.offsetHeight||280;var left=Math.max(8,Math.min((window.innerWidth-pw-8),(rect.right-pw)));var top=(rect.bottom+ph+8<window.innerHeight)?(rect.bottom+6):Math.max(8,rect.top-ph-6);panel.style.left=Math.round(left)+"px";panel.style.top=Math.round(top)+"px";';
-    html += '}';
-
-    html += 'table.tHead.addEventListener("click",function(e){var btn=e.target.closest(".th-filter-btn");if(!btn)return;e.stopPropagation();openHeaderFilter(btn,parseInt(btn.getAttribute("data-col"),10));});';
-    html += 'document.addEventListener("click",function(e){if(!portal.contains(e.target)&&!e.target.closest(".th-filter-btn"))closeHeaderPanels();});';
-
-    html += 'function parseNum(v){v=String(v||"").replace(/,/g,"").trim();var n=parseFloat(v);return isNaN(n)?0:n;}';
-    html += 'function updateTotals(){var rows=getBodyRows();var totalCubic=0,totalWeight=0;for(var i=0;i<rows.length;i++){if(rows[i].style.display==="none")continue;var cubicCell=rows[i].querySelector(".cubic-space-cell");var weightCell=rows[i].querySelector(".weight-cell");if(cubicCell)totalCubic+=parseNum(cubicCell.textContent);if(weightCell)totalWeight+=parseNum(weightCell.textContent);}var cubicEl=document.getElementById("totalCubicValue");var weightEl=document.getElementById("totalWeightValue");if(cubicEl)cubicEl.textContent=totalCubic.toFixed(2);if(weightEl)weightEl.textContent=totalWeight.toFixed(2);}';
-
-    html += 'var form=document.querySelector("form");var hiddenSelected=document.getElementById("custpage_selected");';
-    html += 'function collectSelectedRows(){if(!hiddenSelected)return;var out=[];var rows=getBodyRows();for(var i=0;i<rows.length;i++){var tr=rows[i];var cb=tr.querySelector(\'input[type="checkbox"][name^="row_select_"]\');if(cb&&cb.checked){var rowId=(cb.name||"").split("_").pop();var qtyInput=tr.querySelector(\'input[type="number"][name^="qty_input_"]\');var memoInput=tr.querySelector(\'input[type="text"][name^="memo_input_"]\');var mosCell=tr.querySelector(".month-stock-cell");out.push({rowId:rowId,qty:qtyInput?qtyInput.value:"0",memo:memoInput?memoInput.value:"",mos:mosCell?mosCell.textContent:"0"});}}hiddenSelected.value=JSON.stringify(out);}';
-    html += 'if(form){form.addEventListener("submit",function(){collectSelectedRows();closeHeaderPanels();});}';
-
-    html += 'applyAllFilters();syncTopScrollWidth();';
-    html += '})();';
-    html += '</script>';
-
-    return html;
-  }
-
-  function getOutputHeaders(headers, adminCsvIndex, truncateAfterAdmin, removeJustAdmin) {
-    var out = [];
-    var i;
-
-    if (adminCsvIndex >= 0) {
-      if (truncateAfterAdmin) {
-        for (i = 0; i < adminCsvIndex; i++) {
-          out.push(sanitizeCsvText(unquoteCsv(headers[i] || '')));
-        }
-        return out;
+    cfg.displayCols.forEach(function (value, idx) {
+      var cleaned = cleanDisplayValue(value);
+      if (idx === 0) {
+        html += '<td class="sticky-col c5"><input type="text" class="memo-input" name="memo_input_' + cfg.rowId + '" value="' + escapeHtmlAttr(cleaned) + '" /></td>';
+      } else if (idx < 5) {
+        html += '<td class="sticky-col c' + (idx + 5) + '">' + escapeHtml(cleaned) + '</td>';
+      } else {
+        html += '<td>' + escapeHtml(cleaned) + '</td>';
       }
-
-      if (removeJustAdmin) {
-        for (i = 0; i < headers.length; i++) {
-          if (i !== adminCsvIndex) out.push(sanitizeCsvText(unquoteCsv(headers[i] || '')));
-        }
-        return out;
-      }
-    }
-
-    for (i = 0; i < headers.length; i++) {
-      out.push(sanitizeCsvText(unquoteCsv(headers[i] || '')));
-    }
-    return out;
-  }
-
-  function getOutputRowColumns(baseCols, adminCsvIndex, truncateAfterAdmin, removeJustAdmin) {
-    var out = [];
-    var i;
-
-    if (adminCsvIndex >= 0) {
-      if (truncateAfterAdmin) {
-        for (i = 0; i < adminCsvIndex; i++) out.push(baseCols[i]);
-        return out;
-      }
-
-      if (removeJustAdmin) {
-        for (i = 0; i < baseCols.length; i++) {
-          if (i !== adminCsvIndex) out.push(baseCols[i]);
-        }
-        return out;
-      }
-    }
-
-    return baseCols.slice();
-  }
-
-  function getOutputIndexForOriginalCsvIndex(originalIndex, adminCsvIndex, truncateAfterAdmin, removeJustAdmin) {
-    if (truncateAfterAdmin && adminCsvIndex >= 0) {
-      if (originalIndex >= adminCsvIndex) return null;
-      return originalIndex;
-    }
-
-    if (removeJustAdmin && adminCsvIndex >= 0) {
-      if (originalIndex === adminCsvIndex) return null;
-      if (originalIndex > adminCsvIndex) return originalIndex - 1;
-      return originalIndex;
-    }
-
-    return originalIndex;
-  }
-
-  function buildTopSelect(id, label, values) {
-    var html = '<div><label for="' + escapeAttr(id) + '">' + escapeHtml(label) + '</label><select id="' + escapeAttr(id) + '" multiple size="6">';
-    var i;
-    for (i = 0; i < values.length; i++) {
-      html += '<option value="' + escapeAttr(values[i]) + '">' + escapeHtml(values[i]) + '</option>';
-    }
-    html += '</select></div>';
-    return html;
-  }
-
-  function buildCsvString(rows) {
-    var out = [];
-    var i, j;
-    for (i = 0; i < rows.length; i++) {
-      var line = [];
-      for (j = 0; j < rows[i].length; j++) {
-        line.push(cleanCsvValue(rows[i][j]));
-      }
-      out.push(line.join(','));
-    }
-    return out.join('\n');
-  }
-
-  function saveCsvFile(name, contents, folderId, isOnline) {
-    var f = file.create({
-      name: name,
-      fileType: file.Type.CSV,
-      contents: contents,
-      encoding: file.Encoding.UTF8,
-      folder: folderId,
-      isOnline: !!isOnline
     });
-    return f.save();
+
+    html += '</tr>';
+    return html;
+  }
+
+  function buildHtml(cfg) {
+    var headersHtml = '';
+    headersHtml += '<th class="sticky-col c0">Select</th>';
+    headersHtml += '<th class="sticky-col c1">Order Qty</th>';
+    headersHtml += '<th class="sticky-col c2">Month of Stock</th>';
+    headersHtml += '<th class="sticky-col c3">Item Space</th>';
+    headersHtml += '<th class="sticky-col c4">Weight</th>';
+
+    cfg.headersForOutput.forEach(function (value, idx) {
+      var label = cleanDisplayValue(value) || ('Col ' + (idx + 1));
+      var stickyClass = idx < 5 ? ' sticky-col c' + (idx + 5) : '';
+      headersHtml += ''
+        + '<th class="' + stickyClass + '" data-col="' + (idx + 5) + '">'
+        +   '<div class="th-inner">'
+        +     '<span class="th-text">' + escapeHtml(label) + '</span>'
+        +     '<button type="button" class="th-filter-btn" data-col="' + (idx + 5) + '">▾</button>'
+        +   '</div>'
+        + '</th>';
+    });
+
+    return ''
+      + '<style>'
+      + 'body{font-family:Arial,sans-serif;}'
+      + '.rr-wrap{width:100%;max-width:100%;box-sizing:border-box;}'
+      + '.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px 0;flex-wrap:wrap;}'
+      + '.toolbar-left,.toolbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}'
+      + '.icon-btn,.btn{border:1px solid #cfd8e3;background:#fff;color:#1f2937;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:12px;}'
+      + '.icon-btn:hover,.btn:hover{background:#f8fafc;}'
+      + '.btn-primary{background:#2563eb;border-color:#2563eb;color:#fff;}'
+      + '.btn-primary:hover{background:#1d4ed8;}'
+      + '.totals-bar{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #cfe3ff;border-radius:999px;background:#f4f8ff;}'
+      + '.totals-label{font-size:11px;font-weight:700;color:#2b5a99;text-transform:uppercase;}'
+      + '.totals-value{font-size:13px;font-weight:700;color:#0f3f78;font-variant-numeric:tabular-nums;}'
+      + '.filter-shell{position:relative;}'
+      + '.filter-panel{display:none;position:absolute;top:38px;left:0;z-index:9999;background:#fff;border:1px solid #d7dee8;border-radius:12px;box-shadow:0 12px 30px rgba(15,23,42,.12);width:980px;max-width:min(980px,95vw);padding:14px;}'
+      + '.filter-panel.open{display:block;}'
+      + '.filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;}'
+      + '.filter-box{border:1px solid #e5e7eb;border-radius:10px;padding:10px;background:#fbfdff;}'
+      + '.filter-box label{display:block;font-size:12px;font-weight:700;margin:0 0 6px 0;color:#334155;}'
+      + '.filter-search{width:100%;box-sizing:border-box;padding:7px 8px;border:1px solid #cbd5e1;border-radius:8px;margin-bottom:8px;font-size:12px;}'
+      + '.filter-list{border:1px solid #e5e7eb;border-radius:8px;height:170px;overflow:auto;background:#fff;padding:6px;}'
+      + '.filter-row{display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12px;}'
+      + '.filter-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}'
+      + '.table-wrap{width:100%;max-width:calc(100vw - 24px);border:1px solid #d7dee8;border-radius:12px;overflow:hidden;background:#fff;}'
+      + '.top-scroll{height:14px;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid #e5e7eb;background:#f8fafc;}'
+      + '.top-scroll-inner{height:1px;}'
+      + '.table-container{max-height:78vh;overflow:auto;position:relative;}'
+      + '#excelTable{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;table-layout:fixed;}'
+      + '#excelTable th,#excelTable td{border-right:1px solid #d7dee8;border-bottom:1px solid #d7dee8;padding:7px 10px;background:#fff;white-space:nowrap;font-size:12px;box-sizing:border-box;}'
+      + '#excelTable th{position:sticky;top:0;background:#f6f8fb;z-index:40;font-weight:700;color:#1f2937;}'
+      + '#excelTable tr:nth-child(even) td{background:#fcfdff;}'
+      + '#excelTable tr:hover td{background:#f8fbff;}'
+      + '#excelTable th:first-child,#excelTable td:first-child{border-left:1px solid #d7dee8;}'
+      + '#excelTable thead tr:first-child th{border-top:1px solid #d7dee8;}'
+      + '.th-inner{display:flex;align-items:center;justify-content:space-between;gap:6px;}'
+      + '.th-text{display:inline-block;overflow:hidden;text-overflow:ellipsis;}'
+      + '.th-filter-btn{border:1px solid #d1d5db;background:#fff;border-radius:6px;padding:2px 6px;cursor:pointer;font-size:11px;line-height:1.2;}'
+      + '.th-filter-btn:hover{background:#f3f4f6;}'
+      + '.header-panel{position:fixed;z-index:10000;width:280px;max-height:360px;overflow:hidden;background:#fff;border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 12px 30px rgba(15,23,42,.18);padding:10px;}'
+      + '.header-panel .title{font-size:12px;font-weight:700;margin-bottom:8px;}'
+      + '.header-panel .list{border:1px solid #e5e7eb;border-radius:8px;max-height:210px;overflow:auto;padding:6px;background:#fff;}'
+      + '.header-panel .row{display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12px;}'
+      + '.header-panel .actions{display:flex;justify-content:space-between;gap:6px;margin-top:8px;flex-wrap:wrap;}'
+      + '.sticky-col{position:sticky;background:#fff;z-index:30;box-shadow:inset -1px 0 0 #d7dee8;}'
+      + '#excelTable thead .sticky-col{z-index:60;background:#f6f8fb;}'
+      + '.c0{left:0;min-width:58px;max-width:58px;width:58px;}'
+      + '.c1{left:58px;min-width:105px;max-width:105px;width:105px;}'
+      + '.c2{left:163px;min-width:118px;max-width:118px;width:118px;}'
+      + '.c3{left:281px;min-width:110px;max-width:110px;width:110px;}'
+      + '.c4{left:391px;min-width:100px;max-width:100px;width:100px;}'
+      + '.c5{left:491px;min-width:220px;max-width:220px;width:220px;}'
+      + '.c6{left:711px;min-width:120px;max-width:120px;width:120px;}'
+      + '.c7{left:831px;min-width:170px;max-width:170px;width:170px;}'
+      + '.c8{left:1001px;min-width:110px;max-width:110px;width:110px;}'
+      + '.c9{left:1111px;min-width:420px;max-width:420px;width:420px;}'
+      + '.qty-input,.memo-input{width:100%;box-sizing:border-box;padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;background:#fff;}'
+      + '.qty-input{min-width:80px;}'
+      + '.hidden-row{display:none !important;}'
+      + '.muted{color:#64748b;font-size:11px;}'
+      + '.panel-backdrop{display:none;}'
+      + '@media (max-width:980px){.filter-grid{grid-template-columns:1fr;}.filter-panel{width:min(95vw,980px);}}'
+      + '</style>'
+
+      + '<div class="rr-wrap">'
+      +   '<div class="toolbar">'
+      +     '<div class="toolbar-left">'
+      +       '<button id="downloadCsvBtn" class="icon-btn" type="button" title="Download CSV">Download CSV</button>'
+      +       (cfg.showTopFilters ? ''
+      +         + '<div class="filter-shell">'
+      +           '<button id="topFilterBtn" class="btn" type="button">Filters</button>'
+      +           '<div id="topFilterPanel" class="filter-panel">'
+      +             '<div class="filter-grid">'
+      +               buildFilterBox('item', 'Item')
+      +               + buildFilterBox('vendor', 'Vendor')
+      +               + buildFilterBox('brand', 'Brand')
+      +               + buildFilterBox('brandCat', 'Brand Category')
+      +               + buildFilterBox('dept', 'Department')
+      +               + buildFilterBox('pol', 'P.O.L')
+      +               + buildFilterBox('product', 'Product Type')
+      +             + '</div>'
+      +             '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">'
+      +               '<button type="button" class="btn" id="clearAllTopFilters">Clear All</button>'
+      +               '<button type="button" class="btn btn-primary" id="applyTopFilters">Apply</button>'
+      +             '</div>'
+      +           '</div>'
+      +         '</div>'
+      +       : '')
+      +     '</div>'
+      +     '<div class="toolbar-right">'
+      +       '<div class="totals-bar"><span class="totals-label">Selected Rows</span><span id="selectedCount" class="totals-value">0</span></div>'
+      +       '<div class="totals-bar"><span class="totals-label">Visible Rows</span><span id="visibleCount" class="totals-value">0</span></div>'
+      +       '<div class="totals-bar"><span class="totals-label">Total Cubic Space</span><span id="totalCubicValue" class="totals-value">0</span></div>'
+      +       '<div class="totals-bar"><span class="totals-label">Total Weight</span><span id="totalWeightValue" class="totals-value">0</span></div>'
+      +     '</div>'
+      +   '</div>'
+
+      +   '<div class="table-wrap">'
+      +     '<div id="topScroll" class="top-scroll"><div id="topScrollInner" class="top-scroll-inner"></div></div>'
+      +     '<div id="tableContainer" class="table-container">'
+      +       '<table id="excelTable">'
+      +         '<thead><tr>' + headersHtml + '</tr></thead>'
+      +         '<tbody>' + cfg.rowsHtml + '</tbody>'
+      +       '</table>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>'
+
+      + '<div id="filterPortal"></div>'
+
+      + '<script>'
+      + 'window.DOWNLOAD_URL=' + JSON.stringify(cfg.downloadUrl || '') + ';'
+      + 'window.__FILTER_DATA__=' + JSON.stringify(cfg.filterSets) + ';'
+      + 'window.__ADMIN_IDX__=' + JSON.stringify(cfg.adminCsvIndex) + ';'
+      + 'window.__TRUNC_AFTER__=' + JSON.stringify(cfg.truncateAfterAdmin && cfg.adminCsvIndex >= 0) + ';'
+      + 'window.__ADMIN_REMOVED__=' + JSON.stringify(cfg.removeJustAdmin && cfg.adminCsvIndex >= 0) + ';'
+      + '</script>'
+
+      + '<script>'
+      + '(function(){'
+      + 'function qs(s,r){return (r||document).querySelector(s);}'
+      + 'function qsa(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s));}'
+      + 'function text(v){return String(v==null?"":v);}'
+      + 'function lower(v){return text(v).toLowerCase();}'
+      + 'function byId(id){return document.getElementById(id);}'
+      + 'function uniqSorted(arr){return arr.slice().sort(function(a,b){return String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:"base"});});}'
+      + 'function toNumber(v){var n=parseFloat(v);return isNaN(n)?0:n;}'
+      + 'function escapeHtml(v){return text(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;");}'
+
+      + 'var table=byId("excelTable");'
+      + 'var container=byId("tableContainer");'
+      + 'var topScroll=byId("topScroll");'
+      + 'var topInner=byId("topScrollInner");'
+      + 'var suiteletForm=document.querySelector("form");'
+      + 'var hiddenSelected=byId("custpage_selected");'
+      + 'var topFilterBtn=byId("topFilterBtn");'
+      + 'var topFilterPanel=byId("topFilterPanel");'
+      + 'var filterData=window.__FILTER_DATA__||{};'
+      + 'var selectedCountEl=byId("selectedCount");'
+      + 'var visibleCountEl=byId("visibleCount");'
+      + 'var totalCubicValue=byId("totalCubicValue");'
+      + 'var totalWeightValue=byId("totalWeightValue");'
+      + 'var activeHeaderFilters={};'
+      + 'var activeTopFilters={ item:new Set(), vendor:new Set(), brand:new Set(), brandCat:new Set(), dept:new Set(), pol:new Set(), product:new Set() };'
+
+      + 'function syncTopScroll(){ if(!table||!topInner)return; topInner.style.width=Math.max(table.scrollWidth, container.clientWidth+2)+"px"; }'
+      + 'if(topScroll&&container){ topScroll.addEventListener("scroll",function(){ container.scrollLeft=topScroll.scrollLeft; }); container.addEventListener("scroll",function(){ topScroll.scrollLeft=container.scrollLeft; }); }'
+      + 'window.addEventListener("resize", function(){ setTimeout(syncTopScroll, 50); });'
+      + 'setTimeout(syncTopScroll, 50); setTimeout(syncTopScroll, 250);'
+
+      + 'function getBodyRows(){ return qsa("#excelTable tbody tr"); }'
+      + 'function isRowVisible(tr){ return tr.style.display !== "none"; }'
+      + 'function updateSummary(){'
+      + '  var rows=getBodyRows();'
+      + '  var visible=0, selected=0, cubic=0, weight=0;'
+      + '  rows.forEach(function(tr){'
+      + '    if(isRowVisible(tr)) visible++;'
+      + '    var cb=qs(\'input[type="checkbox"][name^="row_select_"]\', tr);'
+      + '    if(cb && cb.checked){'
+      + '      selected++;'
+      + '      cubic += toNumber((qs(".item-space-cell", tr)||{}).textContent);'
+      + '      weight += toNumber((qs(".weight-cell", tr)||{}).textContent);'
+      + '    }'
+      + '  });'
+      + '  if(selectedCountEl) selectedCountEl.textContent=String(selected);'
+      + '  if(visibleCountEl) visibleCountEl.textContent=String(visible);'
+      + '  if(totalCubicValue) totalCubicValue.textContent=(Math.round(cubic*100)/100).toFixed(2).replace(/\\.00$/,"");'
+      + '  if(totalWeightValue) totalWeightValue.textContent=(Math.round(weight*100)/100).toFixed(2).replace(/\\.00$/,"");'
+      + '}'
+
+      + 'function createFilterOptions(boxId, values){'
+      + '  var list=byId(boxId+"_list");'
+      + '  var search=byId(boxId+"_search");'
+      + '  if(!list) return;'
+      + '  values=uniqSorted(values||[]);'
+      + '  function render(term){'
+      + '    var t=lower(term);'
+      + '    list.innerHTML="";'
+      + '    values.forEach(function(v){'
+      + '      if(t && lower(v).indexOf(t)===-1) return;'
+      + '      var row=document.createElement("div");'
+      + '      row.className="filter-row";'
+      + '      row.innerHTML=\'<input type="checkbox" value="\'+escapeHtml(v)+\'"><span>\'+escapeHtml(v||"(blank)")+\'</span>\';'
+      + '      list.appendChild(row);'
+      + '    });'
+      + '    restoreTopSelections(boxId);'
+      + '  }'
+      + '  if(search){ search.addEventListener("input", function(){ render(this.value||""); }); }'
+      + '  render("");'
+      + '}'
+
+      + 'function restoreTopSelections(boxId){'
+      + '  var map={ item:"item", vendor:"vendor", brand:"brand", brandCat:"brandCat", dept:"dept", pol:"pol", product:"product" };'
+      + '  var key=map[boxId]; if(!key) return;'
+      + '  var selected=activeTopFilters[key];'
+      + '  qsa("input[type=checkbox]", byId(boxId+"_list")).forEach(function(cb){'
+      + '    cb.checked = selected.has(lower(cb.value));'
+      + '  });'
+      + '}'
+
+      + 'function syncSelectionsFromBox(boxId){'
+      + '  var map={ item:"item", vendor:"vendor", brand:"brand", brandCat:"brandCat", dept:"dept", pol:"pol", product:"product" };'
+      + '  var key=map[boxId]; if(!key) return;'
+      + '  var selected=activeTopFilters[key];'
+      + '  qsa("input[type=checkbox]", byId(boxId+"_list")).forEach(function(cb){'
+      + '    if(cb.checked) selected.add(lower(cb.value)); else selected.delete(lower(cb.value));'
+      + '  });'
+      + '}'
+
+      + '["item","vendor","brand","brandCat","dept","pol","product"].forEach(function(key){'
+      + '  createFilterOptions(key, filterData[key+"s"] || []);'
+      + '  var list=byId(key+"_list");'
+      + '  if(list){ list.addEventListener("change", function(){ syncSelectionsFromBox(key); }); }'
+      + '  var allBtn=byId(key+"_selectall");'
+      + '  var noneBtn=byId(key+"_deselectall");'
+      + '  if(allBtn){ allBtn.addEventListener("click", function(){ qsa("input[type=checkbox]", list).forEach(function(cb){ cb.checked=true; }); syncSelectionsFromBox(key); }); }'
+      + '  if(noneBtn){ noneBtn.addEventListener("click", function(){ qsa("input[type=checkbox]", list).forEach(function(cb){ cb.checked=false; }); syncSelectionsFromBox(key); }); }'
+      + '});'
+
+      + 'if(topFilterBtn && topFilterPanel){'
+      + '  topFilterBtn.addEventListener("click", function(e){ e.stopPropagation(); topFilterPanel.classList.toggle("open"); });'
+      + '  document.addEventListener("click", function(e){ if(!topFilterPanel.contains(e.target) && e.target!==topFilterBtn){ topFilterPanel.classList.remove("open"); } });'
+      + '}'
+
+      + 'function rowPassTopFilters(tr){'
+      + '  function ok(key, attr){ var set=activeTopFilters[key]; if(!set || !set.size) return true; return set.has(lower(tr.getAttribute(attr)||"")); }'
+      + '  return ok("item","data-item") && ok("vendor","data-vendor") && ok("brand","data-brand") && ok("brandCat","data-brandcat") && ok("dept","data-dept") && ok("pol","data-pol") && ok("product","data-product");'
+      + '}'
+
+      + 'function getCellText(tr, idx){ var td=tr.cells[idx]; return td ? lower(td.textContent||"") : ""; }'
+      + 'function rowPassHeaderFilters(tr){'
+      + '  for(var k in activeHeaderFilters){'
+      + '    if(!activeHeaderFilters.hasOwnProperty(k)) continue;'
+      + '    var set=activeHeaderFilters[k];'
+      + '    if(set && set.size){ if(!set.has(getCellText(tr, parseInt(k,10)))) return false; }'
+      + '  }'
+      + '  return true;'
+      + '}'
+
+      + 'function applyAllFilters(){'
+      + '  getBodyRows().forEach(function(tr){'
+      + '    tr.style.display = (rowPassTopFilters(tr) && rowPassHeaderFilters(tr)) ? "" : "none";'
+      + '  });'
+      + '  updateSummary();'
+      + '}'
+
+      + 'var applyTopFiltersBtn=byId("applyTopFilters");'
+      + 'if(applyTopFiltersBtn){ applyTopFiltersBtn.addEventListener("click", function(){ applyAllFilters(); if(topFilterPanel) topFilterPanel.classList.remove("open"); }); }'
+      + 'var clearAllTopFiltersBtn=byId("clearAllTopFilters");'
+      + 'if(clearAllTopFiltersBtn){ clearAllTopFiltersBtn.addEventListener("click", function(){'
+      + '  Object.keys(activeTopFilters).forEach(function(k){ activeTopFilters[k]=new Set(); });'
+      + '  ["item","vendor","brand","brandCat","dept","pol","product"].forEach(function(key){'
+      + '    qsa("input[type=checkbox]", byId(key+"_list")).forEach(function(cb){ cb.checked=false; });'
+      + '    var s=byId(key+"_search"); if(s) s.value="";'
+      + '    createFilterOptions(key, filterData[key+"s"] || []);'
+      + '  });'
+      + '  applyAllFilters();'
+      + '}); }'
+
+      + 'function closeHeaderPanel(){ var p=qs(".header-panel"); if(p){ p.remove(); } }'
+      + 'function getColumnUniverse(colIdx){'
+      + '  var seen={};'
+      + '  getBodyRows().forEach(function(tr){'
+      + '    var val=(tr.cells[colIdx]?tr.cells[colIdx].textContent:"")||"";'
+      + '    val=val===" - None - " ? "" : val;'
+      + '    seen[lower(val.trim())]=val.trim();'
+      + '  });'
+      + '  return Object.keys(seen).map(function(k){ return { key:k, label: seen[k] || "(blank)" }; }).sort(function(a,b){ return a.label.localeCompare(b.label,undefined,{numeric:true,sensitivity:"base"}); });'
+      + '}'
+
+      + 'function openHeaderFilter(btn, colIdx){'
+      + '  closeHeaderPanel();'
+      + '  var panel=document.createElement("div");'
+      + '  panel.className="header-panel";'
+      + '  panel.innerHTML='
+      + '    \'<div class="title">Filter</div>\' +'
+      + '    \'<input type="search" class="filter-search" placeholder="Search values...">\' +'
+      + '    \'<div class="list"></div>\' +'
+      + '    \'<div class="actions">\' +'
+      + '      \'<button type="button" class="btn" data-act="clear">Clear</button>\' +'
+      + '      \'<button type="button" class="btn" data-act="selectall">Select all</button>\' +'
+      + '      \'<button type="button" class="btn" data-act="deselectall">Deselect all</button>\' +'
+      + '      \'<button type="button" class="btn btn-primary" data-act="apply">Apply</button>\' +'
+      + '    \'</div>\';'
+      + '  var list=qs(".list", panel);'
+      + '  var search=qs(".filter-search", panel);'
+      + '  var universe=getColumnUniverse(colIdx);'
+      + '  var current=activeHeaderFilters[colIdx] ? new Set(Array.from(activeHeaderFilters[colIdx])) : new Set(universe.map(function(v){ return v.key; }));'
+      + '  function render(term){'
+      + '    var t=lower(term); list.innerHTML="";'
+      + '    universe.forEach(function(row){'
+      + '      if(t && lower(row.label).indexOf(t)===-1) return;'
+      + '      var item=document.createElement("div");'
+      + '      item.className="row";'
+      + '      item.setAttribute("data-key", row.key);'
+      + '      item.innerHTML=\'<input type="checkbox" \'+(current.has(row.key)?\'checked\':\'\')+\'> <span>\'+escapeHtml(row.label||"(blank)")+\'</span>\';'
+      + '      list.appendChild(item);'
+      + '    });'
+      + '  }'
+      + '  render("");'
+      + '  search.addEventListener("input", function(){ render(this.value||""); });'
+      + '  list.addEventListener("change", function(e){'
+      + '    var row=e.target.closest(".row"); if(!row) return;'
+      + '    var key=row.getAttribute("data-key")||"";'
+      + '    if(e.target.checked) current.add(key); else current.delete(key);'
+      + '  });'
+      + '  qs(".actions", panel).addEventListener("click", function(e){'
+      + '    var act=e.target.getAttribute("data-act"); if(!act) return;'
+      + '    if(act==="clear"){ delete activeHeaderFilters[colIdx]; closeHeaderPanel(); applyAllFilters(); return; }'
+      + '    if(act==="selectall"){ qsa("input[type=checkbox]", list).forEach(function(cb){ cb.checked=true; current.add(cb.closest(".row").getAttribute("data-key")||""); }); return; }'
+      + '    if(act==="deselectall"){ qsa("input[type=checkbox]", list).forEach(function(cb){ cb.checked=false; current.delete(cb.closest(".row").getAttribute("data-key")||""); }); return; }'
+      + '    if(act==="apply"){'
+      + '      if(current.size===universe.length){ delete activeHeaderFilters[colIdx]; } else { activeHeaderFilters[colIdx]=new Set(Array.from(current)); }'
+      + '      closeHeaderPanel();'
+      + '      applyAllFilters();'
+      + '    }'
+      + '  });'
+      + '  document.body.appendChild(panel);'
+      + '  var rect=btn.getBoundingClientRect();'
+      + '  var top=rect.bottom+6;'
+      + '  var left=Math.max(8, Math.min(window.innerWidth - 300, rect.right - 280));'
+      + '  panel.style.top=top+"px"; panel.style.left=left+"px";'
+      + '  setTimeout(function(){'
+      + '    document.addEventListener("click", function handler(ev){'
+      + '      if(panel.contains(ev.target) || btn.contains(ev.target)) return;'
+      + '      panel.remove();'
+      + '      document.removeEventListener("click", handler);'
+      + '    });'
+      + '  },0);'
+      + '}'
+
+      + 'if(table && table.tHead){'
+      + '  table.tHead.addEventListener("click", function(e){'
+      + '    var btn=e.target.closest(".th-filter-btn");'
+      + '    if(!btn) return;'
+      + '    e.preventDefault(); e.stopPropagation();'
+      + '    openHeaderFilter(btn, parseInt(btn.getAttribute("data-col"),10));'
+      + '  });'
+      + '}'
+
+      + 'var downloadBtn=byId("downloadCsvBtn");'
+      + 'if(downloadBtn){ downloadBtn.addEventListener("click", function(e){ e.preventDefault(); if(window.DOWNLOAD_URL){ window.open(window.DOWNLOAD_URL, "_blank"); } else { alert("Download not available yet."); } }); }'
+
+      + 'function collectSelectedRows(){'
+      + '  if(!hiddenSelected) return;'
+      + '  var out=[];'
+      + '  getBodyRows().forEach(function(tr){'
+      + '    var cb=qs(\'input[type="checkbox"][name^="row_select_"]\', tr);'
+      + '    if(cb && cb.checked){'
+      + '      var rowId=(cb.name||"").split("_").pop();'
+      + '      var qtyInput=qs(\'input[type="number"][name^="qty_input_"]\', tr);'
+      + '      var memoInput=qs(\'input[type="text"][name^="memo_input_"]\', tr);'
+      + '      var mosCell=qs(".month-stock-cell", tr);'
+      + '      out.push({'
+      + '        rowId: rowId,'
+      + '        qty: qtyInput ? (qtyInput.value||"0") : "0",'
+      + '        memo: memoInput ? (memoInput.value||"") : "",'
+      + '        mos: mosCell ? (mosCell.textContent||"").trim() : ""'
+      + '      });'
+      + '    }'
+      + '  });'
+      + '  hiddenSelected.value=JSON.stringify(out);'
+      + '}'
+
+      + 'function nativeSubmit(){'
+      + '  if(!suiteletForm) return;'
+      + '  collectSelectedRows();'
+      + '  closeHeaderPanel();'
+      + '  try{ HTMLFormElement.prototype.submit.call(suiteletForm); }'
+      + '  catch(e){ if(typeof suiteletForm.submit==="function") suiteletForm.submit(); }'
+      + '}'
+
+      + 'var nsSubmitBtn=document.querySelector(\'input[type="submit"],button[type="submit"]\');'
+      + 'if(nsSubmitBtn){ nsSubmitBtn.addEventListener("click", function(){ setTimeout(nativeSubmit, 0); }, true); }'
+      + 'if(suiteletForm){ suiteletForm.addEventListener("submit", function(){ setTimeout(collectSelectedRows, 0); }, true); }'
+
+      + 'document.addEventListener("change", function(e){'
+      + '  if(e.target && (e.target.matches(\'input[type="checkbox"][name^="row_select_"]\') || e.target.matches(".qty-input"))){ updateSummary(); }'
+      + '});'
+
+      + 'applyAllFilters();'
+      + 'updateSummary();'
+      + '})();'
+      + '</script>';
+  }
+
+  function buildFilterBox(id, label) {
+    return ''
+      + '<div class="filter-box">'
+      +   '<label for="' + id + '_search">' + escapeHtml(label) + '</label>'
+      +   '<input type="search" id="' + id + '_search" class="filter-search" placeholder="Search ' + escapeHtmlAttr(label) + '">'
+      +   '<div id="' + id + '_list" class="filter-list"></div>'
+      +   '<div class="filter-actions">'
+      +     '<button type="button" class="btn" id="' + id + '_selectall">Select All</button>'
+      +     '<button type="button" class="btn" id="' + id + '_deselectall">Deselect All</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function getLatestFiles() {
+    var out = {
+      mainId: null,
+      secondaryId: null,
+      thirdId: null
+    };
+
+    var folderSearchObj = search.create({
+      type: 'folder',
+      filters: [
+        ['internalid', 'anyof', String(SOURCE_FOLDERS.MAIN), String(SOURCE_FOLDERS.SECONDARY), String(SOURCE_FOLDERS.THIRD)],
+        'AND',
+        ['file.documentsize', 'greaterthan', '5']
+      ],
+      columns: [
+        search.createColumn({ name: 'internalid', summary: 'GROUP' }),
+        search.createColumn({ name: 'internalid', join: 'file', summary: 'MAX' })
+      ]
+    });
+
+    folderSearchObj.run().each(function (result) {
+      var folderId = result.getValue({ name: 'internalid', summary: 'GROUP' });
+      var latestFileId = result.getValue({ name: 'internalid', join: 'file', summary: 'MAX' });
+
+      if (String(folderId) === String(SOURCE_FOLDERS.MAIN)) out.mainId = latestFileId;
+      if (String(folderId) === String(SOURCE_FOLDERS.SECONDARY)) out.secondaryId = latestFileId;
+      if (String(folderId) === String(SOURCE_FOLDERS.THIRD)) out.thirdId = latestFileId;
+
+      return true;
+    });
+
+    return out;
   }
 
   function getInventoryBalanceMap() {
@@ -928,26 +1059,46 @@ define([
       ],
       columns: [
         search.createColumn({ name: 'item', summary: 'GROUP' }),
-        search.createColumn({ name: 'formulanumeric', summary: 'SUM', formula: "case when {status} = 'Good' then {onhand} else 0 end" }),
-        search.createColumn({ name: 'formulanumeric1', summary: 'SUM', formula: "case when {status} = 'Deviation' then {onhand} else 0 end" }),
-        search.createColumn({ name: 'formulanumeric2', summary: 'SUM', formula: "case when {status} = 'Hold' then {onhand} else 0 end" }),
-        search.createColumn({ name: 'formulanumeric3', summary: 'SUM', formula: "case when {status} = 'Inspection' then {onhand} else 0 end" }),
-        search.createColumn({ name: 'formulanumeric4', summary: 'SUM', formula: "case when {status} = 'Label' then {onhand} else 0 end" }),
-        search.createColumn({ name: 'available', summary: 'SUM' })
+        search.createColumn({
+          name: 'formulanumeric',
+          summary: 'SUM',
+          formula: "case when {status} = 'Good' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: 'formulanumeric1',
+          summary: 'SUM',
+          formula: "case when {status} = 'Deviation' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: 'formulanumeric2',
+          summary: 'SUM',
+          formula: "case when {status} = 'Hold' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: 'formulanumeric3',
+          summary: 'SUM',
+          formula: "case when {status} = 'Inspection' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: 'formulanumeric4',
+          summary: 'SUM',
+          formula: "case when {status} = 'Label' then {onhand} else 0 end"
+        }),
+        search.createColumn({ name: 'available', summary: 'SUM', label: 'Available' })
       ]
     });
 
-    inventorybalanceSearchObj.run().each(function (res) {
-      var itemId = res.getValue({ name: 'item', summary: 'GROUP' });
-      var goodQty = safeParseFloat(res.getValue({ name: 'formulanumeric', summary: 'SUM' }));
-      var badQty = safeParseFloat(res.getValue({ name: 'formulanumeric1', summary: 'SUM' }));
-      var holdQty = safeParseFloat(res.getValue({ name: 'formulanumeric2', summary: 'SUM' }));
-      var inspectQty = safeParseFloat(res.getValue({ name: 'formulanumeric3', summary: 'SUM' }));
-      var labelQty = safeParseFloat(res.getValue({ name: 'formulanumeric4', summary: 'SUM' }));
-      var avail = safeParseFloat(res.getValue({ name: 'available', summary: 'SUM' }));
+    inventorybalanceSearchObj.run().each(function (result) {
+      var itemId = result.getValue({ name: 'item', summary: 'GROUP' });
+      var goodQty = safeParseFloat(result.getValue({ name: 'formulanumeric', summary: 'SUM' }));
+      var badQty = safeParseFloat(result.getValue({ name: 'formulanumeric1', summary: 'SUM' }));
+      var holdQty = safeParseFloat(result.getValue({ name: 'formulanumeric2', summary: 'SUM' }));
+      var inspectQty = safeParseFloat(result.getValue({ name: 'formulanumeric3', summary: 'SUM' }));
+      var labelQty = safeParseFloat(result.getValue({ name: 'formulanumeric4', summary: 'SUM' }));
       var total = safeParseFloat((goodQty + badQty).toFixed(2));
+      var avail = safeParseFloat(result.getValue({ name: 'available', summary: 'SUM' }));
 
-      resultMap[String(itemId)] = {
+      resultMap[itemId] = {
         good: goodQty,
         bad: badQty,
         hold: holdQty,
@@ -962,16 +1113,126 @@ define([
     return resultMap;
   }
 
+  function buildCsvContent(outputRows) {
+    var lines = [];
+    outputRows.forEach(function (row) {
+      lines.push(row.map(function (cell) {
+        return sanitizeCellForCsv(cell);
+      }).join(','));
+    });
+    return '\uFEFF' + lines.join('\n');
+  }
+
+  function sanitizeCellForCsv(value) {
+    var v = sanitizeText(value);
+    v = cleanDisplayValue(v);
+
+    if (v === '.00') v = '0.00';
+
+    var needsQuotes = /[",\r\n]/.test(v);
+    if (needsQuotes) {
+      v = '"' + v.replace(/"/g, '""') + '"';
+    }
+    return v;
+  }
+
+  function cleanDisplayValue(value) {
+    var v = value == null ? '' : String(value);
+    v = v.replace(/^"+|"+$/g, '');
+    v = v.replace(/\uFEFF/g, '');
+    v = v.trim();
+    if (v === '- None -' || v === 'NaN' || v === 'Infinity' || v === 'undefined' || v === 'null') v = '';
+    if (v === '.00') v = '0.00';
+    return v;
+  }
+
+  function sanitizeText(value) {
+    var s = value == null ? '' : String(value);
+    s = s.replace(/\uFEFF/g, '');
+    s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+    s = s.replace(/\r\n/g, '\n');
+    s = s.replace(/\r/g, '\n');
+    s = s.replace(/[“”]/g, '"');
+    s = s.replace(/[‘’]/g, "'");
+    s = s.replace(/[–—]/g, '-');
+    s = s.replace(/\u00A0/g, ' ');
+    return s;
+  }
+
+  function splitCsvLines(content) {
+    var txt = sanitizeText(content || '');
+    if (!txt) return [];
+    var parts = txt.split('\n');
+    var lines = [];
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i] != null) lines.push(parts[i]);
+    }
+    return lines;
+  }
+
+  function parseCsvLine(line) {
+    var out = [];
+    var cur = '';
+    var inQuotes = false;
+    var i;
+    var s = line == null ? '' : String(line);
+
+    for (i = 0; i < s.length; i++) {
+      var ch = s.charAt(i);
+      var next = s.charAt(i + 1);
+
+      if (ch === '"') {
+        if (inQuotes && next === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        out.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function normalizeHeader(h) {
+    return String(h || '')
+      .replace(/^[\uFEFF\s"]+|[\s"]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  function csvIndexIsExposed(idx, headerMeta) {
+    if (headerMeta.adminCsvIndex >= 0 && idx >= headerMeta.adminCsvIndex) {
+      return idx + 1;
+    }
+    return idx;
+  }
+
+  function normalizeMovement(val) {
+    if (val === null || val === undefined) return 'No Movement';
+    var s = String(val).replace(/,/g, '').trim();
+    if (s === '') return 'No Movement';
+
+    var n = parseFloat(s);
+    if (!isFinite(n)) return 'No Movement';
+    if (n <= 0) return 'No Movement';
+    return n.toFixed(2);
+  }
+
   function signCron(ts) {
-    var secret = getSecret();
     var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
-    h.update({ input: 'CRON|' + ts + '|' + secret });
+    h.update({ input: 'CRON|' + ts + '|rR9Z7KpXw2N6C8mE4HqFJYvT5bS0aUeD1LQG3oM' });
     return h.digest({ outputEncoding: crypto.Encoding.HEX });
   }
 
   function verifyCron(ts, sig) {
     if (!ts || !sig) return false;
-    if (Math.abs(Date.now() - safeParseInt(ts)) > TOKEN_TTL_MS) return false;
+    if (Math.abs(Date.now() - parseInt(ts, 10)) > TOKEN_TTL_MS) return false;
     try {
       return signCron(ts) === sig;
     } catch (e) {
@@ -980,150 +1241,56 @@ define([
     }
   }
 
-  function signUser(empid, ts) {
-    var secret = getSecret();
+  function sign(empid, ts) {
     var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
-    h.update({ input: String(empid) + '|' + String(ts) + '|' + secret });
+    h.update({ input: empid + '|' + ts + '|' + SECRET });
     return h.digest({ outputEncoding: crypto.Encoding.HEX });
   }
 
-  function verifyUser(empid, ts, sig) {
+  function verify(empid, ts, sig) {
     if (!empid || !ts || !sig) return false;
-    if (Math.abs(Date.now() - safeParseInt(ts)) > TOKEN_TTL_MS) return false;
+    if (Math.abs(Date.now() - parseInt(ts, 10)) > TOKEN_TTL_MS) return false;
     try {
-      return signUser(empid, ts) === sig;
+      return sign(empid, ts) === sig;
     } catch (e) {
       log.error('verify token', e);
       return false;
     }
   }
 
-  function getSecret() {
-    return runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
+  function addUnique(obj, val) {
+    var v = cleanDisplayValue(val);
+    if (!v) return;
+    obj[v] = true;
   }
 
-  function parseCsvLine(line) {
-    if (line == null) return [];
-    var result = [];
-    var current = '';
-    var inQuotes = false;
-    var i;
-    var ch;
-    var next;
-
-    line = String(line);
-
-    for (i = 0; i < line.length; i++) {
-      ch = line.charAt(i);
-
-      if (ch === '"') {
-        next = line.charAt(i + 1);
-        if (inQuotes && next === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (ch === ',' && !inQuotes) {
-        result.push(current);
-        current = '';
-      } else {
-        current += ch;
-      }
-    }
-
-    result.push(current);
-    return result;
-  }
-
-  function unquoteCsv(v) {
-    v = String(v == null ? '' : v);
-    if (v.length >= 2 && v.charAt(0) === '"' && v.charAt(v.length - 1) === '"') {
-      v = v.substring(1, v.length - 1).replace(/""/g, '"');
-    }
-    return v;
-  }
-
-  function sanitizeCsvText(value) {
-    if (value == null) return '';
-    var s = String(value);
-
-    s = s.replace(/\uFEFF/g, '');
-    s = s.replace(/[\u200B-\u200D\u2060]/g, '');
-    s = s.replace(/\u00A0/g, ' ');
-    s = s.replace(/[“”]/g, '"');
-    s = s.replace(/[‘’]/g, "'");
-    s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-    s = s.replace(/\r/g, ' ').replace(/\n/g, ' ');
-
-    return s.trim();
-  }
-
-  function cleanCsvValue(value) {
-    var v = sanitizeCsvText(unquoteCsv(value));
-
-    if (v === '- None -' || v === 'NaN' || v === 'Infinity') return '';
-    if (v === '.00') v = '0.00';
-
-    if (/[",\r\n]/.test(v)) {
-      v = '"' + v.replace(/"/g, '""') + '"';
-    }
-
-    return v;
-  }
-
-  function normHeader(h) {
-    return String(h || '')
-      .replace(/^[\uFEFF\s"]+|[\s"]+$/g, '')
-      .replace(/\s+/g, ' ')
-      .toLowerCase();
-  }
-
-  function normalizeMovement(val) {
-    if (val === null || val === undefined) return 'No Movement';
-    var s = String(val).replace(/,/g, '').trim();
-    if (!s) return 'No Movement';
-    var n = parseFloat(s);
-    if (!isFinite(n) || n <= 0) return 'No Movement';
-    return n.toFixed(2);
-  }
-
-  function numText(v) {
-    if (!isFinite(safeParseFloat(v))) return '0';
-    return String(safeParseFloat(v));
+  function objectKeysSorted(obj) {
+    return Object.keys(obj).sort(function (a, b) {
+      return String(a).localeCompare(String(b), undefined, {
+        numeric: true,
+        sensitivity: 'base'
+      });
+    });
   }
 
   function safeParseFloat(val) {
-    var n = parseFloat(String(val == null ? '' : val).replace(/,/g, '').trim());
-    return isNaN(n) ? 0 : n;
+    var num = parseFloat(val);
+    return isNaN(num) ? 0 : num;
   }
 
   function safeParseInt(val) {
-    var n = parseInt(String(val == null ? '' : val).replace(/,/g, '').trim(), 10);
-    return isNaN(n) ? 0 : n;
+    var num = parseInt(val, 10);
+    return isNaN(num) ? 0 : num;
   }
 
-  function addToSetMap(mapObj, value) {
-    value = sanitizeCsvText(value);
-    if (!value) return;
-    mapObj[value] = true;
-  }
-
-  function sortedKeys(obj) {
-    var arr = [];
-    var k;
-    for (k in obj) {
-      if (obj.hasOwnProperty(k)) arr.push(k);
-    }
-    arr.sort(function (a, b) {
-      return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
-    });
-    return arr;
+  function sanitizeFileName(name) {
+    var s = sanitizeText(name || 'download.csv');
+    s = s.replace(/[\\/:*?"<>|]+/g, '_');
+    return s || 'download.csv';
   }
 
   function escapeHtml(str) {
-    str = String(str == null ? '' : str);
-    return str
+    return String(str == null ? '' : str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -1131,8 +1298,26 @@ define([
       .replace(/'/g, '&#39;');
   }
 
-  function escapeAttr(str) {
-    return escapeHtml(str);
+  function escapeHtmlAttr(str) {
+    return escapeHtml(str).replace(/\n/g, '&#10;');
+  }
+
+  function writeLoginRequired(response) {
+    response.write(
+      '<html><head>' +
+      '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(PORTAL_URL) + '; }, 1200);</script>' +
+      '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
+      '</head><body><div class="message">Login Required</div></body></html>'
+    );
+  }
+
+  function writeSessionExpired(response) {
+    response.write(
+      '<html><head>' +
+      '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(PORTAL_URL) + '; }, 1200);</script>' +
+      '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
+      '</head><body><div class="message">Session expired. Please log in again.</div></body></html>'
+    );
   }
 
   return {
