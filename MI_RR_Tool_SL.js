@@ -1,1832 +1,1141 @@
 /**
-* @NApiVersion 2.1
-* @NScriptType Suitelet
-*/
-define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runtime', 'N/crypto'],
-function(ui, file, log, search, record, runtime, crypto) {
+ * @NApiVersion 2.1
+ * @NScriptType Suitelet
+ */
+define([
+  'N/ui/serverWidget',
+  'N/file',
+  'N/log',
+  'N/search',
+  'N/record',
+  'N/runtime',
+  'N/crypto'
+], function (ui, file, log, search, record, runtime, crypto) {
+
+  var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
+
+  var SOURCE_FOLDER_1 = 402335;
+  var SOURCE_FOLDER_2 = 402334;
+  var SOURCE_FOLDER_3 = 413248;
+
+  var DOWNLOAD_FOLDER_UI = 378271;
+  var DOWNLOAD_FOLDER_CRON = 279208;
+
+  var TOKEN_TTL_MS = 30 * 60 * 1000;
+
   function onRequest(context) {
-    
-    var portalUrl = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
-    
-    // --- Signed session helpers (same as Inventory Dashboard) ---
-    const SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';//'rR9Z7KpXw2N6C8mE4HqFJYvT5bS0aUeD1LQG3oM';
-    const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
-
-
-    function signCron(ts) {
-     var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
-  h.update({ input: 'CRON|' + ts + '|rR9Z7KpXw2N6C8mE4HqFJYvT5bS0aUeD1LQG3oM' });
-  return h.digest({ outputEncoding: crypto.Encoding.HEX });
-}
-
-function verifyCron(ts, sig) {
-  if (!ts || !sig) return false;
-  if (Math.abs(Date.now() - parseInt(ts, 10)) > TOKEN_TTL_MS) return false;
-  try { return signCron(ts) === sig; } catch (e) { log.error('verifyCron token', e); return false; }
-}
-
-    
-    function sign(empid, ts) {
-      var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
-      h.update({ input: empid + '|' + ts + '|' + SECRET });
-      return h.digest({ outputEncoding: crypto.Encoding.HEX });
-    }
-    function verify(empid, ts, sig) {
-      if (!empid || !ts || !sig) return
-      false;
-      if (Math.abs(Date.now() - parseInt(ts, 10)) > TOKEN_TTL_MS) return false;
-      try { return sign(empid, ts) === sig; } catch (e) { log.error('verify token', e); return false; }
-    }
-    
-    if (context.request.method === 'GET') {
-      
-      var q = context.request.parameters || {};
-      var typeParam = (q.type || 3).toString();
-      var showTopFilters = (typeParam !== '4');
-      var formName = 'MI Reorder Tool (' + (typeParam == 4? 'Basic': 'Admin') + ')';
-      var mode = (q.mode || '').toString().toLowerCase(); // 'cron' or ''
-      var cronTs = q.cronts || '';
-      var cronSig = q.cronsig || '';
-      var isCron = (mode === 'cron' && verifyCron(cronTs, cronSig));
-      
-      var form = ui.createForm({ title: formName });
-      
-      // --- Signed params (preferred)
-      var empid = q.empid || '';
-      var ts = q.ts || '';
-      var sig = q.sig || '';
-      
-      // --- Legacy fallback
-      var selectedEmp = q.custpage_id || '';
-      
-      
-      
-      // If a valid signature is present, prefer that; else keep legacy selectedEmp
-      if (empid && ts && sig && verify(empid, ts, sig)) {
-        selectedEmp = empid;
+    try {
+      if (context.request.method === 'GET') {
+        handleGet(context);
+      } else {
+        handlePost(context);
       }
-      // If neither signature nor legacy emp id, bounce to portal
-      if (!selectedEmp && !isCron) {
-        context.response.write(`
-          <html><head>
-          <script>setTimeout(function(){ window.location.href = ${JSON.stringify(portalUrl)}; }, 1200);</script>
-          <style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>
-          </head><body><div class="message">Login Required</div></body></html>
-          `);
-          return;
-        }
-        
-        var empField = form.addField({ id: 'custpage_empid', type: ui.FieldType.SELECT, label: 'Current Employee', source: 'employee' });
-        empField.defaultValue = selectedEmp;
-        empField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-        
-        var tsField = form.addField({ id: 'custpage_ts', type: ui.FieldType.TEXT, label: 'ts' });
-        tsField.defaultValue = ts || '';
-        tsField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-        
-        var sigField = form.addField({ id: 'custpage_sig', type: ui.FieldType.TEXT, label: 'sig' });
-        sigField.defaultValue = sig || '';
-        sigField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-        
-        var fileField = form.addField({
-          id: 'custpage_file_id',
-          type: ui.FieldType.TEXT,
-          label: 'File ID'
-        });
-        fileField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-        var htmlField = form.addField({
-          id: 'custpage_excel_html',
-          type: ui.FieldType.INLINEHTML,
-          label: 'Excel Table'
-        });
-        
-        
-        var selectedField = form.addField({
-          id: 'custpage_selected',
-          type: ui.FieldType.LONGTEXT,
-          label: 'Selected Rows JSON'
-        });
-        selectedField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
-        
-        form.addSubmitButton({ label: 'Submit' });
-        
-        // Get latest file from folder
-        var fileId = null;
-        var fileId2 = null;
-        var fileId3 = null;
-        var folderSearchObj = search.create({
-          type: "folder",
-          filters: [
-            ["internalid", "anyof", "402335", "402334", "413248"],
-            "AND",
-            ["file.documentsize", "greaterthan", "5"]
-          ],
-          columns: [
-            search.createColumn({ name: "internalid", summary: "GROUP" }),
-            search.createColumn({ name: "internalid", join: "file", summary: "MAX" })
-          ]
-        });
-        
-        folderSearchObj.run().each(function(result) {
-          log.debug('result', result)
-          var folderID = result.getValue({ name: "internalid", summary: "GROUP" });
-          if (folderID == 402335)
-          fileId = result.getValue({ name: "internalid", join: "file", summary: "MAX" });
-          if (folderID == 402334)
-          fileId2 = result.getValue({ name: "internalid", join: "file", summary: "MAX" });
-          if (folderID == 413248)
-          fileId3 = result.getValue({ name: "internalid", join: "file", summary: "MAX" });
-          return true;
-        });
-        
-        if (!fileId) {
-          htmlField.defaultValue = '<p style="color:red;">No file found in the specified folder.</p>';
-          context.response.writePage(form);
-          return;
-        }
-        
-        
-        
-        var fileObj = file.load({ id: fileId });
-        var content = fileObj.getContents();
-        var rows = content.split('\n');
-        log.debug('rows', rows.length)
-        
-        var fileObj2 = file.load({ id: fileId2 });
-        var content2 = fileObj2.getContents();
-        var rows2 = content2.split('\n');
-        
-        var fileObj3 = file.load({ id: fileId3 });
-        var content3 = fileObj3.getContents();
-        var rows3 = content3.split('\n');
-        
-        rows3.shift();
-        rows2.shift();
-        rows = rows.concat(rows2);
-        rows = rows.concat(rows3);
-        log.debug('rows', rows.length)
-        
-        var newContent = [];
-        const ITEM_INDEX = 2;          // already used
-        const VENDOR_INDEX = 35;       // already used
-        const BRAND_CATEGORY_INDEX = 33;
-        const BRAND_INDEX = 32;
-        const DEPT_INDEX = 52;
-        const POL_INDEX = 36;
-        const PRODUCT_INDEX = 53;
-        
-        const uniqueItems = new Set();
-        const uniqueVendors = new Set();
-        const uniqueBrands = new Set();
-        const uniqueBrandCategories = new Set();
-        const uniqueDepartments = new Set();
-        const uniquePOL = new Set();
-        const uniquePRODUCT = new Set();
-        
-        let html = `
-        <style>
-        
-        /* ---- Column filter UI ---- */
-        .th-filter-wrap{ position:relative; display:inline-flex; align-items:center; gap:6px; }
-        .th-filter-btn{
-          cursor:pointer; border:1px solid #cbd5e1; background:#fff; padding:2px 4px; border-radius:4px;
-          line-height:1; font-size:11px; user-select:none;
-        }
-        .th-filter-btn:hover{ background:#f3f4f6; }
-        .th-filter-panel{
-          position: fixed;                 /* was: absolute */
-          top: 0; left: 0;                 /* will be set via JS */
-          width: 260px; max-height: 320px; overflow: auto;
-          background: #fff; border:1px solid #cbd5e1; border-radius:8px; padding:10px; margin-top:0;
-          box-shadow:0 8px 24px rgba(0,0,0,.12);
-          z-index: 9999;                   /* above sticky cells & everything else */
-          pointer-events: auto;
-        }
-        
-        .th-filter-panel .hdr{ font-weight:600; font-size:12px; margin-bottom:6px; }
-        .th-filter-panel input[type="search"]{ width:100%; padding:6px 8px; box-sizing:border-box; margin-bottom:8px; }
-        .th-filter-panel .list{ max-height:200px; overflow:auto; border:1px solid #e5e7eb; border-radius:6px; padding:6px; }
-        .th-filter-panel .row{ display:flex; align-items:center; gap:8px; padding:2px 0; font-size:12px; }
-        .th-filter-panel .actions{ display:flex; justify-content:space-between; gap:8px; margin-top:8px; }
-        .th-filter-panel .actions button{
-          padding: 2px 6px;        /* smaller */
-          font-size: 11px;         /* smaller */
-          line-height: 1.2;
-          border-radius: 4px;
-          border: 1px solid #cbd5e1;
-          background: #fff;
-          cursor: pointer;
-          height: auto;
-          min-height: 22px;        /* keeps them clickable but compact */
-        }
-        .th-filter-panel .actions button[data-act="apply"]{
-          font-weight: 600;
-          border-color: #9ab3ff;
-        }
-        
-        /* optional subtle danger for Clear */
-        .th-filter-panel .actions button[data-act="clear"]{
-          color: #7f1d1d;
-          border-color: #f3d2d2;
-        }
-        .th-filter-active .th-filter-btn{ border-color:#2563eb; background:#eff6ff; }
-        
-        
-        .table-container{
-          max-height: 850px;
-          overflow-y: auto;
-          overflow-x: auto;
-          border: 1px solid #ccc;
-        }
-        
-        /* TOP sync scrollbar */
-        .h-scroll {
-          height: 16px;
-          overflow-x: auto;
-          overflow-y: hidden;
-          border: 1px solid #ccc;
-          border-bottom: 0;
-          width: 100%;           /* <-- add this */
-        }
-        .h-scroll-inner { height: 1px; }
-        .table-viewport{
-          width: 100%;
-          max-width: 100%;
-          box-sizing: border-box;
-        }
-        
-        /* Force a real viewport cap so the table can overflow horizontally */
-        .ns-table-viewport-cap{
-          /* pick a sensible cap smaller than your table width */
-          max-width: calc(100vw - 10px);
-          width: 100%;
-          margin: 0;
-          padding: 0;
-        }
-        
-        /* Make the scroller and table area respect the viewport width */
-        .h-scroll{ width: 100%; }     /* you already have this */
-        .table-container{
-          width: 100%;
-          max-width: 100%;
-          overflow-x: auto;           /* horizontal scroll lives here */
-          overflow-y: auto;
-        }
-        
-        /* Table */
-        #excelTable{
-          border-collapse: separate;
-          width: max-content;
-          min-width: 100%;
-          table-layout: auto;
-        }
-        
-        #excelTable th,#excelTable td{
-          border: 1px solid #ccc;
-          padding: 8px 12px;
-          background-color: #fff;
-          white-space: nowrap;
-          font-size: 12px;
-        }
-        
-        /* Sticky HEADER */
-        #excelTable thead th{
-          position: sticky;
-          top: 0;
-          background-color: #f3f3f3;
-          z-index: 9;
-        }
-        
-        /* Sticky COLUMNS (1 & 2) */
-        #excelTable th.col-sticky-1, #excelTable td.col-sticky-1{
-          position: sticky;
-          left: 0;
-          background: #f9f9f9;
-          z-index: 10; /* above thead background */
-          min-width: 50px;
-        }
-        #excelTable th.col-sticky-2, #excelTable td.col-sticky-2{
-          position: sticky;
-          left: var(--sticky-left-1, 120px); /* set by JS based on actual width of col 1 */
-          background: #f9f9f9;
-          z-index: 10;
-          min-width: 120px;
-        }
-        
-        /* Inputs */
-        input[type="number"]{
-          width: 100%;
-          box-sizing: border-box;
-          padding: 4px;
-        }
-        input[type="checkbox"]{ transform: scale(1.2); }
-        
-        #excelTable thead th{
-          position: sticky;
-          top: 0;
-          background-color: #f3f3f3;
-          z-index: 9;
-        }
-        
-        /* Sticky columns base */
-        #excelTable th.col-sticky-1, #excelTable td.col-sticky-1{
-          position: sticky;
-          left: 0;
-          background: #f9f9f9;
-          z-index: 10;
-          min-width: 50px;
-        }
-        #excelTable th.col-sticky-2, #excelTable td.col-sticky-2{
-          position: sticky;
-          left: var(--sticky-left-1, 120px);
-          background: #f9f9f9;
-          z-index: 10;
-          min-width: 120px;
-        }
-        
-        /* Ensure header cells that are also sticky columns sit on top */
-        #excelTable thead th.col-sticky-1,
-        #excelTable thead th.col-sticky-2{
-          z-index: 12;
-        }
-        </style>
-        
-        
-        <style>
-        .download-btn {
-          background-color: white;
-          color: white;
-          border: none;
-          font-size: 13px;
-          cursor: pointer;
-          transition: background-color 0.2s ease;
-        }
-        
-        .download-btn:hover {
-          background-color: #005f8d;
-        }
-        
-        .filter-hover-wrapper {
-          position: relative;
-          display: inline-block;
-          margin-bottom: 15px;
-          z-index: 4000;
-        }
-        
-        /* Generic sticky column styling */
-        .sticky-col{
-          position: sticky;
-          background: #f9f9f9;    /* so it covers cells when scrolling */
-          background-clip: padding-box;
-          z-index: 11;
-        }
-        thead th.sticky-col{
-          z-index: 30;            /* header above body cells */
-        }
-        .sticky-col.sep-left{
-          border-left-color: transparent;   /* avoid double border where columns meet */
-          box-shadow: inset 1px 0 0 #ccc;   /* crisp left divider that doesn't jitter */
-        }
-        .filter-button {
-          color: #0073aa; /* NetSuite-like action blue */
-          font-size: 15px;
-          font-weight: 600;
-          cursor: pointer;
-          display: inline-block;
-          padding: 4px 8px;
-          border-radius: 4px;
-          transition: all 0.2s ease;
-          background-color: transparent;
-          border: none;
-        }
-        
-        .filter-button:hover {
-          color: #005f8d;
-          background-color: #eef7ff;
-          text-decoration: underline;
-        }
-        
-        
-        .filter-panel {
-          display: none;
-          position: absolute;
-          top: 110%;
-          left: 0;
-          background-color: white;
-          border: 1px solid #ccc;
-          padding: 15px;
-          border-radius: 6px;
-          width: 650px;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-          z-index: 5000;
-        }
-        
-        .filter-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 15px;
-        }
-        
-        .filter-grid label {
-          font-weight: 600;
-          font-size: 12px;
-          display: block;
-          margin-bottom: 5px;
-        }
-        
-        .filter-grid select {
-          width: 100%;
-        }
-        .top-controls{
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:12px;
-          margin-bottom:10px;
-        }
-        
-        .controls-right{
-          display:flex;
-          align-items:center;
-          gap:12px;
-        }
-        .totals-bar{
-          display:inline-flex;
-          align-items:center;
-          gap:8px;
-          padding:6px 12px;
-          border:1px solid #a3d2f2;
-          border-radius:999px;
-          background:#f3f9ff;
-          box-shadow:0 1px 2px rgba(0,0,0,0.04);
-        }
-        
-        .totals-label{
-          font-size:12px;
-          color:#005b99;
-          font-weight:600;
-          letter-spacing:.2px;
-          text-transform:uppercase;
-        }
-        
-        .totals-value{
-          font-feature-settings:"tnum";
-          font-variant-numeric:tabular-nums;
-          font-weight:700;
-          font-size:14px;
-          color:#003f6b;
-        }
-        </style>
-        <div style="margin-bottom: 10px;">
-        <button id="downloadCsvBtn" class="download-btn" type="button"><img src="https://cdn-icons-png.flaticon.com/512/10630/10630240.png"
-        alt="csv-icon"
-        style="width: 16px; vertical-align: middle; margin-right: 6px;" /></button>
-        ${showTopFilters ? `
-          <div class="filter-hover-wrapper" id="filterWrapper">
-          <div class="filter-button" id="filterToggle">Filters</div>
-          <div class="filter-panel" id="filterPanel">
-          <div class="filter-grid">
-          <div><label for="itemFilter">Item</label><select id="itemFilter" multiple size="5"></select></div>
-          <div><label for="vendorFilter">Vendor</label><select id="vendorFilter" multiple size="5"></select></div>
-          <div><label for="brandFilter">Brand</label><select id="brandFilter" multiple size="5"></select></div>
-          <div><label for="brandCatFilter">Brand Category</label><select id="brandCatFilter" multiple size="5"></select></div>
-          <div><label for="deptFilter">Department</label><select id="deptFilter" multiple size="5"></select></div>
-          <div><label for="polFilter">P.O.L</label><select id="polFilter" multiple size="5"></select></div>
-          <div><label for="productFilter">Product Type</label><select id="productFilter" multiple size="5"></select></div>
-          </div>
-          </div>
-          </div>
-          ` : ``}
-          </div>
-          <div id="totalsBar" class="totals-bar" title="Sum of Item Cubic Space for all selected rows"> <span class="totals-label">Total Cubic Space</span> <span id="totalCubicValue" class="totals-value">0</span> </div> <div id="totalsBarWgt" class="totals-bar" title="Sum of Item Weight for all selected rows"> <span class="totals-label">Total Weight</span> <span id="totalWeightValue" class="totals-value">0</span> </div>
-          
-          <script>
-          document.addEventListener('DOMContentLoaded', function () {
-            const wrapper = document.getElementById('filterWrapper');
-            const panel = document.getElementById('filterPanel');
-            
-            let timer;
-            
-            wrapper.addEventListener('mouseenter', function () {
-              clearTimeout(timer);
-              panel.style.display = 'block';
-            });
-            
-            wrapper.addEventListener('mouseleave', function () {
-              timer = setTimeout(() => {
-                panel.style.display = 'none';
-              }, 200); // Small delay to allow smooth exit
-            });
-          });
-          </script>
-          <div class="table-viewport">
-          <div class="ns-table-viewport-cap">
-          <div class="h-scroll" id="topScroll">
-          <div class="h-scroll-inner" id="topScrollInner"></div>
-          </div>
-          <div class="table-container">
-          <table id="excelTable">
-          
-          <thead><tr>
-          `;
-          
-          const headers = rows[0].split(/,(?=(?:[^\"]*"[^"]*")*[^\"]*$)/);
-          
-          function norm(h){
-            return String(h || '')
-            .replace(/^[\uFEFF\s"]+|[\s"]+$/g, '')  // trim + strip quotes/BOM
-            .replace(/\s+/g, ' ')
-            .toLowerCase();
-          }
-          
-          const rawHeaders = headers;                  // already split with your CSV regex
-          const normalized = rawHeaders.map(norm);
-          
-          let adminCsvIndex = normalized.indexOf('admin portal');
-          if (adminCsvIndex < 0) {
-            adminCsvIndex = normalized.findIndex(h =>
-              h === 'admin' || h.startsWith('admin portal') || h.includes('admin portal')
-            );
-          }
-          
-          // Behaviour flags
-          const truncateAfterAdmin = (typeParam === '4'); // remove Admin and everything after
-          const removeJustAdmin    = (typeParam === '3'); // remove only Admin
-          
-          // Headers to SHOW & DOWNLOAD (after removal/truncation)
-          const headersForOutput = (() => {
-            if (adminCsvIndex >= 0) {
-              if (truncateAfterAdmin) return rawHeaders.slice(0, adminCsvIndex);
-              if (removeJustAdmin)    return rawHeaders.filter((_, i) => i !== adminCsvIndex);
-            }
-            return rawHeaders.slice();
-          })();
-          headersForOutput.push('Filter');
-          newContent.push(headersForOutput);
-          
-          
-          
-          
-          html += '<th class="col-sticky-1">Select</th>'
-          + '<th class="col-sticky-2">Order Qty</th>'
-          + '<th class="col-sticky-2">Month of Stock</th>'
-          + '<th class="col-sticky-2">Item Space</th>'
-          + '<th class="col-sticky-2">Weight</th>';
-          
-          var dataColStart = 5; // 5 control columns before CSV data
-          var visibleIdx = 0;
-          
-          headersForOutput.forEach(function (value, outIdx) {
-            // Map outIdx back to original CSV idx (needed for filters later)
-            // If we removed Admin col, any original idx >= adminCsvIndex shifts by -1 in headersForOutput.
-            // But for the DOM header (data-col), we only need the DOM index:
-            var domIndex = dataColStart + visibleIdx;
-            visibleIdx++;
-            
-            value = String(value || '').replace(/"/g,'').trim();
-            var stickyCls = (outIdx < 5 ? ' col-sticky-2' : '');
-            var safeText = value || ('Col ' + (outIdx + 1));
-            
-            html += '<th class="' + (outIdx < 5 ? 'col-sticky-2' : '') + '" data-domidx="'+domIndex+'">'
-            +   '<span class="th-filter-wrap">'
-            +     '<span class="th-label">'+ safeText +'</span>'
-            +     '<button class="th-filter-btn" type="button" data-col="'+ domIndex +'">▾</button>'
-            +   '</span>'
-            + '</th>';
-          });
-          
-          html += '</tr></thead><tbody>';
-          
-          let redRows = [];
-          let blackRows = [];
-          
-          function csvIndexIsExposed(idx){
-            if (idx == adminCsvIndex || idx > adminCsvIndex) idx = idx + 1;
-            return idx;
-          }
-          
-          var balances = getInventoryBalanceMap();
-          log.debug('Inventory Balance Map', balances);
-          var alreadyExsist = {};
-          rows.slice(1).forEach(function (row) {
-            if (!row || row.trim() === '') return;
-            
-            const columns = row.split(/,(?=(?:[^\"]*"[^"]*")*[^\"]*$)/);
-            if (!columns.length) return;
-            
-            // --- Filter (type=4) on the ORIGINAL row BEFORE any changes:
-            if (typeParam === '4' && adminCsvIndex >= 0) {
-              var adminCellVal = (columns[adminCsvIndex] || '').replace(/"/g,'').trim().toLowerCase();
-              if (adminCellVal !== 'admin portal') return; // skip non-Admin rows
-            }
-            
-            let calcCols = columns.slice();
-            const monthAvg = parseFloat(calcCols[csvIndexIsExposed(11)]);
-            const itemid = calcCols[csvIndexIsExposed(3)];
-            
-            if (alreadyExsist.hasOwnProperty(itemid) || !itemid) return;
-            alreadyExsist[itemid] = true;
-            
-            if (columns[csvIndexIsExposed(ITEM_INDEX)])   uniqueItems.add(columns[csvIndexIsExposed(ITEM_INDEX)].replace(/"/g,'').trim());
-            if (columns[csvIndexIsExposed(VENDOR_INDEX)]) uniqueVendors.add(columns[csvIndexIsExposed(VENDOR_INDEX)].replace(/"/g,'').trim());
-            if (columns[csvIndexIsExposed(BRAND_INDEX)])  uniqueBrands.add(columns[csvIndexIsExposed(BRAND_INDEX)].replace(/"/g,'').trim());
-            if (columns[csvIndexIsExposed(BRAND_CATEGORY_INDEX)]) uniqueBrandCategories.add(columns[csvIndexIsExposed(BRAND_CATEGORY_INDEX)].replace(/"/g,'').trim());
-            if (columns[csvIndexIsExposed(DEPT_INDEX)])   uniqueDepartments.add(columns[csvIndexIsExposed(DEPT_INDEX)].replace(/"/g,'').trim());
-            if (columns[csvIndexIsExposed(POL_INDEX)])    uniquePOL.add(columns[csvIndexIsExposed(POL_INDEX)].replace(/"/g,'').trim());
-            if (columns[csvIndexIsExposed(PRODUCT_INDEX)])    uniquePRODUCT.add(columns[csvIndexIsExposed(PRODUCT_INDEX)].replace(/"/g,'').trim());
-            
-            var val43 = parseFloat(calcCols[csvIndexIsExposed(25)] || 0);
-            var val41 = parseFloat(calcCols[csvIndexIsExposed(20)] || 0);
-            var diff = val43 - val41;
-            diff = Math.abs(diff)
-            calcCols[csvIndexIsExposed(25)] = diff === 0 ? "" : '"' + diff + '"';
-            
-            
-            
-            let good = 0;
-            let bad = 0;
-            let hold = 0;
-            let inspect = 0;
-            let label = 0;
-            let total = 0;
-            let avail = 0;
-            let col14Val = calcCols[csvIndexIsExposed(18)];
-            let col12Val = parseFloat(calcCols[csvIndexIsExposed(12)] || 0);
-            let col19Val = diff;
-            
-            if (balances[itemid]){
-              good  = parseFloat(balances[itemid].good);
-              bad   = balances[itemid].bad;
-              hold   = balances[itemid].hold;
-              inspect   = balances[itemid].inspect;
-              label   = balances[itemid].label;
-              total = parseFloat(balances[itemid].total);
-              avail = parseFloat(balances[itemid].avail);
-            }
-            
-            
-            if (itemid == 5472) {
-              log.debug('good', good)
-              log.debug('avail', avail)
-              log.debug('total', total)
-              log.debug('col12Val', col12Val)
-              log.debug('balances', balances[itemid])              
-              log.debug('Test', good - col12Val)   
-            }
-            
-            var availtoProm = good - col12Val;
-            
-            
-            calcCols[calcCols.length] = 'Black';
-            calcCols[csvIndexIsExposed(12)] = '"' + availtoProm +'"';
-            calcCols[csvIndexIsExposed(13)] = '"' + good + '"';
-            calcCols[csvIndexIsExposed(14)] = '"' + bad + '"';
-            calcCols[csvIndexIsExposed(15)] = '"' + inspect + '"';
-            calcCols[csvIndexIsExposed(16)] = '"' + label + '"';
-            calcCols[csvIndexIsExposed(17)] = '"' + hold + '"';
-            calcCols[csvIndexIsExposed(18)] = '"' + total + '"';
-            calcCols[csvIndexIsExposed(19)] = '"' + ((parseFloat(total)) / monthAvg).toFixed(2)+ '"';
-            calcCols[csvIndexIsExposed(24)] = '"' + (((parseFloat(total)) + parseFloat(val41 || 0))/ monthAvg).toFixed(2)+'"';
-            calcCols[csvIndexIsExposed(23)] = '"' + ((parseFloat(total)) + parseFloat(val41 || 0)).toFixed(2)+'"';
-            calcCols[csvIndexIsExposed(27)] = '"' + ((parseFloat(total) + parseFloat(val43 || 0))/ monthAvg).toFixed(2)+'"';
-            calcCols[csvIndexIsExposed(26)] = '"' + (parseFloat(total) + parseFloat(val43 || 0)).toFixed(2)+'"';
-            calcCols[csvIndexIsExposed(31)] = '"' + avail + '"';
-            function normalizeMovement(val) {
-              // Null/undefined/empty string?
-              if (val === null || val === undefined) return "No Movement";
-              var s = String(val).replace(/,/g, "").trim();
-              if (s === "") return "No Movement";
-              
-              // Parse number
-              var n = parseFloat(s);
-              if (!isFinite(n)) return "No Movement";
-              
-              // 0 or negative -> "0"; positive -> keep (or format)
-              if (n <= 0) return "No Movement";
-              return n.toFixed(2);
-            }
-            
-            var col9 = normalizeMovement(monthAvg);
-            const qtytotal = diff + safeParseFloat(calcCols[csvIndexIsExposed(20)]) + parseFloat(avail) - parseFloat(col12Val);
-            const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
-            calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
-            
-            calcCols[csvIndexIsExposed(63)] = '"' + calcCols[csvIndexIsExposed(11)] + '"';
-            calcCols[csvIndexIsExposed(64)] = '"' + parseFloat(calcCols[csvIndexIsExposed(11)]) * 4 + '"';
-            
-            let recommendedQty = 0;
-            if (qtytotal < stockingQty) {
-              recommendedQty = (stockingQty - qtytotal).toFixed(2);
-            }
-            
-            
-            
-            const monthsStock = (diff + parseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(20)])) / monthAvg;
-            
-            if (calcCols[1] == 0) calcCols[1] = '""';
-            calcCols[1] = '"' + recommendedQty + '"';
-            
-            let rowStyle = '';
-            if (!isNaN(monthsStock) && monthsStock <= 4.5) {
-              rowStyle = 'color: red;';
-              calcCols[calcCols.length - 1] = 'Red';
-            }
-            
-            // --- calcCols already built above ---
-            // Pull the status once so we don't duplicate it
-            var statusVal = (calcCols.length ? calcCols[calcCols.length - 1] : '') || '';
-            // Remove the last element (status) from the working array
-            var baseCols = calcCols.slice(0, -1);
-            
-            let displayCols;
-            if (adminCsvIndex >= 0 && truncateAfterAdmin) {
-              displayCols = baseCols.slice(0, adminCsvIndex);
-            } else if (adminCsvIndex >= 0 && removeJustAdmin) {
-              displayCols = baseCols.filter((_, i) => i !== adminCsvIndex);
-            } else {
-              displayCols = baseCols.slice();
-            }
-            displayCols.push(statusVal);
-            
-            
-            
-            function cleanCsvValue(value) {
-              let v = value == null ? '' : String(value).trim();
-              
-              // 0) Normalize placeholders FIRST (before any quoting logic)
-              
-              // 1) If it's already wrapped in quotes, inspect the inner text
-              if (v.length >= 2 && v[0] === '"' && v[v.length - 1] === '"') {
-                const inner = v.slice(1, -1);
-                
-                // If inner contains special CSV chars or escaped quotes, keep it quoted (normalize escapes)
-                if (/[",\r\n]/.test(inner) || /""/.test(inner)) {
-                  return '"' + inner.replace(/"/g, '""') + '"';
-                }
-                
-                // Otherwise it's safe to drop the outer quotes
-                v = inner;
-              }
-              
-              // 2) If there are stray unmatched quotes (e.g., starts with " but doesn't end with "),
-              // strip them so we don't end up with duplicated quotes later.
-              if ((v.startsWith('"') && !v.endsWith('"')) || (!v.startsWith('"') && v.endsWith('"'))) {
-                v = v.replace(/^"+|"+$/g, '');
-              }
-              if ((v.startsWith('"') && !v.endsWith('"')) || (!v.startsWith('"') && v.endsWith('"'))) {
-                v = v.replace(/^"+|"+$/g, '');
-              }
-              
-              
-              // 3) Quote only if needed (comma, quote, or newline present)
-              if (/[",\r\n]/.test(v)) {
-                v = '"' + v.replace(/"/g, '""') + '"';
-              }
-              
-              if (v === '- None -' || v === 'NaN' || v === 'Infinity') v = '';
-              if (v === '.00') v = '0.00';
-              
-              
-              return v;
-            }
-            
-            const cleanedCols = [];
-            displayCols.forEach(function (value) {
-              cleanedCols.push(cleanCsvValue(value));
-            });
-            
-            newContent.push(cleanedCols);
-            
-            
-            // --- Render row (using displayCols):
-            let rowId = newContent.length - 1; // keep same row id mapping as you had
-            let rowHtml = '<tr style="' + rowStyle + '">';
-            rowHtml += '<td class="col-sticky-1"><input type="checkbox" name="row_select_' + rowId + '" /></td>';
-            rowHtml += '<td class="col-sticky-2"><input type="number" name="qty_input_' + rowId + '" min="0" value="' + recommendedQty + '" /></td>';
-            rowHtml += '<td></td>';
-            rowHtml += '<td></td>';
-            rowHtml += '<td></td>';
-            
-            var first = true;
-            displayCols.forEach(function (value) {
-              if (first) {
-                value = String(value || '').replace(/"/g, '').trim();
-                if (value === '- None -' || value === 'NaN' || value === 'Infinity') value = '';
-                rowHtml += '<td><input type="text" name="memo_input_' + rowId + '" value="' + value  + '" /></td>';
-              }
-              else {
-                value = String(value || '').replace(/"/g, '').trim();
-                if (value === '- None -' || value === 'NaN' || value === 'Infinity') value = '';
-                if (value === '.00') value = '0.00';
-                rowHtml += '<td>' + value + '</td>';
-              }
-              first = false;
-              
-            });
-            
-            rowHtml += '</tr>';
-            
-            var itemIdNum = parseInt(itemid, 10) || 0;
-            
-            if (rowStyle.includes('red')) {
-              redRows.push({
-                itemId: itemIdNum,
-                html: rowHtml
-              });
-            } else {
-              blackRows.push({
-                itemId: itemIdNum,
-                html: rowHtml
-              });
-            }
-            
-            
-          });
-          
-          
-          
-          // Append red rows first, then black rows
-          redRows.sort(function (a, b) {
-            return a.itemId - b.itemId;
-          });
-          blackRows.sort(function (a, b) {
-            return a.itemId - b.itemId;
-          });
-          
-          // Append red rows first (sorted), then black rows (sorted)
-          html += redRows.map(function (r) { return r.html; }).join('')
-          + blackRows.map(function (r) { return r.html; }).join('');
-          
-          html += `</tbody></table></div></div></div>
-          <div id="filter-portal"></div>
-          
-          <script>
-          document.addEventListener('DOMContentLoaded', function () {
-            var itemSet = ${JSON.stringify([...uniqueItems])};
-            var vendorSet = ${JSON.stringify([...uniqueVendors])};
-            var brandSet = ${JSON.stringify([...uniqueBrands])};
-            var brandCatSet = ${JSON.stringify([...uniqueBrandCategories])};
-            var deptSet = ${JSON.stringify([...uniqueDepartments])};
-            var polSet = ${JSON.stringify([...uniquePOL])};
-            var productSet = ${JSON.stringify([...uniquePRODUCT])};
-            
-            var itemSelect = document.getElementById('itemFilter');
-            var vendorSelect = document.getElementById('vendorFilter');
-            var brandSelect = document.getElementById('brandFilter');
-            var brandCatSelect = document.getElementById('brandCatFilter');
-            var deptSelect = document.getElementById('deptFilter');
-            var polSelect = document.getElementById('polFilter');
-            var productSelect = document.getElementById('productFilter');
-            
-            brandSet.forEach(function (brand) {
-              var opt = document.createElement('option');
-              opt.value = brand;
-              opt.textContent = brand;
-              brandSelect.appendChild(opt);
-            });
-            
-            brandCatSet.forEach(function (cat) {
-              var opt = document.createElement('option');
-              opt.value = cat;
-              opt.textContent = cat;
-              brandCatSelect.appendChild(opt);
-            });
-            
-            deptSet.forEach(function (dept) {
-              var opt = document.createElement('option');
-              opt.value = dept;
-              opt.textContent = dept;
-              deptSelect.appendChild(opt);
-            });
-            
-            polSet.forEach(function (pol) {
-              var opt = document.createElement('option');
-              opt.value = pol;
-              opt.textContent = pol;
-              polSelect.appendChild(opt);
-            });
-            
-            productSet.forEach(function (product) {
-              var opt = document.createElement('option');
-              opt.value = product;
-              opt.textContent = product;
-              productSelect.appendChild(opt);
-            });            
-            
-            itemSet.forEach(function (item) {
-              var opt = document.createElement('option');
-              opt.value = item;
-              opt.textContent = item;
-              itemSelect.appendChild(opt);
-            });
-            
-            vendorSet.forEach(function (vendor) {
-              var opt = document.createElement('option');
-              opt.value = vendor;
-              opt.textContent = vendor;
-              vendorSelect.appendChild(opt);
-            });
-            
-            function getSelectedValues(selectEl) {
-              var selected = [];
-              for (var i = 0; i < selectEl.options.length; i++) {
-                if (selectEl.options[i].selected) {
-                  selected.push(selectEl.options[i].value.toLowerCase());
-                }
-              }
-              return selected;
-            }
-            function __vizIdxFromCsv(csvIdx){
-              var controlOffset = 5; // 5 control columns before CSV data
-              var hasAdmin = (typeof window.__ADMIN_IDX__ === 'number' && window.__ADMIN_IDX__ >= 0);
-              
-              // If we truncated after Admin (type=4), any csv index >= Admin is not visible at all.
-              if (window.__TRUNC_AFTER__ && hasAdmin) {
-                if (csvIdx >= window.__ADMIN_IDX__) return -1;         // not present in UI
-                return controlOffset + csvIdx;                         // no shift needed
-              }
-              
-              // If we just removed the Admin column (type=5), shift indexes >= Admin left by 1
-              if (window.__ADMIN_REMOVED__ && hasAdmin) {
-                var shift = (csvIdx >= window.__ADMIN_IDX__) ? 1 : 0;
-                return controlOffset + csvIdx - shift;
-              }
-              
-              // No change
-              return controlOffset + csvIdx;
-            }
-            
-            function getCellSafe(cells, idx){
-              if (idx < 0) return '';                  // column not visible (e.g., truncated)
-              var c = cells[idx];
-              return (c && c.textContent ? c.textContent.toLowerCase() : '');
-            }
-            
-            function filterTable() {
-              var selectedItems = getSelectedValues(itemSelect);
-              var selectedVendors = getSelectedValues(vendorSelect);
-              var selectedBrands = getSelectedValues(brandSelect);
-              var selectedBrandCats = getSelectedValues(brandCatSelect);
-              var selectedDepts = getSelectedValues(deptSelect);
-              var selectedPOL = getSelectedValues(polSelect);
-              var selectedPRODUCT = getSelectedValues(productSelect);
-              
-              document.querySelectorAll('#excelTable tbody tr').forEach(function (row) {
-                var cells = row.querySelectorAll('td');
-                var item    = getCellSafe(cells, __vizIdxFromCsv(${ITEM_INDEX}));
-                var vendor  = getCellSafe(cells, __vizIdxFromCsv(${VENDOR_INDEX + 1}));
-                var brand   = getCellSafe(cells, __vizIdxFromCsv(${BRAND_INDEX + 1}));
-                var brandCat= getCellSafe(cells, __vizIdxFromCsv(${BRAND_CATEGORY_INDEX + 1}));
-                var dept    = getCellSafe(cells, __vizIdxFromCsv(${DEPT_INDEX + 1}));
-                var pol     = getCellSafe(cells, __vizIdxFromCsv(${POL_INDEX + 1}));
-                var product     = getCellSafe(cells, __vizIdxFromCsv(${PRODUCT_INDEX + 1}));
-                
-                
-                var itemMatch = selectedItems.length === 0 || selectedItems.includes(item);
-                var vendorMatch = selectedVendors.length === 0 || selectedVendors.includes(vendor);
-                var brandMatch = selectedBrands.length === 0 || selectedBrands.includes(brand);
-                var brandCatMatch = selectedBrandCats.length === 0 || selectedBrandCats.includes(brandCat);
-                var deptMatch = selectedDepts.length === 0 || selectedDepts.includes(dept);
-                var polMatch = selectedPOL.length === 0 || selectedPOL.includes(pol);
-                var productMatch = selectedPRODUCT.length === 0 || selectedPRODUCT.includes(product);
-                
-                row.style.display = itemMatch && vendorMatch && brandMatch && brandCatMatch && deptMatch &&  polMatch &&  productMatch ? '' : 'none';
-              });
-            }
-            
-            itemSelect.addEventListener('change', filterTable);
-            vendorSelect.addEventListener('change', filterTable);
-            brandSelect.addEventListener('change', filterTable);
-            brandCatSelect.addEventListener('change', filterTable);
-            deptSelect.addEventListener('change', filterTable);
-            polSelect.addEventListener('change', filterTable);
-            productSelect.addEventListener('change', filterTable);
-          });
-          </script>
-          <script>
-          document.addEventListener('DOMContentLoaded', function () {
-            // Make the export button open the cleaned CSV in a new tab
-            var exportBtn = document.getElementById('downloadCsvBtn');
-            if (exportBtn) {
-              exportBtn.addEventListener('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                var url = (window.DOWNLOAD_URL || '').trim(); // value will be set later
-                if (url) {
-                  window.open(url, '_blank');
-                } else {
-                  alert('Download not available yet.');
-                }
-              });
-            }
-            
-            
-          });
-          </script>
-          <script>
-          document.addEventListener('DOMContentLoaded', function () {
-            var suiteletForm = document.querySelector('form');
-            var hiddenSelected = document.getElementById('custpage_selected'); // NetSuite renders the field with this id
-            
-            function collectSelectedRows() {
-              if (!hiddenSelected) return;
-              var out = [];
-              var rows = document.querySelectorAll('#excelTable tbody tr');
-              rows.forEach(function (tr) {
-                var cb = tr.querySelector('input[type="checkbox"][name^="row_select_"]');
-                if (cb && cb.checked) {
-                  var rowId = (cb.name || '').split('_').pop();
-                  var qtyInput = tr.querySelector('input[type="number"][name^="qty_input_"]');
-                  var qty = qtyInput ? (qtyInput.value || '0') : '0';
-                  
-                  var memoInput = tr.querySelector('input[type="text"][name^="memo_input_"]');
-                  var memo = memoInput ? (memoInput.value || '') : '';
-                  
-                  
-                  var mosVal = '';
-                  var mosCell = tr.cells[2];
-                  if (mosCell) {
-                    mosVal = (mosCell.textContent || '').trim();
-                  }
-                  
-                  out.push({ rowId: rowId, qty: qty, memo: memo, mos: mosVal });
-                  
-                }
-              });
-              hiddenSelected.value = JSON.stringify(out);
-            }
-            
-            function closeHeaderPanel() {
-              var open = document.querySelector('#filter-portal .th-filter-panel');
-              if (open) open.remove();
-              document.querySelectorAll('th.th-filter-active').forEach(function (th) {
-                th.classList.remove('th-filter-active');
-              });
-            }
-            
-            function nativeSubmit() {
-              if (!suiteletForm) return;
-              // 1) capture selections
-              collectSelectedRows();
-              // 2) clean overlays
-              closeHeaderPanel();
-              // 3) force native submit
-              try {
-                HTMLFormElement.prototype.submit.call(suiteletForm);
-              } catch (e) {
-                if (typeof suiteletForm.submit === 'function') suiteletForm.submit();
-              }
-            }
-            
-            var nsSubmitBtn = document.querySelector('input[type="submit"], button[type="submit"]');
-            if (nsSubmitBtn) {
-              nsSubmitBtn.addEventListener('click', function () {
-                // queue native submit to run after other handlers
-                setTimeout(nativeSubmit, 0);
-              }, true);
-            }
-            
-            if (suiteletForm) {
-              suiteletForm.addEventListener('submit', function () {
-                // safety: if something intercepts submit, still collect & force
-                setTimeout(nativeSubmit, 0);
-              }, true);
-            }
-          });
-          </script>
-          `;
-          
-          // Save cleaned file
-          var newfileObj = file.create({
-            name: "Download_" + fileObj.name,
-            fileType: file.Type.CSV,
-            contents: newContent.map(row => row.join(",")).join("\n"),
-            encoding: file.Encoding.UTF8,
-            folder: 378271,
-            isOnline: true
-          });
-          var newFileId = newfileObj.save();
-          fileField.defaultValue = newFileId;
+    } catch (e) {
+      log.error('onRequest error', e);
+      context.response.write('<html><body><h3>Unexpected error</h3><pre>' + escapeHtml(e.name + ': ' + e.message) + '</pre></body></html>');
+    }
+  }
 
+  function handleGet(context) {
+    var req = context.request;
+    var q = req.parameters || {};
 
-          var newfileObj2 = file.create({
-            name: "RR Tool Details.csv",
-            fileType: file.Type.CSV,
-            contents: newContent.map(row => row.join(",")).join("\n"),
-            encoding: file.Encoding.UTF8,
-            folder: 279208,
-            isOnline: true
-          });
-          var newFileId2 = newfileObj2.save();
-          
-          var reloadFile = file.load({id: newFileId2});
-          var dlUrl = reloadFile.url;
-      
+    var typeParam = String(q.type || '3');
+    var showTopFilters = (typeParam !== '4');
+    var formName = 'MI Reorder Tool (' + (typeParam === '4' ? 'Basic' : 'Admin') + ')';
 
-      if (isCron) {
-  context.response.setHeader({ name: 'Content-Type', value: 'application/json' });
-  context.response.write(JSON.stringify({
-    ok: true,
-    fileId: newFileId,
-    url: dlUrl,
-    name: reloadFile.name
-  }));
-  return;
-}
+    var mode = String(q.mode || '').toLowerCase();
+    var cronTs = q.cronts || '';
+    var cronSig = q.cronsig || '';
+    var isCron = (mode === 'cron' && verifyCron(cronTs, cronSig));
 
-      
-          html += '<script>window.DOWNLOAD_URL = ' + JSON.stringify(dlUrl || '') + ';</script>';
-          html += '<script>'
-          + 'window.__ADMIN_IDX__='     + JSON.stringify(adminCsvIndex) + ';'
-          + 'window.__TRUNC_AFTER__='   + JSON.stringify(truncateAfterAdmin && adminCsvIndex >= 0) + ';'
-          + 'window.__ADMIN_REMOVED__=' + JSON.stringify(removeJustAdmin    && adminCsvIndex >= 0) + ';'
-          + '</script>';
-          
-          
-          
-          
-          html += `
-          <script>
-          document.addEventListener('DOMContentLoaded', function () {
-            // --- DOM refs
-            var container = document.querySelector('.table-container');
-            var table = document.getElementById('excelTable');
-            var topScroll = document.getElementById('topScroll');
-            var topInner = document.getElementById('topScrollInner');
-            if (!table) return;
-            
-            // ===== PERF FLAGS (NEW) =====
-            var __widthsApplied = false;     // heavy: sets widths on many cells
-            var __stickyClassesApplied = false; // heavy: adds classes to many cells
-            
-            
-            // --- Fixed widths (px) for the first N columns (sticky/frozen)
-            // Adjust these numbers to your exact needs:
-            var FIXED_STICKY_WIDTHS = [
-              50,   // 0: Select
-              100,  // 1: Order Qty
-              110,  // 2: Month of Stock
-              110,  // 3: Item Cubic Space
-              90,   // 4: Weight
-              200,  // 5: CSV Col 1 (first data col)
-              110,  // 6: CSV Col 2
-              180,  // 7: CSV Col 3
-              90,   // 8: CSV Col 4
-              450   // 9: CSV Col 5
-            ]; // <-- first 9 frozen columns total
-            
-            // Apply explicit width/min/max-width to first N columns
-            function applyFixedWidths(widths){
-              if (!table || !table.tHead || !table.tBodies[0]) return;
-              
-              // Always keep header widths correct (cheap)
-              var ths = table.tHead.rows[0].cells;
-              for (var i = 0; i < widths.length && i < ths.length; i++){
-                var w = widths[i];
-                ths[i].style.width = w + 'px';
-                ths[i].style.minWidth = w + 'px';
-                ths[i].style.maxWidth = w + 'px';
-              }
-              
-              // Heavy part: only once
-              if (__widthsApplied) return;
-              __widthsApplied = true;
-              
-              var rows = table.tBodies[0].rows;
-              for (var r = 0; r < rows.length; r++){
-                var tds = rows[r].cells;
-                for (var c = 0; c < widths.length && c < tds.length; c++){
-                  var w2 = widths[c];
-                  tds[c].style.width = w2 + 'px';
-                  tds[c].style.minWidth = w2 + 'px';
-                  tds[c].style.maxWidth = w2 + 'px';
-                  tds[c].style.overflow = 'hidden';
-                  tds[c].style.textOverflow = 'ellipsis';
-                }
-              }
-            }
-            
-            
-            // ========== Top scrollbar ==========
-            function updateTopScrollbarWidth(){
-              if (!container || !table || !topInner) return;
-              var w = Math.max((table.scrollWidth || 0), (container.clientWidth || 0) + 2);
-              topInner.style.width = w + 'px';
-            }
-            if (topScroll) topScroll.style.display = 'block';
-            if (topScroll && container) {
-              topScroll.addEventListener('scroll', function(){ container.scrollLeft = topScroll.scrollLeft; });
-              container.addEventListener('scroll', function(){ topScroll.scrollLeft = container.scrollLeft; });
-            }
-            
-            // ========== Sticky N columns ==========
-            function makeSticky(firstN){
-              if (!table || !table.tHead || !table.tHead.rows.length) return;
-              
-              // Build left offsets from FIXED_STICKY_WIDTHS (fallback to measured if missing)
-              var lefts = [];
-              var acc = 0;
-              
-              for (var i = 0; i < firstN; i++) {
-                var w = FIXED_STICKY_WIDTHS[i];
-                if (typeof w !== 'number' || isNaN(w)) {
-                  // fallback: measure header if width not provided
-                  var hc = table.tHead.rows[0].cells[i];
-                  w = hc ? Math.round(hc.getBoundingClientRect().width) : 100;
-                }
-                lefts[i] = acc;
-                acc += w;
-              }
-              
-              var allRows = table.rows;
-              for (var r = 0; r < allRows.length; r++) {
-                var cells = allRows[r].cells;
-                for (var c = 0; c < firstN && c < cells.length; c++) {
-                  var cell = cells[c];
-                  
-                  // Heavy classList.add only once
-                  if (!__stickyClassesApplied) {
-                    cell.classList.add('sticky-col');
-                    if (c > 0) cell.classList.add('sep-left');
-                  }
-                  
-                  // Always update left + zIndex (needed)
-                  cell.style.left = lefts[c] + 'px';
-                  cell.style.zIndex = (r === 0 ? 30 : 20) + c;
-                }
-              }
-              __stickyClassesApplied = true;
-              
-            }
-            
-            
-            // ========== Excel-style header filters ==========
-            var activeFilters = Object.create(null); // { colIndex: Set(lowercase values) }
-            
-            function bodyRows(){ return table.tBodies && table.tBodies[0] ? table.tBodies[0].rows : []; }
-            function getCellText(row, idx){
-              var cells = row.cells; if (!cells || idx < 0 || idx >= cells.length) return '';
-              var t = cells[idx].textContent || ''; return String(t).trim();
-            }
-            function normalizeVal(v){
-              // Treat null/undefined/"- None -"/"NaN" as blank
-              var s = String(v == null ? '' : v).trim();
-              if (/^-+\s*none\s*-+$/i.test(s)) s = '';
-              if (/^nan$/i.test(s)) s = '';
-              return s.toLowerCase();
-            }
-            
-            // De-duped display values in the column (each value appears once)
-            function getAllValuesForColumn(colIdx){
-              var rows = bodyRows();
-              var displayByKey = Object.create(null);
-              
-              for (var r=0; r<rows.length; r++){
-                var v = getCellText(rows[r], colIdx);
-                // Normalize AND clean per your existing blank rules
-                if (v === '- None -' || v === 'NaN') v = '';
-                if (v === '.00') v = '0.00';
-                
-                var key = normalizeVal(v);
-                // First-seen display value wins; blanks get "(blank)"
-                if (!displayByKey[key]) displayByKey[key] = (key === '' ? '(blank)' : (v || '(blank)'));
-              }
-              
-              // Sort keys by display label (blank at bottom)
-              var keys = Object.keys(displayByKey).sort(function(a,b){
-                var da = displayByKey[a], db = displayByKey[b];
-                if (a==='' && b==='') return 0;
-                if (a==='') return 1;     // put blank last
-                if (b==='') return -1;
-                return da.localeCompare(db, undefined, {numeric:true, sensitivity:'base'});
-              });
-              
-              return { keys: keys, displayByKey: displayByKey };
-            }
-            
-            // Row passes all filters EXCEPT the specified column
-            function rowPassesFiltersExceptColumn(row, exceptColIdx){
-              for (var k in activeFilters){
-                if (!Object.prototype.hasOwnProperty.call(activeFilters,k)) continue;
-                var idx = parseInt(k,10);
-                if (idx === exceptColIdx) continue;
-                var set = activeFilters[k];
-                if (set && set.size > 0){
-                  var v = getCellText(row, idx).toLowerCase();
-                  if (!set.has(v)) return false;
-                }
-              }
-              return true;
-            }
-            
-            // Counts per value for a column among rows that pass other filters
-            function getValueCountsForColumn(colIdx){
-              var rows = bodyRows(), counts = Object.create(null);
-              for (var r=0; r<rows.length; r++){
-                var row = rows[r];
-                if (!rowPassesFiltersExceptColumn(row, colIdx)) continue;
-                
-                var v = getCellText(row, colIdx);
-                if (v === '- None -' || v === 'NaN') v = '';
-                if (v === '.00') v = '0.00';
-                
-                var key = normalizeVal(v);
-                counts[key] = (counts[key] || 0) + 1;
-              }
-              return counts; // { normKey: count }
-            }
-            // Apply all active filters
-            function applyFilters(){
-              var rows = bodyRows(), pairs = [];
-              for (var k in activeFilters){
-                if (!Object.prototype.hasOwnProperty.call(activeFilters,k)) continue;
-                var s = activeFilters[k];
-                if (s && s.size > 0) pairs.push([parseInt(k,10), s]);
-              }
-              for (var r=0; r<rows.length; r++){
-                var row = rows[r], show = true;
-                for (var i=0; i<pairs.length && show; i++){
-                  var colIdx = pairs[i][0], set = pairs[i][1];
-                  var val = getCellText(row, colIdx).toLowerCase();
-                  if (!set.has(val)) show = false;
-                }
-                row.style.display = show ? '' : 'none';
-              }
-            }
-            
-            // Close panels when clicking outside
-            document.addEventListener('click', function(e){
-              var open = table.querySelectorAll('.th-filter-panel');
-              for (var i=0;i<open.length;i++){
-                var th = open[i].closest('th');
-                var trigger = th && th.querySelector('.th-filter-btn');
-                var inside = open[i].contains(e.target) || (trigger && trigger.contains(e.target));
-                if (!inside){ if (th) th.classList.remove('th-filter-active'); open[i].remove(); }
-              }
-            });
-            
-            function openFilterPanel(btn, colIdx){
-              var th = btn.closest('th');
-              var existing = document.querySelector('#filter-portal .th-filter-panel');
-              if (existing){
-                // if panel is already for the same TH, just close; otherwise close and continue
-                var sameTh = existing.__ownerTH === th;
-                existing.remove();
-                th && th.classList.remove('th-filter-active');
-                if (sameTh) return;
-              }
-              
-              // Close any panel-activated state on other THs
-              table.querySelectorAll('th.th-filter-active').forEach(function(node){
-                node.classList.remove('th-filter-active');
-              });
-              
-              // --- Build panel
-              var panel = document.createElement('div');
-              panel.className = 'th-filter-panel';
-              panel.innerHTML =
-              '<div class="hdr">Filter</div>' +
-              '<input type="search" placeholder="Search values...">' +
-              '<div class="list"></div>' +
-              '<div class="actions">' +
-              '<button type="button" data-act="clear">Clear</button>' +
-              '<div style="display:flex; gap:6px;">' +
-              '<button type="button" data-act="selectall">Select all</button>' +
-              '<button type="button" data-act="deselectall">Deselect all</button>' +
-              '<button type="button" data-act="apply">Apply</button>' +
-              '</div>' +
-              '</div>';
-              var list = panel.querySelector('.list');
-              
-              // Keep a back-reference so we know which TH owns this panel
-              panel.__ownerTH = th;
-              
-              // --- Compute data for this column (your existing helpers are reused)
-              // Build data for this column (grouped)
-              var grouped = getAllValuesForColumn(colIdx);     // { keys, displayByKey }
-              var universeKeys = grouped.keys;                 // array of normalized keys
-              var displayByKey = grouped.displayByKey;        // map key -> label to show once
-              var visibleCounts = getValueCountsForColumn(colIdx); // counts by key
-              var existingAllowed = activeFilters[colIdx] || null;
-              
-              // Temp selection stores *keys* (normalized)
-              var tempSelection = new Set();
-              
-              // Default selection: values visible given other filters, or previously applied
-              if (existingAllowed && existingAllowed.size > 0){
-                universeKeys.forEach(function(k){
-                  if (existingAllowed.has(k)) tempSelection.add(k);
-                });
-              } else {
-                universeKeys.forEach(function(k){
-                  if ((visibleCounts[k] || 0) > 0) tempSelection.add(k);
-                });
-              }
-              
-              // Render list: one row per *key*, using displayByKey[key]
-              function renderList(filterText){
-                list.innerHTML = '';
-                var ft = String(filterText || '').toLowerCase();
-                
-                universeKeys.forEach(function(k){
-                  var labelText = displayByKey[k] || (k === '' ? '(blank)' : k);
-                  if (ft && labelText.toLowerCase().indexOf(ft) === -1) return;
-                  
-                  var id = 'f_' + colIdx + '_' + Math.random().toString(36).slice(2);
-                  var checked = tempSelection.has(k);
-                  var cnt = visibleCounts[k] || 0;
-                  var row = document.createElement('div'); row.className = 'row';
-                  row.dataset.key = k; // store normalized key
-                  row.innerHTML =
-                  '<input type="checkbox" id="'+id+'" '+(checked?'checked':'')+'>' +
-                  '<label for="'+id+'">'+ labelText + (cnt ? '  ('+cnt+')' : '') +'</label>';
-                  list.appendChild(row);
-                });
-              }
-              renderList('');
-              
-              // Persist selection while typing/toggling
-              panel.querySelector('input[type="search"]').addEventListener('input', function(){
-                renderList(this.value);
-              });
-              list.addEventListener('change', function(e){
-                var cb = e.target; if (!cb || cb.type !== 'checkbox') return;
-                var row = cb.closest('.row'); if (!row) return;
-                var key = row.dataset.key || '';
-                if (cb.checked) tempSelection.add(key); else tempSelection.delete(key);
-              });
-              
-              // Buttons
-              panel.querySelector('.actions').addEventListener('click', function(e){
-                var act = e.target && e.target.getAttribute('data-act'); if (!act) return;
-                
-                if (act === 'clear'){
-                  delete activeFilters[colIdx];
-                  th.classList.remove('th-filter-active');
-                  panel.remove();
-                  applyFilters();
-                  return;
-                }
-                
-                if (act === 'selectall'){
-                  var cbs = list.querySelectorAll('input[type="checkbox"]');
-                  for (var i=0;i<cbs.length;i++){
-                    var cb = cbs[i];
-                    if (!cb.checked) cb.checked = true;
-                    var key = cb.closest('.row').dataset.key || '';
-                    tempSelection.add(key);
-                  }
-                  return;
-                }
-                
-                if (act === 'deselectall'){                     // <— add this block
-                  var cbs = list.querySelectorAll('input[type="checkbox"]');
-                  for (var i=0;i<cbs.length;i++){
-                    var cb = cbs[i];
-                    if (cb.checked) cb.checked = false;
-                    var key = cb.closest('.row').dataset.key || '';
-                    tempSelection.delete(key);
-                  }
-                  return;
-                }
-                
-                if (act === 'apply'){
-                  var allow = new Set();
-                  tempSelection.forEach(function(k){ allow.add(k); });
-                  
-                  // Selecting *all keys* is equivalent to "no filter"
-                  if (allow.size === universeKeys.length){
-                    delete activeFilters[colIdx];
-                    th.classList.remove('th-filter-active');
-                  } else {
-                    activeFilters[colIdx] = allow;
-                    th.classList.add('th-filter-active');
-                  }
-                  panel.remove();
-                  applyFilters();
-                }
-              });
-              
-              
-              // --- Mount into portal (outside of table to avoid clipping)
-              var portal = document.getElementById('filter-portal') || document.body;
-              portal.appendChild(panel);
-              
-              // --- Position the panel relative to the button (above all fixed/sticky cells)
-              function positionPanel(){
-                var rect = btn.getBoundingClientRect();
-                var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
-                var ph = panel.offsetHeight || 0;
-                var pw = panel.offsetWidth  || 260;
-                
-                // Prefer dropping below header; if not enough space, show above
-                var belowTop = rect.bottom + 6;
-                var aboveTop = rect.top - ph - 6;
-                var top = (belowTop + ph <= window.innerHeight) ? belowTop : Math.max(8, aboveTop);
-                
-                // Right-align to button’s right edge, but keep on-screen
-                var left = Math.min(vw - pw - 8, Math.max(8, rect.right - pw));
-                
-                panel.style.top  = Math.round(top)  + 'px';
-                panel.style.left = Math.round(left) + 'px';
-              }
-              positionPanel();
-              
-              // Reposition while scrolling / resizing / table scrolling
-              
-              var __posRaf = false;
-              function schedulePosition(){
-                if (__posRaf) return;
-                __posRaf = true;
-                requestAnimationFrame(function(){
-                  __posRaf = false;
-                  positionPanel();
-                });
-              }
-              var onScrollOrResize = schedulePosition;
-              
-              window.addEventListener('scroll', onScrollOrResize, true);
-              window.addEventListener('resize', onScrollOrResize);
-              if (container) container.addEventListener('scroll', onScrollOrResize);
-              
-              
-              // Clean up listeners when panel closes
-              function teardown(){
-                window.removeEventListener('scroll', onScrollOrResize, true);
-                window.removeEventListener('resize', onScrollOrResize);
-                if (container) container.removeEventListener('scroll', onScrollOrResize);
-              }
-              // Close on outside click
-              setTimeout(function(){
-                document.addEventListener('click', function handler(e){
-                  if (panel.contains(e.target) || th.contains(e.target)) return;
-                  panel.remove(); th.classList.remove('th-filter-active'); teardown();
-                  document.removeEventListener('click', handler);
-                });
-              }, 0);
-              
-              th.classList.add('th-filter-active');
-            }
-            
-            
-            // Delegate header clicks
-            if (table.tHead){
-              table.tHead.addEventListener('click', function(e){
-                var btn = e.target.closest('.th-filter-btn');
-                if (!btn) return;
-                var colIdx = parseInt(btn.getAttribute('data-col'), 10);
-                if (!isFinite(colIdx)) return;
-                e.stopPropagation();
-                openFilterPanel(btn, colIdx);
-              });
-            }
-            
-            // ========== Init ==========
-            function init(){
-              updateTopScrollbarWidth();
-              
-              // 1) Lock widths for the first 9 frozen columns
-              applyFixedWidths(FIXED_STICKY_WIDTHS);
-              
-              // 2) Then compute sticky lefts using those fixed widths
-              makeSticky(11); // 5 control + first 5 data cols
-              
-              if (topScroll && container) topScroll.scrollLeft = container.scrollLeft;
-            }
-            requestAnimationFrame(init);
-            setTimeout(init, 200);
-            
-            // Debounced resize (NEW)
-            var __resizeT = null;
-            window.addEventListener('resize', function(){
-              clearTimeout(__resizeT);
-              __resizeT = setTimeout(init, 180);
-            });
-            
-          });
-          </script>
-          
-          `;
-          
-          htmlField.defaultValue = html;
-          form.clientScriptModulePath = './CL_RR_Tool.js'; // Update path as needed
-          
-          // form.addButton({
-          //     id: 'custpage_download_btn',
-          //     label: 'Download Cleaned File',
-          //     functionName: 'downloadFile('+ newFileId +')'
-          // });
-          context.response.writePage(form);
+    var form = ui.createForm({ title: formName });
+
+    var empid = q.empid || '';
+    var ts = q.ts || '';
+    var sig = q.sig || '';
+    var selectedEmp = q.custpage_id || '';
+
+    if (empid && ts && sig && verifyUser(empid, ts, sig)) {
+      selectedEmp = empid;
+    }
+
+    if (!selectedEmp && !isCron) {
+      context.response.write(
+        '<html><head>' +
+        '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(PORTAL_URL) + '; }, 1200);</script>' +
+        '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
+        '</head><body><div class="message">Login Required</div></body></html>'
+      );
+      return;
+    }
+
+    addHiddenFields(form, selectedEmp, ts, sig);
+
+    var htmlField = form.addField({
+      id: 'custpage_excel_html',
+      type: ui.FieldType.INLINEHTML,
+      label: 'Excel Table'
+    });
+
+    var selectedField = form.addField({
+      id: 'custpage_selected',
+      type: ui.FieldType.LONGTEXT,
+      label: 'Selected Rows JSON'
+    });
+    selectedField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+
+    form.addSubmitButton({ label: 'Submit' });
+
+    var latestFiles = getLatestFilesFromFolders();
+    if (!latestFiles.file1) {
+      htmlField.defaultValue = '<p style="color:red;">No source file found.</p>';
+      context.response.writePage(form);
+      return;
+    }
+
+    var sourceRows = buildMergedRows(latestFiles);
+    if (!sourceRows || sourceRows.length <= 1) {
+      htmlField.defaultValue = '<p style="color:red;">No valid data found in source files.</p>';
+      context.response.writePage(form);
+      return;
+    }
+
+    var headers = parseCsvLine(sourceRows[0]);
+    var normalizedHeaders = [];
+    var i;
+    for (i = 0; i < headers.length; i++) {
+      normalizedHeaders.push(normHeader(headers[i]));
+    }
+
+    var adminCsvIndex = normalizedHeaders.indexOf('admin portal');
+    if (adminCsvIndex < 0) {
+      for (i = 0; i < normalizedHeaders.length; i++) {
+        if (
+          normalizedHeaders[i] === 'admin' ||
+          normalizedHeaders[i].indexOf('admin portal') !== -1
+        ) {
+          adminCsvIndex = i;
+          break;
         }
-        
-        if (context.request.method === 'POST') {
-          var params = context.request.parameters;
-          var fileId = params.custpage_file_id;
-          
-          var p = context.request.parameters || {};
-          var postedEmp = p.custpage_empid || '';
-          var postedTs = p.custpage_ts || '';
-          var postedSig = p.custpage_sig || '';
-          
-          // Allow legacy (no signature) if you want; otherwise require verify(postedEmp, postedTs, postedSig)
-          var authorized = false;
-          if (postedEmp && postedTs && postedSig) {
-            authorized = verify(postedEmp, postedTs, postedSig);
-          }
-          
-          if (!authorized) {
-            context.response.write(`
-              <html><head>
-              <script>setTimeout(function(){ window.location.href = ${JSON.stringify(portalUrl)}; }, 1200);</script>
-              <style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>
-              </head><body><div class="message">Session expired. Please log in again.</div></body></html>
-              `);
-              return;
-            }
-            
-            // Load the file and parse contents
-            var fileObj = file.load({ id: fileId });
-            var content = fileObj.getContents();
-            var rows = content.split('\n');
-            var selectedJson = params.custpage_selected;
-            var selectedRows = [];
-            var createdCount = 0;
-            
-            if (selectedJson) {
-              try {
-                var picked = JSON.parse(selectedJson); // [{rowId, qty}]
-                picked.forEach(function (p) {
-                  var rowId = String(p.rowId || '').trim();
-                  var qty = parseInt(p.qty, 10) || 0;
-                  var memo = p.memo || 0;
-                  var mos   = parseFloat(p.mos);
-                  if (!rowId) return;
-                  var columns = rows[rowId].split(/,(?=(?:[^\"]*"[^"]*")*[^\"]*$)/)
-                  .map(function (val) { return val.replace(/"/g, '').trim(); });
-                  selectedRows.push({ rowId: rowId, qty: qty, memo: memo, monthStock: mos, columns: columns });
-                });
-              } catch (e) {
-                log.error('Bad custpage_selected JSON', e);
-              }
-            }
-            
-            // Fallback to legacy scanning if nothing captured
-            if (selectedRows.length === 0) {
-              for (var key in params) {
-                if (key.startsWith('row_select_')) {
-                  var rowId = key.split('_')[2];
-                  log.debug('params', params)
-                  var qty = parseInt(params['qty_input_' + rowId]) || 0;
-                  var memo = params['memo_input_' + rowId] || '';
-                  var columns = rows[rowId].split(/,(?=(?:[^\"]*"[^"]*")*[^\"]*$)/)
-                  .map(function (val) { return val.replace(/"/g, '').trim(); });
-                  selectedRows.push({ rowId: rowId, qty: qty, memo: memo, columns: columns });
-                }
-              }
-            }
-            
-            log.debug('selectedRows', selectedRows);
-            
-            selectedRows.forEach(function (entry) {
-              var cols = entry.columns;
-              log.debug('cols', cols)
-              log.debug('cols', cols)
+      }
+    }
 
-              var monStock = entry.monthStock;
-              if (!monStock || monStock == null || monStock == 'null' || monStock == 'Infinity' || monStock == 'infinity' || monStock == 'NaN' || monStock == 'nan') monStock = 0;
-              
-              try {
-                record.create({
-                  type: 'customrecord_mi_planned_po',
-                  isDynamic: true
-                })
-                .setValue({ fieldId: 'custrecord_mi_item', value: cols[3] })
-                .setValue({ fieldId: 'custrecord_mi_order_qty', value: entry.qty })
-                .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: entry.memo == 0 ? '' : entry.memo})
-                .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(monStock)}) // <-- NEW
-                .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[24]) })
-                .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[31]) })
-                .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[25]) })
-                .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(cols[16]) })
-                .save();
-                
-                createdCount++; // Increment on success
-              } catch (e) {
-                log.error('Error creating custom record for row ' + entry.rowId, e);
-              }
-            });
-            
-            context.response.write(`
-              <html>
-              <head>
-              <meta http-equiv="refresh" content="5;URL=https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2108&deploy=1&compid=4975346&ns-at=AAEJ7tMQmJxVsovhMpsEMUF39xnBuyMwWM4G2T7SnvA62twq8hg&empid=${encodeURIComponent(postedEmp)}&ts=${encodeURIComponent(postedTs)}&sig=${encodeURIComponent(postedSig)}" />
-              <style>
-              body {
-                font-family: Arial, sans-serif;
-                text-align: center;
-                padding-top: 100px;
-              }
-              .message-box {
-                display: inline-block;
-                background-color: #f3f9ff;
-                padding: 20px 30px;
-                border: 1px solid #a3d2f2;
-                border-radius: 8px;
-                color: #005b99;
-                font-size: 16px;
-              }
-              </style>
-              </head>
-              <body>
-              <div class="message-box">
-              <strong>${createdCount}</strong> Planned Purchase Order(s) created.<br />
-              You will be redirected to the main page in 5 seconds...
-              </div>
-              </body>
-              </html>
-              `);
-            }
-            
-            
+    var truncateAfterAdmin = (typeParam === '4');
+    var removeJustAdmin = (typeParam === '3');
+
+    var processed = processRows({
+      sourceRows: sourceRows,
+      headers: headers,
+      adminCsvIndex: adminCsvIndex,
+      truncateAfterAdmin: truncateAfterAdmin,
+      removeJustAdmin: removeJustAdmin,
+      showTopFilters: showTopFilters
+    });
+
+    var finalCsv = buildCsvString(processed.newContent);
+    var uiFileId = saveCsvFile('Download_MI_Reorder.csv', finalCsv, DOWNLOAD_FOLDER_UI, true);
+    var cronFileId = saveCsvFile('RR Tool Details.csv', finalCsv, DOWNLOAD_FOLDER_CRON, true);
+    var cronFileObj = file.load({ id: cronFileId });
+    var dlUrl = cronFileObj.url;
+
+    var fileField = form.addField({
+      id: 'custpage_file_id',
+      type: ui.FieldType.TEXT,
+      label: 'File ID'
+    });
+    fileField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+    fileField.defaultValue = String(uiFileId || '');
+
+    if (isCron) {
+      context.response.setHeader({ name: 'Content-Type', value: 'application/json' });
+      context.response.write(JSON.stringify({
+        ok: true,
+        fileId: uiFileId,
+        url: dlUrl,
+        name: cronFileObj.name
+      }));
+      return;
+    }
+
+    htmlField.defaultValue = buildHtml({
+      tableHeaders: processed.tableHeaders,
+      rowHtml: processed.rowHtml,
+      filtersData: processed.filtersData,
+      showTopFilters: showTopFilters,
+      downloadUrl: dlUrl,
+      adminCsvIndex: adminCsvIndex,
+      truncateAfterAdmin: truncateAfterAdmin,
+      removeJustAdmin: removeJustAdmin,
+      filterColumnMap: processed.filterColumnMap
+    });
+
+    form.clientScriptModulePath = './CL_RR_Tool.js';
+    context.response.writePage(form);
+  }
+
+  function handlePost(context) {
+    var params = context.request.parameters || {};
+
+    var fileId = params.custpage_file_id || '';
+    var postedEmp = params.custpage_empid || '';
+    var postedTs = params.custpage_ts || '';
+    var postedSig = params.custpage_sig || '';
+
+    var authorized = false;
+    if (postedEmp && postedTs && postedSig) {
+      authorized = verifyUser(postedEmp, postedTs, postedSig);
+    }
+
+    if (!authorized) {
+      context.response.write(
+        '<html><head>' +
+        '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(PORTAL_URL) + '; }, 1200);</script>' +
+        '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
+        '</head><body><div class="message">Session expired. Please log in again.</div></body></html>'
+      );
+      return;
+    }
+
+    var fileObj = file.load({ id: fileId });
+    var content = fileObj.getContents();
+    var rows = content.split(/\r?\n/);
+
+    var selectedRows = [];
+    var selectedJson = params.custpage_selected || '';
+    var createdCount = 0;
+
+    if (selectedJson) {
+      try {
+        var picked = JSON.parse(selectedJson);
+        var i;
+        for (i = 0; i < picked.length; i++) {
+          var p = picked[i] || {};
+          var rowId = String(p.rowId || '').trim();
+          if (!rowId) continue;
+
+          var csvRow = rows[parseInt(rowId, 10)] || '';
+          if (!csvRow) continue;
+
+          var columns = parseCsvLine(csvRow);
+          var c;
+          for (c = 0; c < columns.length; c++) {
+            columns[c] = sanitizeCsvText(unquoteCsv(columns[c]));
           }
-          
-          function getInventoryBalanceMap() {
-            var resultMap = {};
-            
-            var inventorybalanceSearchObj = search.create({
-              type: "inventorybalance",
-              filters: [
-                ["status","anyof","6","1","3","5","8"], 
-                // "AND", 
-                // [["onhand","greaterthan","0"],"OR",["available","greaterthan","0"]], 
-                "AND", 
-                ["item.isinactive", "is", "F"]
-              ],
-              columns: [
-                search.createColumn({
-                  name: "item",
-                  summary: "GROUP"
-                }),
-                search.createColumn({
-                  name: "formulanumeric",
-                  summary: "SUM",
-                  formula: "case when {status} = 'Good' then {onhand} else 0 end"
-                }),
-                search.createColumn({
-                  name: "formulanumeric1",
-                  summary: "SUM",
-                  formula: "case when {status} = 'Deviation' then {onhand} else 0 end"
-                }),
-                search.createColumn({
-                  name: "formulanumeric2",
-                  summary: "SUM",
-                  formula: "case when {status} = 'Hold' then {onhand} else 0 end"
-                }),
-                search.createColumn({
-                  name: "formulanumeric3",
-                  summary: "SUM",
-                  formula: "case when {status} = 'Inspection' then {onhand} else 0 end"
-                }),
-                search.createColumn({
-                  name: "formulanumeric4",
-                  summary: "SUM",
-                  formula: "case when {status} = 'Label' then {onhand} else 0 end"
-                }),
-                search.createColumn({
-                  name: "available",
-                  summary: "SUM",
-                  label: "Available"
-                })
-              ]
-            });
-            
-            inventorybalanceSearchObj.run().each(function(result) {
-              var itemId = result.getValue({ name: "item", summary: "GROUP" });
-              var goodQty = parseFloat(result.getValue({ name: "formulanumeric", summary: "SUM" })) || 0;
-              var badQty  = parseFloat(result.getValue({ name: "formulanumeric1", summary: "SUM" })) || 0;
-              var holdQty  = parseFloat(result.getValue({ name: "formulanumeric2", summary: "SUM" })) || 0;
-              var inspectQty  = parseFloat(result.getValue({ name: "formulanumeric3", summary: "SUM" })) || 0;
-              var labelQty  = parseFloat(result.getValue({ name: "formulanumeric4", summary: "SUM" })) || 0;
-              var total = parseFloat((goodQty + badQty).toFixed(2));
-              var avail = parseFloat(result.getValue({ name: "available", summary: "SUM" })) || 0;
-              
-              resultMap[itemId] = { good: goodQty, bad: badQty, hold: holdQty, inspect: inspectQty, label: labelQty, total: total, avail: avail };
-              return true;
-            });
-            
-            return resultMap;
+
+          selectedRows.push({
+            rowId: rowId,
+            qty: safeParseInt(p.qty),
+            memo: sanitizeCsvText(p.memo || ''),
+            monthStock: safeParseFloat(p.mos),
+            columns: columns
+          });
+        }
+      } catch (e) {
+        log.error('Bad custpage_selected JSON', e);
+      }
+    }
+
+    if (!selectedRows.length) {
+      var key;
+      for (key in params) {
+        if (key.indexOf('row_select_') === 0) {
+          var fallbackRowId = key.split('_')[2];
+          var fallbackQty = safeParseInt(params['qty_input_' + fallbackRowId]);
+          var fallbackMemo = sanitizeCsvText(params['memo_input_' + fallbackRowId] || '');
+          var fallbackCsvRow = rows[parseInt(fallbackRowId, 10)] || '';
+          if (!fallbackCsvRow) continue;
+
+          var fallbackCols = parseCsvLine(fallbackCsvRow);
+          var j;
+          for (j = 0; j < fallbackCols.length; j++) {
+            fallbackCols[j] = sanitizeCsvText(unquoteCsv(fallbackCols[j]));
           }
-          
-          function safeParseFloat(val) {
-            var num = parseFloat(val);
-            return isNaN(num) ? 0 : num;
-          }
-          function safeParseInt(val) {
-            var num = parseInt(val);
-            return isNaN(num) ? 0 : num;
-          }
-          
-          return {
-            onRequest: onRequest
-          };
-        });
+
+          selectedRows.push({
+            rowId: fallbackRowId,
+            qty: fallbackQty,
+            memo: fallbackMemo,
+            monthStock: 0,
+            columns: fallbackCols
+          });
+        }
+      }
+    }
+
+    log.debug('selectedRows count', selectedRows.length);
+
+    var k;
+    for (k = 0; k < selectedRows.length; k++) {
+      var entry = selectedRows[k];
+      var cols = entry.columns || [];
+
+      try {
+        var monStock = entry.monthStock;
+        if (!isFinite(monStock)) monStock = 0;
+
+        record.create({
+          type: 'customrecord_mi_planned_po',
+          isDynamic: true
+        })
+        .setValue({ fieldId: 'custrecord_mi_item', value: cols[3] || '' })
+        .setValue({ fieldId: 'custrecord_mi_order_qty', value: entry.qty || 0 })
+        .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: entry.memo || '' })
+        .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(monStock) })
+        .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[24]) })
+        .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[31]) })
+        .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[25]) })
+        .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(cols[16]) })
+        .save();
+
+        createdCount++;
+      } catch (e2) {
+        log.error('Error creating custom record for row ' + entry.rowId, e2);
+      }
+    }
+
+    context.response.write(
+      '<html><head>' +
+      '<meta http-equiv="refresh" content="5;URL=https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2108&deploy=1&compid=4975346&ns-at=AAEJ7tMQmJxVsovhMpsEMUF39xnBuyMwWM4G2T7SnvA62twq8hg&empid=' + encodeURIComponent(postedEmp) + '&ts=' + encodeURIComponent(postedTs) + '&sig=' + encodeURIComponent(postedSig) + '" />' +
+      '<style>' +
+      'body{font-family:Arial,sans-serif;text-align:center;padding-top:100px;}' +
+      '.message-box{display:inline-block;background-color:#f3f9ff;padding:20px 30px;border:1px solid #a3d2f2;border-radius:8px;color:#005b99;font-size:16px;}' +
+      '</style></head><body>' +
+      '<div class="message-box"><strong>' + createdCount + '</strong> Planned Purchase Order(s) created.<br />You will be redirected to the main page in 5 seconds...</div>' +
+      '</body></html>'
+    );
+  }
+
+  function addHiddenFields(form, selectedEmp, ts, sig) {
+    var empField = form.addField({
+      id: 'custpage_empid',
+      type: ui.FieldType.SELECT,
+      label: 'Current Employee',
+      source: 'employee'
+    });
+    empField.defaultValue = selectedEmp || '';
+    empField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+
+    var tsField = form.addField({
+      id: 'custpage_ts',
+      type: ui.FieldType.TEXT,
+      label: 'ts'
+    });
+    tsField.defaultValue = ts || '';
+    tsField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+
+    var sigField = form.addField({
+      id: 'custpage_sig',
+      type: ui.FieldType.TEXT,
+      label: 'sig'
+    });
+    sigField.defaultValue = sig || '';
+    sigField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+  }
+
+  function getLatestFilesFromFolders() {
+    var result = {
+      file1: null,
+      file2: null,
+      file3: null
+    };
+
+    var folderSearchObj = search.create({
+      type: 'folder',
+      filters: [
+        ['internalid', 'anyof', String(SOURCE_FOLDER_1), String(SOURCE_FOLDER_2), String(SOURCE_FOLDER_3)],
+        'AND',
+        ['file.documentsize', 'greaterthan', '5']
+      ],
+      columns: [
+        search.createColumn({ name: 'internalid', summary: 'GROUP' }),
+        search.createColumn({ name: 'internalid', join: 'file', summary: 'MAX' })
+      ]
+    });
+
+    folderSearchObj.run().each(function (res) {
+      var folderId = res.getValue({ name: 'internalid', summary: 'GROUP' });
+      var latestFileId = res.getValue({ name: 'internalid', join: 'file', summary: 'MAX' });
+
+      if (String(folderId) === String(SOURCE_FOLDER_1)) result.file1 = latestFileId;
+      if (String(folderId) === String(SOURCE_FOLDER_2)) result.file2 = latestFileId;
+      if (String(folderId) === String(SOURCE_FOLDER_3)) result.file3 = latestFileId;
+      return true;
+    });
+
+    return result;
+  }
+
+  function buildMergedRows(latestFiles) {
+    var rows = [];
+    var rows1 = loadRows(latestFiles.file1);
+    var rows2 = loadRows(latestFiles.file2);
+    var rows3 = loadRows(latestFiles.file3);
+
+    if (rows1.length) {
+      rows = rows1.slice();
+    }
+
+    if (rows2.length) {
+      rows2.shift();
+      rows = rows.concat(rows2);
+    }
+
+    if (rows3.length) {
+      rows3.shift();
+      rows = rows.concat(rows3);
+    }
+
+    return rows;
+  }
+
+  function loadRows(fileId) {
+    if (!fileId) return [];
+    var fileObj = file.load({ id: fileId });
+    var content = fileObj.getContents() || '';
+    content = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    return content.split('\n');
+  }
+
+  function processRows(opts) {
+    var rows = opts.sourceRows;
+    var headers = opts.headers;
+    var adminCsvIndex = opts.adminCsvIndex;
+    var truncateAfterAdmin = opts.truncateAfterAdmin;
+    var removeJustAdmin = opts.removeJustAdmin;
+
+    var ITEM_INDEX = 2;
+    var VENDOR_INDEX = 35;
+    var BRAND_CATEGORY_INDEX = 33;
+    var BRAND_INDEX = 32;
+    var DEPT_INDEX = 52;
+    var POL_INDEX = 36;
+    var PRODUCT_INDEX = 53;
+
+    var tableHeaders = getOutputHeaders(headers, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+    var newContent = [];
+    var rowHtml = [];
+
+    var filtersData = {
+      items: {},
+      vendors: {},
+      brands: {},
+      brandCategories: {},
+      departments: {},
+      pols: {},
+      products: {}
+    };
+
+    var filterColumnMap = {
+      item: null,
+      vendor: null,
+      brand: null,
+      brandCategory: null,
+      department: null,
+      pol: null,
+      product: null
+    };
+
+    var inventoryMap = getInventoryBalanceMap();
+    var alreadyExist = {};
+
+    var finalHeadersForCsv = tableHeaders.slice();
+    finalHeadersForCsv.push('Filter');
+    newContent.push(finalHeadersForCsv);
+
+    filterColumnMap.item = getOutputIndexForOriginalCsvIndex(ITEM_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+    filterColumnMap.vendor = getOutputIndexForOriginalCsvIndex(VENDOR_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+    filterColumnMap.brand = getOutputIndexForOriginalCsvIndex(BRAND_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+    filterColumnMap.brandCategory = getOutputIndexForOriginalCsvIndex(BRAND_CATEGORY_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+    filterColumnMap.department = getOutputIndexForOriginalCsvIndex(DEPT_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+    filterColumnMap.pol = getOutputIndexForOriginalCsvIndex(POL_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+    filterColumnMap.product = getOutputIndexForOriginalCsvIndex(PRODUCT_INDEX, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+
+    var redRows = [];
+    var blackRows = [];
+
+    var r;
+    for (r = 1; r < rows.length; r++) {
+      var rawRow = rows[r];
+      if (!rawRow || !rawRow.trim()) continue;
+
+      var columns = parseCsvLine(rawRow);
+      if (!columns || !columns.length) continue;
+
+      if (truncateAfterAdmin && adminCsvIndex >= 0) {
+        var adminCellVal = sanitizeCsvText(columns[adminCsvIndex] || '').toLowerCase();
+        if (adminCellVal !== 'admin portal') {
+          continue;
+        }
+      }
+
+      var calcCols = columns.slice();
+
+      var itemid = sanitizeCsvText(unquoteCsv(calcCols[3] || ''));
+      if (!itemid) continue;
+      if (alreadyExist[itemid]) continue;
+      alreadyExist[itemid] = true;
+
+      addToSetMap(filtersData.items, sanitizeCsvText(unquoteCsv(calcCols[ITEM_INDEX] || '')));
+      addToSetMap(filtersData.vendors, sanitizeCsvText(unquoteCsv(calcCols[VENDOR_INDEX] || '')));
+      addToSetMap(filtersData.brands, sanitizeCsvText(unquoteCsv(calcCols[BRAND_INDEX] || '')));
+      addToSetMap(filtersData.brandCategories, sanitizeCsvText(unquoteCsv(calcCols[BRAND_CATEGORY_INDEX] || '')));
+      addToSetMap(filtersData.departments, sanitizeCsvText(unquoteCsv(calcCols[DEPT_INDEX] || '')));
+      addToSetMap(filtersData.pols, sanitizeCsvText(unquoteCsv(calcCols[POL_INDEX] || '')));
+      addToSetMap(filtersData.products, sanitizeCsvText(unquoteCsv(calcCols[PRODUCT_INDEX] || '')));
+
+      var monthAvg = safeParseFloat(unquoteCsv(calcCols[11]));
+      var val43 = safeParseFloat(unquoteCsv(calcCols[25]));
+      var val41 = safeParseFloat(unquoteCsv(calcCols[20]));
+      var diff = Math.abs(val43 - val41);
+
+      calcCols[25] = String(diff || '');
+
+      var good = 0;
+      var bad = 0;
+      var hold = 0;
+      var inspect = 0;
+      var label = 0;
+      var total = 0;
+      var avail = 0;
+
+      if (inventoryMap[itemid]) {
+        good = safeParseFloat(inventoryMap[itemid].good);
+        bad = safeParseFloat(inventoryMap[itemid].bad);
+        hold = safeParseFloat(inventoryMap[itemid].hold);
+        inspect = safeParseFloat(inventoryMap[itemid].inspect);
+        label = safeParseFloat(inventoryMap[itemid].label);
+        total = safeParseFloat(inventoryMap[itemid].total);
+        avail = safeParseFloat(inventoryMap[itemid].avail);
+      }
+
+      var col12Val = safeParseFloat(unquoteCsv(calcCols[12]));
+      var availToProm = good - col12Val;
+
+      calcCols[12] = numText(availToProm);
+      calcCols[13] = numText(good);
+      calcCols[14] = numText(bad);
+      calcCols[15] = numText(inspect);
+      calcCols[16] = numText(label);
+      calcCols[17] = numText(hold);
+      calcCols[18] = numText(total);
+      calcCols[19] = monthAvg ? numText(total / monthAvg) : '0';
+      calcCols[23] = numText(total + val41);
+      calcCols[24] = monthAvg ? numText((total + val41) / monthAvg) : '0';
+      calcCols[26] = numText(total + val43);
+      calcCols[27] = monthAvg ? numText((total + val43) / monthAvg) : '0';
+      calcCols[31] = numText(avail);
+      calcCols[63] = numText(normalizeMovement(monthAvg));
+      calcCols[64] = numText(safeParseFloat(normalizeMovement(monthAvg)) * 4);
+
+      var qtytotal = diff + val41 + avail - col12Val;
+      var stockingQty = Math.ceil(safeParseFloat(unquoteCsv(calcCols[11])) * 4.5);
+      calcCols[11] = numText(normalizeMovement(monthAvg));
+
+      var recommendedQty = 0;
+      if (qtytotal < stockingQty) {
+        recommendedQty = safeParseFloat((stockingQty - qtytotal).toFixed(2));
+      }
+
+      var monthsStock = monthAvg ? ((diff + avail + val41) / monthAvg) : 0;
+      var rowColor = 'Black';
+      var rowStyle = '';
+
+      if (!isNaN(monthsStock) && monthsStock <= 4.5) {
+        rowColor = 'Red';
+        rowStyle = ' style="color:red;"';
+      }
+
+      var baseCols = calcCols.slice();
+      var displayCols = getOutputRowColumns(baseCols, adminCsvIndex, truncateAfterAdmin, removeJustAdmin);
+      displayCols.push(rowColor);
+
+      var cleanedCols = [];
+      var c;
+      for (c = 0; c < displayCols.length; c++) {
+        cleanedCols.push(cleanCsvValue(displayCols[c]));
+      }
+      newContent.push(cleanedCols);
+
+      var rowId = newContent.length - 1;
+      var htmlRow = '';
+      htmlRow += '<tr' + rowStyle + '>';
+      htmlRow += '<td class="sticky-col sticky-1"><input type="checkbox" name="row_select_' + rowId + '" /></td>';
+      htmlRow += '<td class="sticky-col sticky-2"><input type="number" name="qty_input_' + rowId + '" min="0" value="' + escapeAttr(String(recommendedQty)) + '" /></td>';
+      htmlRow += '<td class="sticky-col sticky-3 month-stock-cell">' + escapeHtml(numText(monthsStock)) + '</td>';
+      htmlRow += '<td class="sticky-col sticky-4 cubic-space-cell"></td>';
+      htmlRow += '<td class="sticky-col sticky-5 weight-cell"></td>';
+
+      for (c = 0; c < displayCols.length; c++) {
+        var cellValue = sanitizeCsvText(unquoteCsv(displayCols[c]));
+        if (cellValue === '- None -' || cellValue === 'NaN' || cellValue === 'Infinity') cellValue = '';
+        if (cellValue === '.00') cellValue = '0.00';
+
+        if (c === 0) {
+          htmlRow += '<td class="sticky-col sticky-6"><input type="text" name="memo_input_' + rowId + '" value="' + escapeAttr(cellValue) + '" /></td>';
+        } else {
+          htmlRow += '<td>' + escapeHtml(cellValue) + '</td>';
+        }
+      }
+
+      htmlRow += '</tr>';
+
+      var itemIdNum = safeParseInt(itemid);
+      if (rowColor === 'Red') {
+        redRows.push({ itemId: itemIdNum, html: htmlRow });
+      } else {
+        blackRows.push({ itemId: itemIdNum, html: htmlRow });
+      }
+    }
+
+    redRows.sort(function (a, b) { return a.itemId - b.itemId; });
+    blackRows.sort(function (a, b) { return a.itemId - b.itemId; });
+
+    for (r = 0; r < redRows.length; r++) rowHtml.push(redRows[r].html);
+    for (r = 0; r < blackRows.length; r++) rowHtml.push(blackRows[r].html);
+
+    return {
+      tableHeaders: tableHeaders,
+      rowHtml: rowHtml.join(''),
+      newContent: newContent,
+      filtersData: {
+        items: sortedKeys(filtersData.items),
+        vendors: sortedKeys(filtersData.vendors),
+        brands: sortedKeys(filtersData.brands),
+        brandCategories: sortedKeys(filtersData.brandCategories),
+        departments: sortedKeys(filtersData.departments),
+        pols: sortedKeys(filtersData.pols),
+        products: sortedKeys(filtersData.products)
+      },
+      filterColumnMap: filterColumnMap
+    };
+  }
+
+  function buildHtml(opts) {
+    var tableHeaders = opts.tableHeaders || [];
+    var showTopFilters = opts.showTopFilters;
+    var filtersData = opts.filtersData || {};
+    var downloadUrl = opts.downloadUrl || '';
+    var filterColumnMap = opts.filterColumnMap || {};
+
+    var html = '';
+
+    html += '<style>';
+    html += 'body{font-family:Arial,sans-serif;}';
+    html += '.top-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap;}';
+    html += '.left-tools,.right-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}';
+    html += '.download-btn{background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:6px 10px;cursor:pointer;}';
+    html += '.download-btn:hover{background:#f8fafc;}';
+    html += '.filter-wrap{position:relative;display:inline-block;}';
+    html += '.filter-toggle{border:1px solid #cbd5e1;background:#fff;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;}';
+    html += '.filter-toggle:hover{background:#f8fafc;}';
+    html += '.filter-panel{display:none;position:absolute;top:110%;left:0;background:#fff;border:1px solid #d1d5db;border-radius:8px;padding:12px;width:760px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:5000;}';
+    html += '.filter-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}';
+    html += '.filter-grid label{display:block;font-size:12px;font-weight:700;margin-bottom:4px;}';
+    html += '.filter-grid select{width:100%;min-height:110px;}';
+    html += '.totals-bar{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid #a3d2f2;border-radius:999px;background:#f3f9ff;}';
+    html += '.totals-label{font-size:12px;color:#005b99;font-weight:700;text-transform:uppercase;}';
+    html += '.totals-value{font-weight:700;font-size:14px;color:#003f6b;}';
+    html += '.table-shell{border:1px solid #d1d5db;border-radius:8px;overflow:hidden;}';
+    html += '.top-scroll{height:16px;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid #d1d5db;background:#f8fafc;}';
+    html += '.top-scroll-inner{height:1px;}';
+    html += '.table-container{max-height:850px;overflow:auto;position:relative;}';
+    html += '#excelTable{border-collapse:separate;border-spacing:0;table-layout:auto;min-width:100%;width:max-content;background:#fff;}';
+    html += '#excelTable th,#excelTable td{border-right:1px solid #d1d5db;border-bottom:1px solid #d1d5db;padding:8px 10px;white-space:nowrap;font-size:12px;background:#fff;}';
+    html += '#excelTable thead th{position:sticky;top:0;background:#f3f4f6;z-index:30;}';
+    html += '.sticky-col{position:sticky;background:#f9fafb !important;z-index:20;}';
+    html += '#excelTable thead .sticky-col{z-index:40;}';
+    html += '.sticky-1{left:0;min-width:60px;max-width:60px;width:60px;}';
+    html += '.sticky-2{left:60px;min-width:100px;max-width:100px;width:100px;}';
+    html += '.sticky-3{left:160px;min-width:110px;max-width:110px;width:110px;}';
+    html += '.sticky-4{left:270px;min-width:110px;max-width:110px;width:110px;}';
+    html += '.sticky-5{left:380px;min-width:90px;max-width:90px;width:90px;}';
+    html += '.sticky-6{left:470px;min-width:220px;max-width:220px;width:220px;}';
+    html += 'input[type="number"],input[type="text"]{width:100%;box-sizing:border-box;padding:4px 6px;}';
+    html += '.th-filter-wrap{display:inline-flex;align-items:center;gap:6px;}';
+    html += '.th-filter-btn{cursor:pointer;border:1px solid #cbd5e1;background:#fff;padding:2px 5px;border-radius:4px;font-size:11px;}';
+    html += '.th-filter-btn:hover{background:#f8fafc;}';
+    html += '.th-filter-panel{position:fixed;top:0;left:0;width:260px;max-height:320px;overflow:auto;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:99999;}';
+    html += '.th-filter-panel .hdr{font-weight:700;font-size:12px;margin-bottom:6px;}';
+    html += '.th-filter-panel input[type="search"]{width:100%;box-sizing:border-box;padding:6px 8px;margin-bottom:8px;}';
+    html += '.th-filter-panel .list{max-height:190px;overflow:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px;}';
+    html += '.th-filter-panel .row{display:flex;align-items:center;gap:8px;padding:2px 0;font-size:12px;}';
+    html += '.th-filter-panel .actions{display:flex;justify-content:space-between;gap:8px;margin-top:8px;}';
+    html += '.th-filter-panel .actions button{padding:3px 7px;font-size:11px;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;}';
+    html += '.th-filter-active .th-filter-btn{border-color:#2563eb;background:#eff6ff;}';
+    html += '</style>';
+
+    html += '<div class="top-bar">';
+    html += '<div class="left-tools">';
+    html += '<button id="downloadCsvBtn" class="download-btn" type="button">Download CSV</button>';
+
+    if (showTopFilters) {
+      html += '<div class="filter-wrap" id="filterWrapper">';
+      html += '<button type="button" class="filter-toggle" id="filterToggle">Filters</button>';
+      html += '<div class="filter-panel" id="filterPanel">';
+      html += '<div class="filter-grid">';
+      html += buildTopSelect('itemFilter', 'Item', filtersData.items);
+      html += buildTopSelect('vendorFilter', 'Vendor', filtersData.vendors);
+      html += buildTopSelect('brandFilter', 'Brand', filtersData.brands);
+      html += buildTopSelect('brandCatFilter', 'Brand Category', filtersData.brandCategories);
+      html += buildTopSelect('deptFilter', 'Department', filtersData.departments);
+      html += buildTopSelect('polFilter', 'P.O.L', filtersData.pols);
+      html += buildTopSelect('productFilter', 'Product Type', filtersData.products);
+      html += '</div></div></div>';
+    }
+
+    html += '</div>';
+    html += '<div class="right-tools">';
+    html += '<div class="totals-bar"><span class="totals-label">Total Cubic Space</span><span id="totalCubicValue" class="totals-value">0</span></div>';
+    html += '<div class="totals-bar"><span class="totals-label">Total Weight</span><span id="totalWeightValue" class="totals-value">0</span></div>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '<div class="table-shell">';
+    html += '<div id="topScroll" class="top-scroll"><div id="topScrollInner" class="top-scroll-inner"></div></div>';
+    html += '<div class="table-container" id="tableContainer">';
+    html += '<table id="excelTable">';
+    html += '<thead><tr>';
+    html += '<th class="sticky-col sticky-1">Select</th>';
+    html += '<th class="sticky-col sticky-2">Order Qty</th>';
+    html += '<th class="sticky-col sticky-3">Month of Stock</th>';
+    html += '<th class="sticky-col sticky-4">Item Space</th>';
+    html += '<th class="sticky-col sticky-5">Weight</th>';
+
+    var h;
+    for (h = 0; h < tableHeaders.length; h++) {
+      var domIndex = h + 5;
+      var stickyClass = (h === 0 ? ' sticky-col sticky-6' : '');
+      html += '<th class="' + stickyClass + '" data-col-index="' + domIndex + '">' +
+        '<span class="th-filter-wrap">' +
+        '<span>' + escapeHtml(sanitizeCsvText(unquoteCsv(tableHeaders[h]))) + '</span>' +
+        '<button type="button" class="th-filter-btn" data-col="' + domIndex + '">▾</button>' +
+        '</span></th>';
+    }
+    html += '</tr></thead><tbody>';
+    html += opts.rowHtml || '';
+    html += '</tbody></table></div></div>';
+    html += '<div id="filter-portal"></div>';
+
+    html += '<script>';
+    html += '(function(){';
+    html += 'var DOWNLOAD_URL=' + JSON.stringify(downloadUrl) + ';';
+    html += 'var FILTER_COL_MAP=' + JSON.stringify(filterColumnMap) + ';';
+    html += 'var topScroll=document.getElementById("topScroll");';
+    html += 'var topScrollInner=document.getElementById("topScrollInner");';
+    html += 'var container=document.getElementById("tableContainer");';
+    html += 'var table=document.getElementById("excelTable");';
+    html += 'var portal=document.getElementById("filter-portal");';
+    html += 'var activeHeaderFilters={};';
+
+    html += 'function syncTopScrollWidth(){if(!table||!topScrollInner)return;topScrollInner.style.width=Math.max(table.scrollWidth,container.clientWidth+2)+"px";}';
+    html += 'if(topScroll&&container){topScroll.addEventListener("scroll",function(){container.scrollLeft=topScroll.scrollLeft;});container.addEventListener("scroll",function(){topScroll.scrollLeft=container.scrollLeft;});}';
+    html += 'window.addEventListener("resize",syncTopScrollWidth);setTimeout(syncTopScrollWidth,50);setTimeout(syncTopScrollWidth,300);';
+
+    html += 'var downloadBtn=document.getElementById("downloadCsvBtn");';
+    html += 'if(downloadBtn){downloadBtn.addEventListener("click",function(e){e.preventDefault();if(DOWNLOAD_URL)window.open(DOWNLOAD_URL,"_blank");});}';
+
+    html += 'var filterWrapper=document.getElementById("filterWrapper");';
+    html += 'var filterToggle=document.getElementById("filterToggle");';
+    html += 'var filterPanel=document.getElementById("filterPanel");';
+    html += 'if(filterWrapper&&filterToggle&&filterPanel){';
+    html += 'filterToggle.addEventListener("click",function(e){e.stopPropagation();filterPanel.style.display=(filterPanel.style.display==="block"?"none":"block");});';
+    html += 'document.addEventListener("click",function(e){if(!filterWrapper.contains(e.target))filterPanel.style.display="none";});';
+    html += '}';
+
+    html += 'function getSelectedValues(selectId){var el=document.getElementById(selectId);if(!el)return [];var out=[];for(var i=0;i<el.options.length;i++){if(el.options[i].selected)out.push(String(el.options[i].value||"").toLowerCase());}return out;}';
+    html += 'function textOfCell(row, idx){if(idx==null||idx<0)return "";var cell=row.cells[idx];if(!cell)return "";return String(cell.textContent||"").trim().toLowerCase();}';
+
+    html += 'function passesTopFilters(row){';
+    html += 'var selectedItems=getSelectedValues("itemFilter");';
+    html += 'var selectedVendors=getSelectedValues("vendorFilter");';
+    html += 'var selectedBrands=getSelectedValues("brandFilter");';
+    html += 'var selectedBrandCats=getSelectedValues("brandCatFilter");';
+    html += 'var selectedDepts=getSelectedValues("deptFilter");';
+    html += 'var selectedPols=getSelectedValues("polFilter");';
+    html += 'var selectedProducts=getSelectedValues("productFilter");';
+
+    html += 'var item=textOfCell(row, FILTER_COL_MAP.item != null ? FILTER_COL_MAP.item + 5 : -1);';
+    html += 'var vendor=textOfCell(row, FILTER_COL_MAP.vendor != null ? FILTER_COL_MAP.vendor + 5 : -1);';
+    html += 'var brand=textOfCell(row, FILTER_COL_MAP.brand != null ? FILTER_COL_MAP.brand + 5 : -1);';
+    html += 'var brandCat=textOfCell(row, FILTER_COL_MAP.brandCategory != null ? FILTER_COL_MAP.brandCategory + 5 : -1);';
+    html += 'var dept=textOfCell(row, FILTER_COL_MAP.department != null ? FILTER_COL_MAP.department + 5 : -1);';
+    html += 'var pol=textOfCell(row, FILTER_COL_MAP.pol != null ? FILTER_COL_MAP.pol + 5 : -1);';
+    html += 'var product=textOfCell(row, FILTER_COL_MAP.product != null ? FILTER_COL_MAP.product + 5 : -1);';
+
+    html += 'var ok=true;';
+    html += 'if(selectedItems.length && selectedItems.indexOf(item)===-1) ok=false;';
+    html += 'if(selectedVendors.length && selectedVendors.indexOf(vendor)===-1) ok=false;';
+    html += 'if(selectedBrands.length && selectedBrands.indexOf(brand)===-1) ok=false;';
+    html += 'if(selectedBrandCats.length && selectedBrandCats.indexOf(brandCat)===-1) ok=false;';
+    html += 'if(selectedDepts.length && selectedDepts.indexOf(dept)===-1) ok=false;';
+    html += 'if(selectedPols.length && selectedPols.indexOf(pol)===-1) ok=false;';
+    html += 'if(selectedProducts.length && selectedProducts.indexOf(product)===-1) ok=false;';
+    html += 'return ok;';
+    html += '}';
+
+    html += 'function normalizeVal(v){v=String(v==null?"":v).trim();if(/^[-\\s]*none[-\\s]*$/i.test(v))v="";if(/^nan$/i.test(v))v="";return v.toLowerCase();}';
+    html += 'function getBodyRows(){return table && table.tBodies && table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];}';
+    html += 'function rowPassesHeaderFilters(row){for(var k in activeHeaderFilters){if(!activeHeaderFilters.hasOwnProperty(k))continue;var set=activeHeaderFilters[k];if(!set||!set.size)continue;var val=normalizeVal(row.cells[parseInt(k,10)] ? row.cells[parseInt(k,10)].textContent : "");if(!set.has(val))return false;}return true;}';
+    html += 'function applyAllFilters(){var rows=getBodyRows();for(var i=0;i<rows.length;i++){var row=rows[i];var show=passesTopFilters(row)&&rowPassesHeaderFilters(row);row.style.display=show?"":"none";}updateTotals();}';
+
+    html += '["itemFilter","vendorFilter","brandFilter","brandCatFilter","deptFilter","polFilter","productFilter"].forEach(function(id){var el=document.getElementById(id);if(el)el.addEventListener("change",applyAllFilters);});';
+
+    html += 'function getCountsForColumn(colIdx){var rows=getBodyRows();var counts={};for(var i=0;i<rows.length;i++){var row=rows[i];if(!passesTopFilters(row))continue;var ok=true;for(var k in activeHeaderFilters){if(!activeHeaderFilters.hasOwnProperty(k))continue;if(parseInt(k,10)===colIdx)continue;var set=activeHeaderFilters[k];if(!set||!set.size)continue;var vv=normalizeVal(row.cells[parseInt(k,10)] ? row.cells[parseInt(k,10)].textContent : "");if(!set.has(vv)){ok=false;break;}}if(!ok)continue;var val=normalizeVal(row.cells[colIdx] ? row.cells[colIdx].textContent : "");counts[val]=(counts[val]||0)+1;}return counts;}';
+
+    html += 'function allValuesForColumn(colIdx){var rows=getBodyRows();var map={};for(var i=0;i<rows.length;i++){var label=String(rows[i].cells[colIdx] ? rows[i].cells[colIdx].textContent : "").trim();if(label===".00")label="0.00";if(label==="- None -"||label==="NaN"||label==="Infinity")label="";var key=normalizeVal(label);if(!map.hasOwnProperty(key))map[key]=key===""?"(blank)":label;}var keys=Object.keys(map).sort(function(a,b){if(a==="")return 1;if(b==="")return -1;return String(map[a]).localeCompare(String(map[b]),undefined,{numeric:true,sensitivity:"base"});});return {keys:keys,map:map};}';
+
+    html += 'function closeHeaderPanels(){var open=portal.querySelector(".th-filter-panel");if(open)open.remove();var activeThs=table.querySelectorAll("th.th-filter-active");for(var i=0;i<activeThs.length;i++)activeThs[i].classList.remove("th-filter-active");}';
+
+    html += 'function openHeaderFilter(btn,colIdx){closeHeaderPanels();var th=btn.closest("th");if(!th)return;';
+    html += 'var grouped=allValuesForColumn(colIdx);var counts=getCountsForColumn(colIdx);var existing=activeHeaderFilters[colIdx]||null;var temp=new Set();';
+    html += 'if(existing&&existing.size){grouped.keys.forEach(function(k){if(existing.has(k))temp.add(k);});}else{grouped.keys.forEach(function(k){if((counts[k]||0)>0)temp.add(k);});}';
+    html += 'var panel=document.createElement("div");panel.className="th-filter-panel";';
+    html += 'panel.innerHTML=\'<div class="hdr">Filter</div><input type="search" placeholder="Search values..."><div class="list"></div><div class="actions"><button type="button" data-act="clear">Clear</button><div style="display:flex;gap:6px;"><button type="button" data-act="selectall">Select all</button><button type="button" data-act="deselectall">Deselect all</button><button type="button" data-act="apply">Apply</button></div></div>\';';
+    html += 'var list=panel.querySelector(".list");';
+    html += 'function render(ft){list.innerHTML="";ft=String(ft||"").toLowerCase();grouped.keys.forEach(function(k){var label=grouped.map[k]||"(blank)";if(ft&&label.toLowerCase().indexOf(ft)===-1)return;var row=document.createElement("div");row.className="row";row.dataset.key=k;var id="f_"+colIdx+"_"+Math.random().toString(36).slice(2);row.innerHTML=\'<input type="checkbox" id="\'+id+\'" \'+(temp.has(k)?"checked":"")+\'><label for="\'+id+\'">\'+label+((counts[k]||0)?(" ("+counts[k]+")"):"")+\'</label>\';list.appendChild(row);});}';
+    html += 'render("");';
+    html += 'panel.querySelector("input[type=search]").addEventListener("input",function(){render(this.value);});';
+    html += 'list.addEventListener("change",function(e){var cb=e.target;if(!cb||cb.type!=="checkbox")return;var row=cb.closest(".row");if(!row)return;var key=row.dataset.key||"";if(cb.checked)temp.add(key);else temp.delete(key);});';
+    html += 'panel.querySelector(".actions").addEventListener("click",function(e){var act=e.target.getAttribute("data-act");if(!act)return;if(act==="clear"){delete activeHeaderFilters[colIdx];closeHeaderPanels();applyAllFilters();return;}if(act==="selectall"){var cbs=list.querySelectorAll("input[type=checkbox]");for(var i=0;i<cbs.length;i++){cbs[i].checked=true;temp.add(cbs[i].closest(".row").dataset.key||"");}return;}if(act==="deselectall"){var cbs2=list.querySelectorAll("input[type=checkbox]");for(var j=0;j<cbs2.length;j++){cbs2[j].checked=false;temp.delete(cbs2[j].closest(".row").dataset.key||"");}return;}if(act==="apply"){if(temp.size===grouped.keys.length){delete activeHeaderFilters[colIdx];}else{activeHeaderFilters[colIdx]=new Set(temp);}closeHeaderPanels();if(activeHeaderFilters[colIdx]&&activeHeaderFilters[colIdx].size){th.classList.add("th-filter-active");}else{th.classList.remove("th-filter-active");}applyAllFilters();}});';
+    html += 'portal.appendChild(panel);th.classList.add("th-filter-active");';
+    html += 'var rect=btn.getBoundingClientRect();var pw=260;var ph=panel.offsetHeight||280;var left=Math.max(8,Math.min((window.innerWidth-pw-8),(rect.right-pw)));var top=(rect.bottom+ph+8<window.innerHeight)?(rect.bottom+6):Math.max(8,rect.top-ph-6);panel.style.left=Math.round(left)+"px";panel.style.top=Math.round(top)+"px";';
+    html += '}';
+
+    html += 'table.tHead.addEventListener("click",function(e){var btn=e.target.closest(".th-filter-btn");if(!btn)return;e.stopPropagation();openHeaderFilter(btn,parseInt(btn.getAttribute("data-col"),10));});';
+    html += 'document.addEventListener("click",function(e){if(!portal.contains(e.target)&&!e.target.closest(".th-filter-btn"))closeHeaderPanels();});';
+
+    html += 'function parseNum(v){v=String(v||"").replace(/,/g,"").trim();var n=parseFloat(v);return isNaN(n)?0:n;}';
+    html += 'function updateTotals(){var rows=getBodyRows();var totalCubic=0,totalWeight=0;for(var i=0;i<rows.length;i++){if(rows[i].style.display==="none")continue;var cubicCell=rows[i].querySelector(".cubic-space-cell");var weightCell=rows[i].querySelector(".weight-cell");if(cubicCell)totalCubic+=parseNum(cubicCell.textContent);if(weightCell)totalWeight+=parseNum(weightCell.textContent);}var cubicEl=document.getElementById("totalCubicValue");var weightEl=document.getElementById("totalWeightValue");if(cubicEl)cubicEl.textContent=totalCubic.toFixed(2);if(weightEl)weightEl.textContent=totalWeight.toFixed(2);}';
+
+    html += 'var form=document.querySelector("form");var hiddenSelected=document.getElementById("custpage_selected");';
+    html += 'function collectSelectedRows(){if(!hiddenSelected)return;var out=[];var rows=getBodyRows();for(var i=0;i<rows.length;i++){var tr=rows[i];var cb=tr.querySelector(\'input[type="checkbox"][name^="row_select_"]\');if(cb&&cb.checked){var rowId=(cb.name||"").split("_").pop();var qtyInput=tr.querySelector(\'input[type="number"][name^="qty_input_"]\');var memoInput=tr.querySelector(\'input[type="text"][name^="memo_input_"]\');var mosCell=tr.querySelector(".month-stock-cell");out.push({rowId:rowId,qty:qtyInput?qtyInput.value:"0",memo:memoInput?memoInput.value:"",mos:mosCell?mosCell.textContent:"0"});}}hiddenSelected.value=JSON.stringify(out);}';
+    html += 'if(form){form.addEventListener("submit",function(){collectSelectedRows();closeHeaderPanels();});}';
+
+    html += 'applyAllFilters();syncTopScrollWidth();';
+    html += '})();';
+    html += '</script>';
+
+    return html;
+  }
+
+  function getOutputHeaders(headers, adminCsvIndex, truncateAfterAdmin, removeJustAdmin) {
+    var out = [];
+    var i;
+
+    if (adminCsvIndex >= 0) {
+      if (truncateAfterAdmin) {
+        for (i = 0; i < adminCsvIndex; i++) {
+          out.push(sanitizeCsvText(unquoteCsv(headers[i] || '')));
+        }
+        return out;
+      }
+
+      if (removeJustAdmin) {
+        for (i = 0; i < headers.length; i++) {
+          if (i !== adminCsvIndex) out.push(sanitizeCsvText(unquoteCsv(headers[i] || '')));
+        }
+        return out;
+      }
+    }
+
+    for (i = 0; i < headers.length; i++) {
+      out.push(sanitizeCsvText(unquoteCsv(headers[i] || '')));
+    }
+    return out;
+  }
+
+  function getOutputRowColumns(baseCols, adminCsvIndex, truncateAfterAdmin, removeJustAdmin) {
+    var out = [];
+    var i;
+
+    if (adminCsvIndex >= 0) {
+      if (truncateAfterAdmin) {
+        for (i = 0; i < adminCsvIndex; i++) out.push(baseCols[i]);
+        return out;
+      }
+
+      if (removeJustAdmin) {
+        for (i = 0; i < baseCols.length; i++) {
+          if (i !== adminCsvIndex) out.push(baseCols[i]);
+        }
+        return out;
+      }
+    }
+
+    return baseCols.slice();
+  }
+
+  function getOutputIndexForOriginalCsvIndex(originalIndex, adminCsvIndex, truncateAfterAdmin, removeJustAdmin) {
+    if (truncateAfterAdmin && adminCsvIndex >= 0) {
+      if (originalIndex >= adminCsvIndex) return null;
+      return originalIndex;
+    }
+
+    if (removeJustAdmin && adminCsvIndex >= 0) {
+      if (originalIndex === adminCsvIndex) return null;
+      if (originalIndex > adminCsvIndex) return originalIndex - 1;
+      return originalIndex;
+    }
+
+    return originalIndex;
+  }
+
+  function buildTopSelect(id, label, values) {
+    var html = '<div><label for="' + escapeAttr(id) + '">' + escapeHtml(label) + '</label><select id="' + escapeAttr(id) + '" multiple size="6">';
+    var i;
+    for (i = 0; i < values.length; i++) {
+      html += '<option value="' + escapeAttr(values[i]) + '">' + escapeHtml(values[i]) + '</option>';
+    }
+    html += '</select></div>';
+    return html;
+  }
+
+  function buildCsvString(rows) {
+    var out = [];
+    var i, j;
+    for (i = 0; i < rows.length; i++) {
+      var line = [];
+      for (j = 0; j < rows[i].length; j++) {
+        line.push(cleanCsvValue(rows[i][j]));
+      }
+      out.push(line.join(','));
+    }
+    return out.join('\n');
+  }
+
+  function saveCsvFile(name, contents, folderId, isOnline) {
+    var f = file.create({
+      name: name,
+      fileType: file.Type.CSV,
+      contents: contents,
+      encoding: file.Encoding.UTF8,
+      folder: folderId,
+      isOnline: !!isOnline
+    });
+    return f.save();
+  }
+
+  function getInventoryBalanceMap() {
+    var resultMap = {};
+
+    var inventorybalanceSearchObj = search.create({
+      type: 'inventorybalance',
+      filters: [
+        ['status', 'anyof', '6', '1', '3', '5', '8'],
+        'AND',
+        ['item.isinactive', 'is', 'F']
+      ],
+      columns: [
+        search.createColumn({ name: 'item', summary: 'GROUP' }),
+        search.createColumn({ name: 'formulanumeric', summary: 'SUM', formula: "case when {status} = 'Good' then {onhand} else 0 end" }),
+        search.createColumn({ name: 'formulanumeric1', summary: 'SUM', formula: "case when {status} = 'Deviation' then {onhand} else 0 end" }),
+        search.createColumn({ name: 'formulanumeric2', summary: 'SUM', formula: "case when {status} = 'Hold' then {onhand} else 0 end" }),
+        search.createColumn({ name: 'formulanumeric3', summary: 'SUM', formula: "case when {status} = 'Inspection' then {onhand} else 0 end" }),
+        search.createColumn({ name: 'formulanumeric4', summary: 'SUM', formula: "case when {status} = 'Label' then {onhand} else 0 end" }),
+        search.createColumn({ name: 'available', summary: 'SUM' })
+      ]
+    });
+
+    inventorybalanceSearchObj.run().each(function (res) {
+      var itemId = res.getValue({ name: 'item', summary: 'GROUP' });
+      var goodQty = safeParseFloat(res.getValue({ name: 'formulanumeric', summary: 'SUM' }));
+      var badQty = safeParseFloat(res.getValue({ name: 'formulanumeric1', summary: 'SUM' }));
+      var holdQty = safeParseFloat(res.getValue({ name: 'formulanumeric2', summary: 'SUM' }));
+      var inspectQty = safeParseFloat(res.getValue({ name: 'formulanumeric3', summary: 'SUM' }));
+      var labelQty = safeParseFloat(res.getValue({ name: 'formulanumeric4', summary: 'SUM' }));
+      var avail = safeParseFloat(res.getValue({ name: 'available', summary: 'SUM' }));
+      var total = safeParseFloat((goodQty + badQty).toFixed(2));
+
+      resultMap[String(itemId)] = {
+        good: goodQty,
+        bad: badQty,
+        hold: holdQty,
+        inspect: inspectQty,
+        label: labelQty,
+        total: total,
+        avail: avail
+      };
+      return true;
+    });
+
+    return resultMap;
+  }
+
+  function signCron(ts) {
+    var secret = getSecret();
+    var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
+    h.update({ input: 'CRON|' + ts + '|' + secret });
+    return h.digest({ outputEncoding: crypto.Encoding.HEX });
+  }
+
+  function verifyCron(ts, sig) {
+    if (!ts || !sig) return false;
+    if (Math.abs(Date.now() - safeParseInt(ts)) > TOKEN_TTL_MS) return false;
+    try {
+      return signCron(ts) === sig;
+    } catch (e) {
+      log.error('verifyCron token', e);
+      return false;
+    }
+  }
+
+  function signUser(empid, ts) {
+    var secret = getSecret();
+    var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
+    h.update({ input: String(empid) + '|' + String(ts) + '|' + secret });
+    return h.digest({ outputEncoding: crypto.Encoding.HEX });
+  }
+
+  function verifyUser(empid, ts, sig) {
+    if (!empid || !ts || !sig) return false;
+    if (Math.abs(Date.now() - safeParseInt(ts)) > TOKEN_TTL_MS) return false;
+    try {
+      return signUser(empid, ts) === sig;
+    } catch (e) {
+      log.error('verify token', e);
+      return false;
+    }
+  }
+
+  function getSecret() {
+    return runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
+  }
+
+  function parseCsvLine(line) {
+    if (line == null) return [];
+    var result = [];
+    var current = '';
+    var inQuotes = false;
+    var i;
+    var ch;
+    var next;
+
+    line = String(line);
+
+    for (i = 0; i < line.length; i++) {
+      ch = line.charAt(i);
+
+      if (ch === '"') {
+        next = line.charAt(i + 1);
+        if (inQuotes && next === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+
+    result.push(current);
+    return result;
+  }
+
+  function unquoteCsv(v) {
+    v = String(v == null ? '' : v);
+    if (v.length >= 2 && v.charAt(0) === '"' && v.charAt(v.length - 1) === '"') {
+      v = v.substring(1, v.length - 1).replace(/""/g, '"');
+    }
+    return v;
+  }
+
+  function sanitizeCsvText(value) {
+    if (value == null) return '';
+    var s = String(value);
+
+    s = s.replace(/\uFEFF/g, '');
+    s = s.replace(/[\u200B-\u200D\u2060]/g, '');
+    s = s.replace(/\u00A0/g, ' ');
+    s = s.replace(/[“”]/g, '"');
+    s = s.replace(/[‘’]/g, "'");
+    s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    s = s.replace(/\r/g, ' ').replace(/\n/g, ' ');
+
+    return s.trim();
+  }
+
+  function cleanCsvValue(value) {
+    var v = sanitizeCsvText(unquoteCsv(value));
+
+    if (v === '- None -' || v === 'NaN' || v === 'Infinity') return '';
+    if (v === '.00') v = '0.00';
+
+    if (/[",\r\n]/.test(v)) {
+      v = '"' + v.replace(/"/g, '""') + '"';
+    }
+
+    return v;
+  }
+
+  function normHeader(h) {
+    return String(h || '')
+      .replace(/^[\uFEFF\s"]+|[\s"]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  function normalizeMovement(val) {
+    if (val === null || val === undefined) return 'No Movement';
+    var s = String(val).replace(/,/g, '').trim();
+    if (!s) return 'No Movement';
+    var n = parseFloat(s);
+    if (!isFinite(n) || n <= 0) return 'No Movement';
+    return n.toFixed(2);
+  }
+
+  function numText(v) {
+    if (!isFinite(safeParseFloat(v))) return '0';
+    return String(safeParseFloat(v));
+  }
+
+  function safeParseFloat(val) {
+    var n = parseFloat(String(val == null ? '' : val).replace(/,/g, '').trim());
+    return isNaN(n) ? 0 : n;
+  }
+
+  function safeParseInt(val) {
+    var n = parseInt(String(val == null ? '' : val).replace(/,/g, '').trim(), 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function addToSetMap(mapObj, value) {
+    value = sanitizeCsvText(value);
+    if (!value) return;
+    mapObj[value] = true;
+  }
+
+  function sortedKeys(obj) {
+    var arr = [];
+    var k;
+    for (k in obj) {
+      if (obj.hasOwnProperty(k)) arr.push(k);
+    }
+    arr.sort(function (a, b) {
+      return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+    });
+    return arr;
+  }
+
+  function escapeHtml(str) {
+    str = String(str == null ? '' : str);
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function escapeAttr(str) {
+    return escapeHtml(str);
+  }
+
+  return {
+    onRequest: onRequest
+  };
+});
