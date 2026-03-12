@@ -579,7 +579,7 @@ function getSecret() {
 
     html += '<td class="sticky-col c0"><input type="checkbox" name="row_select_' + cfg.rowId + '" /></td>';
     html += '<td class="sticky-col c1"><input type="number" class="qty-input" name="qty_input_' + cfg.rowId + '" min="0" value="' + escapeHtmlAttr(String(cfg.recommendedQty || 0)) + '" /></td>';
-    html += '<td class="sticky-col c2 month-stock-cell">' + escapeHtml(isFinite(cfg.monthsStock) ? cfg.monthsStock.toFixed(2) : '') + '</td>';
+    html += '<td class="sticky-col c2 month-stock-cell"></td>';
     html += '<td class="sticky-col c3 item-space-cell">' + escapeHtml(cleanDisplayValue(cfg.itemSpace)) + '</td>';
     html += '<td class="sticky-col c4 weight-cell">' + escapeHtml(cleanDisplayValue(cfg.weight)) + '</td>';
 
