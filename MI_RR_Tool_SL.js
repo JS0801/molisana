@@ -682,7 +682,7 @@ define([
       +   '<div class="toolbar">'
       +     '<div class="toolbar-left">'
       +       '<button id="downloadCsvBtn" class="icon-btn" type="button" title="Download CSV">Download CSV</button>'
-      +       (cfg.showTopFilters ? ''
+      +       '(' + cfg.showTopFilters ? ''
       +         + '<div class="filter-shell">'
       +           '<button id="topFilterBtn" class="btn" type="button">Filters</button>'
       +           '<div id="topFilterPanel" class="filter-panel">'
