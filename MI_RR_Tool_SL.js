@@ -682,26 +682,28 @@ define([
       +   '<div class="toolbar">'
       +     '<div class="toolbar-left">'
       +       '<button id="downloadCsvBtn" class="icon-btn" type="button" title="Download CSV">Download CSV</button>'
-      +       '(' + cfg.showTopFilters ? ''
-      +         + '<div class="filter-shell">'
-      +           '<button id="topFilterBtn" class="btn" type="button">Filters</button>'
-      +           '<div id="topFilterPanel" class="filter-panel">'
-      +             '<div class="filter-grid">'
-      +               buildFilterBox('item', 'Item')
-      +               + buildFilterBox('vendor', 'Vendor')
-      +               + buildFilterBox('brand', 'Brand')
-      +               + buildFilterBox('brandCat', 'Brand Category')
-      +               + buildFilterBox('dept', 'Department')
-      +               + buildFilterBox('pol', 'P.O.L')
-      +               + buildFilterBox('product', 'Product Type')
-      +             + '</div>'
-      +             '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">'
-      +               '<button type="button" class="btn" id="clearAllTopFilters">Clear All</button>'
-      +               '<button type="button" class="btn btn-primary" id="applyTopFilters">Apply</button>'
-      +             '</div>'
-      +           '</div>'
-      +         '</div>'
-      +       : '')
+ var topFiltersHtml = '';
+if (cfg.showTopFilters) {
+  topFiltersHtml =
+    '<div class="filter-shell">'
+    + '<button id="topFilterBtn" class="btn" type="button">Filters</button>'
+    + '<div id="topFilterPanel" class="filter-panel">'
+      + '<div class="filter-grid">'
+        + buildFilterBox('item', 'Item')
+        + buildFilterBox('vendor', 'Vendor')
+        + buildFilterBox('brand', 'Brand')
+        + buildFilterBox('brandCat', 'Brand Category')
+        + buildFilterBox('dept', 'Department')
+        + buildFilterBox('pol', 'P.O.L')
+        + buildFilterBox('product', 'Product Type')
+      + '</div>'
+      + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">'
+        + '<button type="button" class="btn" id="clearAllTopFilters">Clear All</button>'
+        + '<button type="button" class="btn btn-primary" id="applyTopFilters">Apply</button>'
+      + '</div>'
+    + '</div>'
+    + '</div>';
+}
       +     '</div>'
       +     '<div class="toolbar-right">'
       +       '<div class="totals-bar"><span class="totals-label">Selected Rows</span><span id="selectedCount" class="totals-value">0</span></div>'
