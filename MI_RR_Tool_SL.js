@@ -152,7 +152,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         const BRAND_INDEX = 32;
         const DEPT_INDEX = 52;
         const POL_INDEX = 36;
-        const PRODUCT_INDEX = 53;
+        const PRODUCT_INDEX = 55;
         const NEW_COL_SHIFT = 2; // 2 new columns inserted after index 5
 
         const uniqueItems = new Set();
