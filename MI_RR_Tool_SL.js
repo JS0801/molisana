@@ -631,7 +631,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           return rawHeaders.slice();
         })();
         // Insert 2 new PO qty columns after index 5
-        headersForOutput.splice(6, 0, '"Qty - Last Year"', '"Qty - This Year"');
+        headersForOutput.splice(6, 0, '"Qty Ordered Last Year"', '"Qty Ordered This Year"');
         headersForOutput.push('Filter');
         newContent.push(headersForOutput);
 
