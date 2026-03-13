@@ -334,7 +334,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     width: 100%;
   }
   .rr-table-wrap {
-    max-height: calc(100vh - 175px);
+    max-height: calc(100vh - 165px);
     overflow: auto;
     border: 1px solid #e2e8f0;
     border-radius: 0 0 10px 10px;
