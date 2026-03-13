@@ -153,6 +153,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         const DEPT_INDEX = 52;
         const POL_INDEX = 36;
         const PRODUCT_INDEX = 53;
+        const NEW_COL_SHIFT = 2; // 2 new columns inserted after index 11
 
         const uniqueItems = new Set();
         const uniqueVendors = new Set();
@@ -177,6 +178,11 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     font-size: 13px;
     color: #1e293b;
     line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--rr-top-offset, 80px));
+    min-height: 400px;
+    overflow: hidden;
   }
 
   /* ── Toolbar ── */
@@ -191,6 +197,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     border: 1px solid #e2e8f0;
     border-bottom: none;
     border-radius: 10px 10px 0 0;
+    flex-shrink: 0;
   }
 
   .rr-toolbar-right {
@@ -325,16 +332,23 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     border: 1px solid #e2e8f0;
     border-bottom: 0;
     border-radius: 0;
+    flex-shrink: 0;
   }
   .rr-hscroll-inner { height: 1px; }
 
   /* ── Table viewport ── */
   .rr-viewport {
-    max-width: calc(100vw - 15px);
+    max-width: calc(100vw - 10px);
     width: 100%;
+    flex: 1 1 0%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;           /* critical for flex child to shrink */
+    overflow: hidden;
   }
   .rr-table-wrap {
-    max-height: calc(100vh - 165px);
+    flex: 1 1 0%;
+    min-height: 0;           /* allows shrinking inside flex */
     overflow: auto;
     border: 1px solid #e2e8f0;
     border-radius: 0 0 10px 10px;
@@ -616,6 +630,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           }
           return rawHeaders.slice();
         })();
+        // Insert 2 new PO qty columns after index 11 (after Month Avg)
+        headersForOutput.splice(12, 0, '"Qty - Last Year"', '"Qty - This Year"');
         headersForOutput.push('Filter');
         newContent.push(headersForOutput);
 
@@ -657,6 +673,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
         var balances = getInventoryBalanceMap();
         log.debug('Inventory Balance Map', balances);
+        var poQtyMap = getPurchaseOrderQtyMap();
+        log.debug('PO Qty Map', poQtyMap);
         var alreadyExsist = {};
 
         rows.slice(1).forEach(function (row) {
@@ -775,6 +793,14 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           var statusVal = (calcCols.length ? calcCols[calcCols.length - 1] : '') || '';
           var baseCols = calcCols.slice(0, -1);
 
+          // Insert "Qty - Last Year" and "Qty - This Year" after column 11 (Month Avg)
+          var poData = poQtyMap[itemid] || { lastYear: 0, thisYear: 0 };
+          var splicePos = csvIndexIsExposed(11) + 1; // right after month avg in the array
+          baseCols.splice(splicePos, 0,
+            '"' + poData.lastYear + '"',
+            '"' + poData.thisYear + '"'
+          );
+
           let displayCols;
           if (adminCsvIndex >= 0 && truncateAfterAdmin) {
             displayCols = baseCols.slice(0, adminCsvIndex);
@@ -874,11 +900,12 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
   var WEIGHT_CELL_INDEX = 4;
 
   // Source columns in the table (data column TD indices)
-  var SRC_PER_CUBIC_IDX = 35;
-  var SRC_PER_WGT_IDX = 33;
-  var SRC_PER_WGT_UNIT_IDX = 34;
-  var SRC_PER_AVAIL_IDX = 36;
-  var SRC_MONTH_AVG_IDX_1 = 16;
+  // +2 shift for all >= old 12 due to Qty Last Year / This Year inserted after col 11
+  var SRC_PER_CUBIC_IDX = 37;      // was 35, +2
+  var SRC_PER_WGT_IDX = 35;        // was 33, +2
+  var SRC_PER_WGT_UNIT_IDX = 36;   // was 34, +2
+  var SRC_PER_AVAIL_IDX = 38;      // was 36, +2
+  var SRC_MONTH_AVG_IDX_1 = 18;    // was 16, +2
 
   // ── Helpers ──
   function toNum(v) {
@@ -913,8 +940,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     if (cells.length <= WEIGHT_CELL_INDEX) return;
 
     var monthQty = parseFloat(cells[SRC_MONTH_AVG_IDX_1] ? cells[SRC_MONTH_AVG_IDX_1].textContent : 0) || 0;
-    var inTransit = parseFloat(cells[25] ? cells[25].textContent : 0) || 0;
-    var onOrder = parseFloat(cells[30] ? cells[30].textContent : 0) || 0;
+    var inTransit = parseFloat(cells[27] ? cells[27].textContent : 0) || 0;
+    var onOrder = parseFloat(cells[32] ? cells[32].textContent : 0) || 0;
     var avail = parseFloat(cells[SRC_PER_AVAIL_IDX] ? cells[SRC_PER_AVAIL_IDX].textContent : 0) || 0;
 
     var totalForMos = inTransit + onOrder + avail + qtyOrdered;
@@ -1094,12 +1121,12 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       document.querySelectorAll('#excelTable tbody tr').forEach(function(row) {
         var cells = row.querySelectorAll('td');
         var item     = getCellSafe(cells, vizIdxFromCsv(${ITEM_INDEX}));
-        var vendor   = getCellSafe(cells, vizIdxFromCsv(${VENDOR_INDEX + 1}));
-        var brand    = getCellSafe(cells, vizIdxFromCsv(${BRAND_INDEX + 1}));
-        var brandCat = getCellSafe(cells, vizIdxFromCsv(${BRAND_CATEGORY_INDEX + 1}));
-        var dept     = getCellSafe(cells, vizIdxFromCsv(${DEPT_INDEX + 1}));
-        var pol      = getCellSafe(cells, vizIdxFromCsv(${POL_INDEX + 1}));
-        var product  = getCellSafe(cells, vizIdxFromCsv(${PRODUCT_INDEX + 1}));
+        var vendor   = getCellSafe(cells, vizIdxFromCsv(${VENDOR_INDEX + 1 + NEW_COL_SHIFT}));
+        var brand    = getCellSafe(cells, vizIdxFromCsv(${BRAND_INDEX + 1 + NEW_COL_SHIFT}));
+        var brandCat = getCellSafe(cells, vizIdxFromCsv(${BRAND_CATEGORY_INDEX + 1 + NEW_COL_SHIFT}));
+        var dept     = getCellSafe(cells, vizIdxFromCsv(${DEPT_INDEX + 1 + NEW_COL_SHIFT}));
+        var pol      = getCellSafe(cells, vizIdxFromCsv(${POL_INDEX + 1 + NEW_COL_SHIFT}));
+        var product  = getCellSafe(cells, vizIdxFromCsv(${PRODUCT_INDEX + 1 + NEW_COL_SHIFT}));
 
         var show = (selectedItems.length === 0 || selectedItems.includes(item))
           && (selectedVendors.length === 0 || selectedVendors.includes(vendor))
@@ -1733,10 +1760,10 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
               .setValue({ fieldId: 'custrecord_mi_order_qty', value: entry.qty })
               .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: entry.memo == 0 ? '' : entry.memo })
               .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(entry.monthStock) })
-              .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[24]) })
-              .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[31]) })
-              .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[25]) })
-              .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(cols[16]) })
+              .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[26]) })
+              .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[33]) })
+              .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[27]) })
+              .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(cols[18]) })
               .save();
 
             createdCount++;
@@ -1830,6 +1857,56 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         return true;
       });
 
+      return resultMap;
+    }
+
+    function getPurchaseOrderQtyMap() {
+      var resultMap = {};
+
+      var purchaseorderSearchObj = search.create({
+        type: "purchaseorder",
+        settings: [{ "name": "consolidationtype", "value": "ACCTTYPE" }],
+        filters: [
+          ["type", "anyof", "PurchOrd"],
+          "AND",
+          ["closed", "is", "F"],
+          "AND",
+          ["mainline", "is", "F"],
+          "AND",
+          ["cogs", "is", "F"],
+          "AND",
+          ["shipping", "is", "F"],
+          "AND",
+          ["item", "noneof", "@NONE@"],
+          "AND",
+          [["trandate", "within", "lastyear"], "OR", ["trandate", "within", "thisyear"]]
+        ],
+        columns: [
+          search.createColumn({ name: "item", summary: "GROUP", label: "Item" }),
+          search.createColumn({
+            name: "formulanumeric", summary: "SUM",
+            formula: "CASE WHEN TO_CHAR({trandate}, 'YYYY') = TO_CHAR(ADD_MONTHS(SYSDATE, -12), 'YYYY') THEN ABS({quantity}) ELSE 0 END",
+            label: "Last Year"
+          }),
+          search.createColumn({
+            name: "formulanumeric", summary: "SUM",
+            formula: "CASE WHEN TO_CHAR({trandate}, 'YYYY') = TO_CHAR(SYSDATE, 'YYYY') THEN ABS({quantity}) ELSE 0 END",
+            label: "This Year"
+          })
+        ]
+      });
+
+      purchaseorderSearchObj.run().each(function (result) {
+        var itemId = result.getValue({ name: "item", summary: "GROUP" });
+        var cols = result.columns;
+        var lastYear = parseFloat(result.getValue(cols[1])) || 0;
+        var thisYear = parseFloat(result.getValue(cols[2])) || 0;
+
+        resultMap[itemId] = { lastYear: lastYear, thisYear: thisYear };
+        return true;
+      });
+
+      log.debug('PO Qty Map count', Object.keys(resultMap).length);
       return resultMap;
     }
 
