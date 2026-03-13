@@ -334,7 +334,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     width: 100%;
   }
   .rr-table-wrap {
-    max-height: 850px;
+    max-height: calc(100vh - 180px);
     overflow: auto;
     border: 1px solid #e2e8f0;
     border-radius: 0 0 10px 10px;
@@ -1218,10 +1218,14 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       return s.toLowerCase();
     }
 
+    // Returns ONLY values that exist in rows passing all OTHER column filters
+    // This makes column B's dropdown update dynamically when column A is filtered
     function getAllValuesForColumn(colIdx) {
       var rows = bodyRows();
       var displayByKey = Object.create(null);
       for (var r = 0; r < rows.length; r++) {
+        // Skip rows hidden by OTHER filters (not this column's filter)
+        if (!rowPassesFiltersExceptColumn(rows[r], colIdx)) continue;
         var v = getCellText(rows[r], colIdx);
         if (v === '- None -' || v === 'NaN') v = '';
         if (v === '.00') v = '0.00';
@@ -1330,6 +1334,21 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       function renderList(filterText) {
         list.innerHTML = '';
         var ft = String(filterText || '').toLowerCase();
+
+        // When user is actively searching, auto-select only matching items
+        // and deselect non-matching ones (Excel-like behavior)
+        if (ft) {
+          universeKeys.forEach(function(k) {
+            var labelText = displayByKey[k] || (k === '' ? '(blank)' : k);
+            var matches = labelText.toLowerCase().indexOf(ft) !== -1;
+            if (matches) {
+              tempSelection.add(k);
+            } else {
+              tempSelection.delete(k);
+            }
+          });
+        }
+
         universeKeys.forEach(function(k) {
           var labelText = displayByKey[k] || (k === '' ? '(blank)' : k);
           if (ft && labelText.toLowerCase().indexOf(ft) === -1) return;
@@ -1347,8 +1366,17 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       }
       renderList('');
 
+      // Save initial selection so we can restore when search is cleared
+      var preSearchSelection = new Set(tempSelection);
+
       panel.querySelector('input[type="search"]').addEventListener('input', function() {
-        renderList(this.value);
+        var val = this.value;
+        // When search is cleared, restore the pre-search selection state
+        if (!val) {
+          tempSelection.clear();
+          preSearchSelection.forEach(function(k) { tempSelection.add(k); });
+        }
+        renderList(val);
       });
 
       list.addEventListener('change', function(e) {
