@@ -153,7 +153,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         const DEPT_INDEX = 52;
         const POL_INDEX = 36;
         const PRODUCT_INDEX = 53;
-        const NEW_COL_SHIFT = 2; // 2 new columns inserted after index 11
+        const NEW_COL_SHIFT = 2; // 2 new columns inserted after index 7
 
         const uniqueItems = new Set();
         const uniqueVendors = new Set();
@@ -630,8 +630,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           }
           return rawHeaders.slice();
         })();
-        // Insert 2 new PO qty columns after index 11 (after Month Avg)
-        headersForOutput.splice(12, 0, '"Qty - Last Year"', '"Qty - This Year"');
+        // Insert 2 new PO qty columns after index 7
+        headersForOutput.splice(8, 0, '"Qty - Last Year"', '"Qty - This Year"');
         headersForOutput.push('Filter');
         newContent.push(headersForOutput);
 
@@ -793,9 +793,9 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           var statusVal = (calcCols.length ? calcCols[calcCols.length - 1] : '') || '';
           var baseCols = calcCols.slice(0, -1);
 
-          // Insert "Qty - Last Year" and "Qty - This Year" after column 11 (Month Avg)
+          // Insert "Qty - Last Year" and "Qty - This Year" after column 7
           var poData = poQtyMap[itemid] || { lastYear: 0, thisYear: 0 };
-          var splicePos = csvIndexIsExposed(11) + 1; // right after month avg in the array
+          var splicePos = csvIndexIsExposed(7) + 1; // right after col 7 in the array
           baseCols.splice(splicePos, 0,
             '"' + poData.lastYear + '"',
             '"' + poData.thisYear + '"'
@@ -900,7 +900,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
   var WEIGHT_CELL_INDEX = 4;
 
   // Source columns in the table (data column TD indices)
-  // +2 shift for all >= old 12 due to Qty Last Year / This Year inserted after col 11
+  // +2 shift for all >= old 8 due to Qty Last Year / This Year inserted after col 7
   var SRC_PER_CUBIC_IDX = 37;      // was 35, +2
   var SRC_PER_WGT_IDX = 35;        // was 33, +2
   var SRC_PER_WGT_UNIT_IDX = 36;   // was 34, +2
