@@ -29,6 +29,14 @@ function getSecret() {
   var DOWNLOAD_FOLDER_UI = 378271;
   var DOWNLOAD_FOLDER_CRON = 279208;
 
+  // ---------------------------------------------------------------
+  // NOTE: These indices refer to the ORIGINAL CSV columns BEFORE
+  // the two PO columns are inserted.  The helper csvIndexIsExposed()
+  // already adjusts for the "admin portal" column; an additional
+  // offset for the inserted PO columns is handled by
+  // adjustForInsertedPOCols() when reading back from the expanded
+  // calcCols array.
+  // ---------------------------------------------------------------
   var HEADER_INDEX = {
     ITEM: 2,
     VENDOR: 35,
@@ -159,8 +167,9 @@ function getSecret() {
 
     var headerMeta = buildHeaderMeta(headers, typeParam);
     var balances = getInventoryBalanceMap();
+    var poData = getPurchaseOrderMap();
 
-    var buildResult = buildOutputRows(rows, headerMeta, balances);
+    var buildResult = buildOutputRows(rows, headerMeta, balances, poData);
     var cleanedCsvContent = buildCsvContent(buildResult.outputRows);
 
     var uiFile = file.create({
@@ -363,6 +372,15 @@ function getSecret() {
       }
     }
 
+    // ---- Find "Item Status" column position ----
+    var itemStatusCsvIndex = -1;
+    for (var j = 0; j < normalized.length; j++) {
+      if (normalized[j] === 'item status') {
+        itemStatusCsvIndex = j;
+        break;
+      }
+    }
+
     var truncateAfterAdmin = typeParam === '4';
     var removeJustAdmin = typeParam === '3';
 
@@ -381,18 +399,102 @@ function getSecret() {
       headersForOutput = rawHeaders.slice();
     }
 
+    // ---- Insert PO columns after "Item Status" in the output headers ----
+    // We need to find Item Status position in headersForOutput (it may have shifted
+    // if admin column was removed before it).
+    var itemStatusOutputIndex = -1;
+    for (var k = 0; k < headersForOutput.length; k++) {
+      if (normalizeHeader(headersForOutput[k]) === 'item status') {
+        itemStatusOutputIndex = k;
+        break;
+      }
+    }
+
+    // Insert the two new PO columns right after Item Status
+    if (itemStatusOutputIndex >= 0) {
+      headersForOutput.splice(itemStatusOutputIndex + 1, 0, 'PO Qty Last Year', 'PO Qty This Year');
+    } else {
+      // Fallback: append before Filter if Item Status not found
+      headersForOutput.push('PO Qty Last Year');
+      headersForOutput.push('PO Qty This Year');
+    }
+
     headersForOutput.push('Filter');
 
     return {
       rawHeaders: rawHeaders,
       headersForOutput: headersForOutput,
       adminCsvIndex: adminCsvIndex,
+      itemStatusCsvIndex: itemStatusCsvIndex,
+      itemStatusOutputIndex: itemStatusOutputIndex,
       truncateAfterAdmin: truncateAfterAdmin,
       removeJustAdmin: removeJustAdmin
     };
   }
 
-  function buildOutputRows(rows, headerMeta, balances) {
+  // ---------------------------------------------------------------
+  //  NEW: Purchase Order search – PO Qty Last Year & This Year
+  // ---------------------------------------------------------------
+  function getPurchaseOrderMap() {
+    var resultMap = {};
+
+    var purchaseorderSearchObj = search.create({
+      type: 'purchaseorder',
+      settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
+      filters: [
+        ['type', 'anyof', 'PurchOrd'],
+        'AND',
+        ['closed', 'is', 'F'],
+        'AND',
+        ['mainline', 'is', 'F'],
+        'AND',
+        ['cogs', 'is', 'F'],
+        'AND',
+        ['shipping', 'is', 'F'],
+        'AND',
+        ['item', 'noneof', '@NONE@'],
+        'AND',
+        [['trandate', 'within', 'lastyear'], 'OR', ['trandate', 'within', 'thisyear']]
+      ],
+      columns: [
+        search.createColumn({
+          name: 'item',
+          summary: 'GROUP',
+          label: 'Item'
+        }),
+        search.createColumn({
+          name: 'formulanumeric',
+          summary: 'SUM',
+          formula: "CASE WHEN TO_CHAR({trandate}, 'YYYY') = TO_CHAR(ADD_MONTHS(SYSDATE, -12), 'YYYY') THEN ABS({quantity}) ELSE 0 END",
+          label: 'Last Year'
+        }),
+        search.createColumn({
+          name: 'formulanumeric',
+          summary: 'SUM',
+          formula: "CASE WHEN TO_CHAR({trandate}, 'YYYY') = TO_CHAR(SYSDATE, 'YYYY') THEN ABS({quantity}) ELSE 0 END",
+          label: 'This Year'
+        })
+      ]
+    });
+
+    var pagedData = purchaseorderSearchObj.runPaged({ pageSize: 1000 });
+    pagedData.pageRanges.forEach(function (pageRange) {
+      pagedData.fetch({ index: pageRange.index }).data.forEach(function (result) {
+        var itemId = result.getValue({ name: 'item', summary: 'GROUP' });
+        var lastYearQty = safeParseFloat(result.getValue(purchaseorderSearchObj.columns[1]));
+        var thisYearQty = safeParseFloat(result.getValue(purchaseorderSearchObj.columns[2]));
+
+        resultMap[itemId] = {
+          lastYear: lastYearQty,
+          thisYear: thisYearQty
+        };
+      });
+    });
+
+    return resultMap;
+  }
+
+  function buildOutputRows(rows, headerMeta, balances, poData) {
     var outputRows = [];
     outputRows.push(headerMeta.headersForOutput);
 
@@ -514,6 +616,25 @@ function getSecret() {
       } else {
         displayCols = baseCols.slice();
       }
+
+      // ---- Insert PO Qty Last Year / This Year after Item Status ----
+      var poLastYear = 0;
+      var poThisYear = 0;
+      if (poData[itemid]) {
+        poLastYear = poData[itemid].lastYear;
+        poThisYear = poData[itemid].thisYear;
+      }
+
+      if (headerMeta.itemStatusOutputIndex >= 0) {
+        // itemStatusOutputIndex was computed on the OUTPUT headers (after admin
+        // removal/truncation).  displayCols matches that same structure.
+        displayCols.splice(headerMeta.itemStatusOutputIndex + 1, 0, String(poLastYear), String(poThisYear));
+      } else {
+        // Fallback: append before the status/Filter value
+        displayCols.push(String(poLastYear));
+        displayCols.push(String(poThisYear));
+      }
+
       displayCols.push(statusVal);
 
       var cleanedCols = displayCols.map(function (value) {
@@ -1160,8 +1281,8 @@ if (cfg.showTopFilters) {
     s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
     s = s.replace(/\r\n/g, '\n');
     s = s.replace(/\r/g, '\n');
-    s = s.replace(/[“”]/g, '"');
-    s = s.replace(/[‘’]/g, "'");
+    s = s.replace(/[""]/g, '"');
+    s = s.replace(/['']/g, "'");
     s = s.replace(/[–—]/g, '-');
     s = s.replace(/\u00A0/g, ' ');
     return s;
