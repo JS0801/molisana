@@ -5,16 +5,35 @@
 define([], function () {
 
   // ==== Column index constants (TD indices in each <tr>) ====
-  const MONTH_CELL_INDEX = 2;       // “Month of Stock” cell
-  const CUBIC_CELL_INDEX = 3;       // “Item Cubic Space” cell (computed)
-  const WEIGHT_CELL_INDEX = 4;      // “Weight” cell (computed/display)
+  const MONTH_CELL_INDEX = 2;       // "Month of Stock" cell
+  const CUBIC_CELL_INDEX = 3;       // "Item Cubic Space" cell (computed)
+  const WEIGHT_CELL_INDEX = 4;      // "Weight" cell (computed/display)
 
-  // Source columns in your table (NOT CSV indices)
-  const SRC_PER_CUBIC_IDX = 35;     // per-unit cubic (m³ per unit)
-  const SRC_PER_WGT_IDX = 33;       // per-unit weight (value)
-  const SRC_PER_WGT_UNIT_IDX = 34;  // unit string: 'g', 'gram', 'lb', etc.
-  const SRC_PER_AVAIL_IDX = 36;
-  const SRC_MONTH_AVG_IDX_1 = 16;   // preferred month avg
+  // ---------------------------------------------------------------
+  // Source columns in your table (TD indices).
+  //
+  // IMPORTANT: Two new columns ("PO Qty Last Year" and "PO Qty This
+  // Year") were inserted after the "Item Status" column on the
+  // server side.  Every TD index that falls AFTER those inserted
+  // columns must be bumped by +2 compared to the old values.
+  //
+  // If the Item Status column sat at (old) TD index N, then any
+  // source index that was > N in the old layout is now +2.
+  //
+  // Old → New mapping (adjust these if the Item Status position in
+  // your CSV changes):
+  //   Old 33 → 35   (per-unit weight value)
+  //   Old 34 → 36   (per-unit weight unit)
+  //   Old 35 → 37   (per-unit cubic)
+  //   Old 36 → 38   (available)
+  //
+  // Columns before the insertion point stay the same (e.g. 16).
+  // ---------------------------------------------------------------
+  const SRC_PER_CUBIC_IDX = 37;     // per-unit cubic (m³ per unit)  [was 35]
+  const SRC_PER_WGT_IDX = 35;       // per-unit weight (value)       [was 33]
+  const SRC_PER_WGT_UNIT_IDX = 36;  // unit string: 'g', 'gram', 'lb', etc. [was 34]
+  const SRC_PER_AVAIL_IDX = 38;     // available                     [was 36]
+  const SRC_MONTH_AVG_IDX_1 = 16;   // preferred month avg (unchanged – before insertion point)
 
   function pageInit(context) {
     const checkboxes = document.querySelectorAll('input[type="checkbox"][name^="row_select_"]');
@@ -61,7 +80,8 @@ define([], function () {
     
     const monthQty = parseFloat(cells[16]?.textContent) || 0;
     const inTransit = parseFloat(cells[25]?.textContent) || 0;
-    const onOrder = parseFloat(cells[30]?.textContent) || 0;
+    // NOTE: on-order column also shifted +2 if it was after insertion point
+    const onOrder = parseFloat(cells[32]?.textContent) || 0;   // was 30
     const avail = parseFloat(cells[SRC_PER_AVAIL_IDX]?.textContent) || 0;
 
     console.log({
