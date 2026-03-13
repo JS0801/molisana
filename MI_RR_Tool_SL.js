@@ -793,19 +793,21 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           var statusVal = (calcCols.length ? calcCols[calcCols.length - 1] : '') || '';
           var baseCols = calcCols.slice(0, -1);
 
-          // Insert "Qty - Last Year" and "Qty - This Year" after column 5
+          // Insert "Qty - Last Year" and "Qty - This Year" at position 6 & 7
+          // Must match headersForOutput.splice(6, ...) exactly
           var poData = poQtyMap[itemid] || { lastYear: 0, thisYear: 0 };
-          var splicePos = csvIndexIsExposed(5) + 1; // right after col 5 in the array
-          baseCols.splice(splicePos, 0,
+          baseCols.splice(6, 0,
             '"' + poData.lastYear + '"',
             '"' + poData.thisYear + '"'
           );
 
           let displayCols;
-          if (adminCsvIndex >= 0 && truncateAfterAdmin) {
-            displayCols = baseCols.slice(0, adminCsvIndex);
-          } else if (adminCsvIndex >= 0 && removeJustAdmin) {
-            displayCols = baseCols.filter((_, i) => i !== adminCsvIndex);
+          // adminCsvIndex is based on original array; baseCols now has +2 cols at position 6
+          var adjustedAdminIdx = (adminCsvIndex >= 0 && adminCsvIndex >= 6) ? adminCsvIndex + 2 : adminCsvIndex;
+          if (adjustedAdminIdx >= 0 && truncateAfterAdmin) {
+            displayCols = baseCols.slice(0, adjustedAdminIdx);
+          } else if (adjustedAdminIdx >= 0 && removeJustAdmin) {
+            displayCols = baseCols.filter((_, i) => i !== adjustedAdminIdx);
           } else {
             displayCols = baseCols.slice();
           }
