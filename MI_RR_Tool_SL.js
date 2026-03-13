@@ -16,6 +16,10 @@ define([
   var RETURN_URL_BASE = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2108&deploy=1&compid=4975346&ns-at=AAEJ7tMQmJxVsovhMpsEMUF39xnBuyMwWM4G2T7SnvA62twq8hg';
   var TOKEN_TTL_MS = 30 * 60 * 1000;
 
+function getSecret() {
+  return runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
+}
+
   var SOURCE_FOLDERS = {
     MAIN: 402335,
     SECONDARY: 402334,
@@ -27,42 +31,13 @@ define([
 
   var HEADER_INDEX = {
     ITEM: 2,
-    ITEM_INTERNAL_ID: 3,
-    MONTH_AVG: 11,
-    AVAILABLE_TO_PROMISE: 12,
-    GOOD: 13,
-    BAD: 14,
-    INSPECTION: 15,
-    LABEL: 16,
-    HOLD: 17,
-    TOTAL: 18,
-    MONTHS_OF_STOCK: 19,
-    ON_ORDER: 20,
-    QTY_OF_ORDERED_NOT_SHIP: 24,
-    QTY_IN_TRANSIT: 25,
-    AVAILABLE: 31,
-    BRAND: 32,
-    BRAND_CATEGORY: 33,
     VENDOR: 35,
-    POL: 36,
+    BRAND_CATEGORY: 33,
+    BRAND: 32,
     DEPT: 52,
-    PRODUCT: 53,
-    CALC_MONTH_MOVEMENT: 63,
-    CALC_STOCKING_TARGET: 64,
-
-    PER_WEIGHT_VALUE: 33,
-    PER_WEIGHT_UNIT: 34,
-    PER_CUBIC: 35,
-    AVAIL_FOR_UI_CALC: 36,
-    MONTH_QTY_FOR_UI_CALC: 16,
-    IN_TRANSIT_FOR_UI_CALC: 25,
-    ON_ORDER_FOR_UI_CALC: 30
+    POL: 36,
+    PRODUCT: 53
   };
-
-  var EXTRA_PO_HEADERS = [
-    'PO Last Year Qty',
-    'PO This Year Qty'
-  ];
 
   function onRequest(context) {
     try {
@@ -184,9 +159,8 @@ define([
 
     var headerMeta = buildHeaderMeta(headers, typeParam);
     var balances = getInventoryBalanceMap();
-    var poHistoryMap = getPurchaseHistoryMap();
 
-    var buildResult = buildOutputRows(rows, headerMeta, balances, poHistoryMap);
+    var buildResult = buildOutputRows(rows, headerMeta, balances);
     var cleanedCsvContent = buildCsvContent(buildResult.outputRows);
 
     var uiFile = file.create({
@@ -229,14 +203,19 @@ define([
       showTopFilters: showTopFilters,
       headersForOutput: headerMeta.headersForOutput,
       rowsHtml: buildResult.rowsHtml,
-      filterSets: buildResult.filterSets
+      filterSets: buildResult.filterSets,
+      adminCsvIndex: headerMeta.adminCsvIndex,
+      truncateAfterAdmin: headerMeta.truncateAfterAdmin,
+      removeJustAdmin: headerMeta.removeJustAdmin
     });
 
+    form.clientScriptModulePath = './CL_RR_Tool.js';
     context.response.writePage(form);
   }
 
   function handlePost(context) {
     var params = context.request.parameters || {};
+    var fileId = params.custpage_file_id;
 
     var postedEmp = params.custpage_empid || '';
     var postedTs = params.custpage_ts || '';
@@ -252,64 +231,94 @@ define([
       return;
     }
 
+    var fileObj = file.load({ id: fileId });
+    var content = fileObj.getContents();
+    var rows = splitCsvLines(content);
+
     var selectedRows = [];
     var createdCount = 0;
 
     if (params.custpage_selected) {
       try {
-        selectedRows = JSON.parse(params.custpage_selected) || [];
+        var picked = JSON.parse(params.custpage_selected);
+        picked.forEach(function (p) {
+          var rowId = String(p.rowId || '').trim();
+          var qty = parseInt(p.qty, 10) || 0;
+          var memo = p.memo || '';
+          var mos = parseFloat(p.mos);
+          if (!rowId || !rows[rowId]) return;
+
+          var columns = parseCsvLine(rows[rowId]).map(function (val) {
+            return cleanDisplayValue(val);
+          });
+
+          selectedRows.push({
+            rowId: rowId,
+            qty: qty,
+            memo: memo,
+            monthStock: mos,
+            columns: columns
+          });
+        });
       } catch (e) {
         log.error('Bad custpage_selected JSON', e);
-        selectedRows = [];
       }
     }
 
     if (!selectedRows.length) {
-      context.response.write(
-        '<html><body style="font-family:Arial;padding:20px;color:#b91c1c;">No rows were selected.</body></html>'
-      );
-      return;
+      Object.keys(params).forEach(function (key) {
+        if (key.indexOf('row_select_') === 0) {
+          var rowId = key.split('_')[2];
+          if (!rows[rowId]) return;
+          var qty = parseInt(params['qty_input_' + rowId], 10) || 0;
+          var memo = params['memo_input_' + rowId] || '';
+          var columns = parseCsvLine(rows[rowId]).map(function (val) {
+            return cleanDisplayValue(val);
+          });
+          selectedRows.push({
+            rowId: rowId,
+            qty: qty,
+            memo: memo,
+            columns: columns
+          });
+        }
+      });
     }
 
     selectedRows.forEach(function (entry) {
+      var cols = entry.columns;
+      var monStock = entry.monthStock;
+
+      if (
+        monStock == null ||
+        monStock === '' ||
+        monStock === 'null' ||
+        monStock === 'Infinity' ||
+        monStock === 'infinity' ||
+        monStock === 'NaN' ||
+        monStock === 'nan'
+      ) {
+        monStock = 0;
+      }
+
       try {
-        var payload = entry.payload || {};
-        var qty = safeParseFloat(entry.qty);
-        var memo = entry.memo || '';
-        var monthStock = entry.mos;
-
-        if (
-          monthStock == null ||
-          monthStock === '' ||
-          monthStock === 'null' ||
-          monthStock === 'Infinity' ||
-          monthStock === 'infinity' ||
-          monthStock === 'NaN' ||
-          monthStock === 'nan'
-        ) {
-          monthStock = 0;
-        }
-
         record.create({
           type: 'customrecord_mi_planned_po',
           isDynamic: true
         })
-          .setValue({ fieldId: 'custrecord_mi_item', value: payload.itemId })
-          .setValue({ fieldId: 'custrecord_mi_order_qty', value: qty })
-          .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: memo === 0 ? '' : memo })
-          .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(monthStock) })
-          .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(payload.qtyOrderedNotShip) })
-          .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(payload.qtyAvailable) })
-          .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(payload.qtyInTransit) })
-          .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(payload.minMonthQty) })
+          .setValue({ fieldId: 'custrecord_mi_item', value: cols[3] })
+          .setValue({ fieldId: 'custrecord_mi_order_qty', value: entry.qty })
+          .setValue({ fieldId: 'custrecord_mi_purchase_memo', value: entry.memo === 0 ? '' : entry.memo })
+          .setValue({ fieldId: 'custrecord_month_of_stocks', value: safeParseFloat(monStock) })
+          .setValue({ fieldId: 'custrecord_mi_qty_of_ordered_not_ship', value: safeParseFloat(cols[24]) })
+          .setValue({ fieldId: 'custrecord_mi_qty_available', value: safeParseFloat(cols[31]) })
+          .setValue({ fieldId: 'custrecord_mi_qty_in_transit', value: safeParseFloat(cols[25]) })
+          .setValue({ fieldId: 'custrecord_mi_min_month_qty', value: safeParseFloat(cols[16]) })
           .save();
 
         createdCount++;
       } catch (e) {
-        log.error('Error creating custom record', {
-          error: e,
-          entry: entry
-        });
+        log.error('Error creating custom record for row ' + entry.rowId, e);
       }
     });
 
@@ -372,8 +381,6 @@ define([
       headersForOutput = rawHeaders.slice();
     }
 
-    var itemStatusIdx = findHeaderIndex(headersForOutput, 'Item Status');
-    headersForOutput = insertValuesAt(headersForOutput, itemStatusIdx, EXTRA_PO_HEADERS);
     headersForOutput.push('Filter');
 
     return {
@@ -381,12 +388,11 @@ define([
       headersForOutput: headersForOutput,
       adminCsvIndex: adminCsvIndex,
       truncateAfterAdmin: truncateAfterAdmin,
-      removeJustAdmin: removeJustAdmin,
-      itemStatusIdx: itemStatusIdx
+      removeJustAdmin: removeJustAdmin
     };
   }
 
-  function buildOutputRows(rows, headerMeta, balances, poHistoryMap) {
+  function buildOutputRows(rows, headerMeta, balances) {
     var outputRows = [];
     outputRows.push(headerMeta.headersForOutput);
 
@@ -416,11 +422,11 @@ define([
       }
 
       var calcCols = columns.slice();
-      var monthAvg = safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.MONTH_AVG, headerMeta)]);
-      var itemId = cleanDisplayValue(calcCols[csvIndexIsExposed(HEADER_INDEX.ITEM_INTERNAL_ID, headerMeta)]);
+      var monthAvg = safeParseFloat(calcCols[csvIndexIsExposed(11, headerMeta)]);
+      var itemid = cleanDisplayValue(calcCols[csvIndexIsExposed(3, headerMeta)]);
 
-      if (!itemId || alreadyExists[itemId]) return;
-      alreadyExists[itemId] = true;
+      if (!itemid || alreadyExists[itemid]) return;
+      alreadyExists[itemid] = true;
 
       addUnique(filterSets.items, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.ITEM, headerMeta)]));
       addUnique(filterSets.vendors, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.VENDOR, headerMeta)]));
@@ -430,10 +436,10 @@ define([
       addUnique(filterSets.pols, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.POL, headerMeta)]));
       addUnique(filterSets.products, cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.PRODUCT, headerMeta)]));
 
-      var val43 = safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.QTY_IN_TRANSIT, headerMeta)]);
-      var val41 = safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.ON_ORDER, headerMeta)]);
+      var val43 = safeParseFloat(calcCols[csvIndexIsExposed(25, headerMeta)]);
+      var val41 = safeParseFloat(calcCols[csvIndexIsExposed(20, headerMeta)]);
       var diff = Math.abs(val43 - val41);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.QTY_IN_TRANSIT, headerMeta)] = diff === 0 ? '' : String(diff);
+      calcCols[csvIndexIsExposed(25, headerMeta)] = diff === 0 ? '' : String(diff);
 
       var good = 0;
       var bad = 0;
@@ -443,52 +449,48 @@ define([
       var total = 0;
       var avail = 0;
 
-      if (balances[itemId]) {
-        good = safeParseFloat(balances[itemId].good);
-        bad = safeParseFloat(balances[itemId].bad);
-        hold = safeParseFloat(balances[itemId].hold);
-        inspect = safeParseFloat(balances[itemId].inspect);
-        label = safeParseFloat(balances[itemId].label);
-        total = safeParseFloat(balances[itemId].total);
-        avail = safeParseFloat(balances[itemId].avail);
+      if (balances[itemid]) {
+        good = safeParseFloat(balances[itemid].good);
+        bad = safeParseFloat(balances[itemid].bad);
+        hold = safeParseFloat(balances[itemid].hold);
+        inspect = safeParseFloat(balances[itemid].inspect);
+        label = safeParseFloat(balances[itemid].label);
+        total = safeParseFloat(balances[itemid].total);
+        avail = safeParseFloat(balances[itemid].avail);
       }
 
-      var col12Val = safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.AVAILABLE_TO_PROMISE, headerMeta)]);
+      var col12Val = safeParseFloat(calcCols[csvIndexIsExposed(12, headerMeta)]);
       var availtoProm = good - col12Val;
 
       calcCols[calcCols.length] = 'Black';
-      calcCols[csvIndexIsExposed(HEADER_INDEX.AVAILABLE_TO_PROMISE, headerMeta)] = String(availtoProm);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.GOOD, headerMeta)] = String(good);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.BAD, headerMeta)] = String(bad);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.INSPECTION, headerMeta)] = String(inspect);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.LABEL, headerMeta)] = String(label);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.HOLD, headerMeta)] = String(hold);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.TOTAL, headerMeta)] = String(total);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.MONTHS_OF_STOCK, headerMeta)] = monthAvg ? ((safeParseFloat(total)) / monthAvg).toFixed(2) : '';
-      calcCols[csvIndexIsExposed(HEADER_INDEX.QTY_OF_ORDERED_NOT_SHIP, headerMeta)] = monthAvg ? (((safeParseFloat(total)) + safeParseFloat(val41)) / monthAvg).toFixed(2) : '';
+      calcCols[csvIndexIsExposed(12, headerMeta)] = String(availtoProm);
+      calcCols[csvIndexIsExposed(13, headerMeta)] = String(good);
+      calcCols[csvIndexIsExposed(14, headerMeta)] = String(bad);
+      calcCols[csvIndexIsExposed(15, headerMeta)] = String(inspect);
+      calcCols[csvIndexIsExposed(16, headerMeta)] = String(label);
+      calcCols[csvIndexIsExposed(17, headerMeta)] = String(hold);
+      calcCols[csvIndexIsExposed(18, headerMeta)] = String(total);
+      calcCols[csvIndexIsExposed(19, headerMeta)] = monthAvg ? ((safeParseFloat(total)) / monthAvg).toFixed(2) : '';
+      calcCols[csvIndexIsExposed(24, headerMeta)] = monthAvg ? (((safeParseFloat(total)) + safeParseFloat(val41)) / monthAvg).toFixed(2) : '';
       calcCols[csvIndexIsExposed(23, headerMeta)] = (safeParseFloat(total) + safeParseFloat(val41)).toFixed(2);
       calcCols[csvIndexIsExposed(27, headerMeta)] = monthAvg ? ((safeParseFloat(total) + safeParseFloat(val43)) / monthAvg).toFixed(2) : '';
       calcCols[csvIndexIsExposed(26, headerMeta)] = (safeParseFloat(total) + safeParseFloat(val43)).toFixed(2);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.AVAILABLE, headerMeta)] = String(avail);
+      calcCols[csvIndexIsExposed(31, headerMeta)] = String(avail);
 
       var col9 = normalizeMovement(monthAvg);
-      var qtytotal = diff + safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.ON_ORDER, headerMeta)]) + safeParseFloat(avail) - safeParseFloat(col12Val);
-      var stockingQty = Math.ceil(safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.MONTH_AVG, headerMeta)]) * 4.5);
-      calcCols[csvIndexIsExposed(HEADER_INDEX.MONTH_AVG, headerMeta)] = col9;
+      var qtytotal = diff + safeParseFloat(calcCols[csvIndexIsExposed(20, headerMeta)]) + safeParseFloat(avail) - safeParseFloat(col12Val);
+      var stockingQty = Math.ceil(safeParseFloat(calcCols[csvIndexIsExposed(11, headerMeta)]) * 4.5);
+      calcCols[csvIndexIsExposed(11, headerMeta)] = col9;
 
-      if (calcCols.length > csvIndexIsExposed(HEADER_INDEX.CALC_MONTH_MOVEMENT, headerMeta)) {
-        calcCols[csvIndexIsExposed(HEADER_INDEX.CALC_MONTH_MOVEMENT, headerMeta)] = String(calcCols[csvIndexIsExposed(HEADER_INDEX.MONTH_AVG, headerMeta)]);
-      }
-      if (calcCols.length > csvIndexIsExposed(HEADER_INDEX.CALC_STOCKING_TARGET, headerMeta)) {
-        calcCols[csvIndexIsExposed(HEADER_INDEX.CALC_STOCKING_TARGET, headerMeta)] = String(safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.MONTH_AVG, headerMeta)]) * 4);
-      }
+      calcCols[csvIndexIsExposed(63, headerMeta)] = String(calcCols[csvIndexIsExposed(11, headerMeta)]);
+      calcCols[csvIndexIsExposed(64, headerMeta)] = String(safeParseFloat(calcCols[csvIndexIsExposed(11, headerMeta)]) * 4);
 
       var recommendedQty = 0;
       if (qtytotal < stockingQty) {
         recommendedQty = (stockingQty - qtytotal).toFixed(2);
       }
 
-      var monthsStock = monthAvg ? ((diff + safeParseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.ON_ORDER, headerMeta)])) / monthAvg) : 0;
+      var monthsStock = monthAvg ? ((diff + safeParseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(20, headerMeta)])) / monthAvg) : 0;
 
       if (calcCols[1] == 0) calcCols[1] = '';
       calcCols[1] = String(recommendedQty);
@@ -512,14 +514,6 @@ define([
       } else {
         displayCols = baseCols.slice();
       }
-
-      var poInfo = poHistoryMap[String(itemId)] || { lastYearQty: 0, thisYearQty: 0 };
-      var poCols = [
-        String(poInfo.lastYearQty || 0),
-        String(poInfo.thisYearQty || 0)
-      ];
-
-      displayCols = insertValuesAt(displayCols, headerMeta.itemStatusIdx, poCols);
       displayCols.push(statusVal);
 
       var cleanedCols = displayCols.map(function (value) {
@@ -528,29 +522,11 @@ define([
       outputRows.push(cleanedCols);
 
       var rowId = outputRows.length - 1;
-
-      var rowPayload = {
-        itemId: cleanDisplayValue(calcCols[csvIndexIsExposed(HEADER_INDEX.ITEM_INTERNAL_ID, headerMeta)]),
-        qtyOrderedNotShip: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.QTY_OF_ORDERED_NOT_SHIP, headerMeta)]),
-        qtyAvailable: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.AVAILABLE, headerMeta)]),
-        qtyInTransit: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.QTY_IN_TRANSIT, headerMeta)]),
-        minMonthQty: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.LABEL, headerMeta)])
-      };
-
-      var rowMetrics = {
-        monthQty: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.MONTH_QTY_FOR_UI_CALC, headerMeta)]),
-        inTransit: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.IN_TRANSIT_FOR_UI_CALC, headerMeta)]),
-        onOrder: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.ON_ORDER_FOR_UI_CALC, headerMeta)]),
-        avail: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.AVAIL_FOR_UI_CALC, headerMeta)]),
-        perCubic: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.PER_CUBIC, headerMeta)]),
-        perWeightVal: safeParseFloat(calcCols[csvIndexIsExposed(HEADER_INDEX.PER_WEIGHT_VALUE, headerMeta)]),
-        perWeightUnit: cleanDisplayValue(calcCols[csvIndexIsExposed(HEADER_INDEX.PER_WEIGHT_UNIT, headerMeta)])
-      };
-
       var rowHtml = buildTableRowHtml({
         rowId: rowId,
         rowStyle: rowStyle,
         recommendedQty: recommendedQty,
+        monthsStock: monthsStock,
         displayCols: displayCols,
         item: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.ITEM, headerMeta)]),
         vendor: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.VENDOR, headerMeta)]),
@@ -559,13 +535,13 @@ define([
         dept: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.DEPT, headerMeta)]),
         pol: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.POL, headerMeta)]),
         product: cleanDisplayValue(columns[csvIndexIsExposed(HEADER_INDEX.PRODUCT, headerMeta)]),
-        payload: rowPayload,
-        metrics: rowMetrics
+        itemSpace: '',
+        weight: ''
       });
 
       var bucket = rowStyle ? redRows : blackRows;
       bucket.push({
-        itemId: safeParseInt(itemId),
+        itemId: safeParseInt(itemid),
         html: rowHtml
       });
     });
@@ -590,9 +566,6 @@ define([
   }
 
   function buildTableRowHtml(cfg) {
-    var payloadStr = encodeURIComponent(JSON.stringify(cfg.payload || {}));
-    var metrics = cfg.metrics || {};
-
     var html = '';
     html += '<tr style="' + escapeHtmlAttr(cfg.rowStyle || '') + '"' +
       ' data-item="' + escapeHtmlAttr((cfg.item || '').toLowerCase()) + '"' +
@@ -602,21 +575,13 @@ define([
       ' data-dept="' + escapeHtmlAttr((cfg.dept || '').toLowerCase()) + '"' +
       ' data-pol="' + escapeHtmlAttr((cfg.pol || '').toLowerCase()) + '"' +
       ' data-product="' + escapeHtmlAttr((cfg.product || '').toLowerCase()) + '"' +
-      ' data-payload="' + escapeHtmlAttr(payloadStr) + '"' +
-      ' data-monthqty="' + escapeHtmlAttr(metrics.monthQty) + '"' +
-      ' data-intransit="' + escapeHtmlAttr(metrics.inTransit) + '"' +
-      ' data-onorder="' + escapeHtmlAttr(metrics.onOrder) + '"' +
-      ' data-avail="' + escapeHtmlAttr(metrics.avail) + '"' +
-      ' data-percubic="' + escapeHtmlAttr(metrics.perCubic) + '"' +
-      ' data-perweightval="' + escapeHtmlAttr(metrics.perWeightVal) + '"' +
-      ' data-perweightunit="' + escapeHtmlAttr(metrics.perWeightUnit) + '"' +
       '>';
 
     html += '<td class="sticky-col c0"><input type="checkbox" name="row_select_' + cfg.rowId + '" /></td>';
     html += '<td class="sticky-col c1"><input type="number" class="qty-input" name="qty_input_' + cfg.rowId + '" min="0" value="' + escapeHtmlAttr(String(cfg.recommendedQty || 0)) + '" /></td>';
     html += '<td class="sticky-col c2 month-stock-cell"></td>';
-    html += '<td class="sticky-col c3 item-space-cell"></td>';
-    html += '<td class="sticky-col c4 weight-cell"></td>';
+    html += '<td class="sticky-col c3 item-space-cell">' + escapeHtml(cleanDisplayValue(cfg.itemSpace)) + '</td>';
+    html += '<td class="sticky-col c4 weight-cell">' + escapeHtml(cleanDisplayValue(cfg.weight)) + '</td>';
 
     cfg.displayCols.forEach(function (value, idx) {
       var cleaned = cleanDisplayValue(value);
@@ -653,28 +618,29 @@ define([
         + '</th>';
     });
 
-    var topFiltersHtml = '';
-    if (cfg.showTopFilters) {
-      topFiltersHtml =
-        '<div class="filter-shell">'
-        + '<button id="topFilterBtn" class="btn" type="button">Filters</button>'
-        + '<div id="topFilterPanel" class="filter-panel">'
-          + '<div class="filter-grid">'
-            + buildFilterBox('item', 'Item')
-            + buildFilterBox('vendor', 'Vendor')
-            + buildFilterBox('brand', 'Brand')
-            + buildFilterBox('brandCat', 'Brand Category')
-            + buildFilterBox('dept', 'Department')
-            + buildFilterBox('pol', 'P.O.L')
-            + buildFilterBox('product', 'Product Type')
-          + '</div>'
-          + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">'
-            + '<button type="button" class="btn" id="clearAllTopFilters">Clear All</button>'
-            + '<button type="button" class="btn btn-primary" id="applyTopFilters">Apply</button>'
-          + '</div>'
-        + '</div>'
-        + '</div>';
-    }
+
+     var topFiltersHtml = '';
+if (cfg.showTopFilters) {
+  topFiltersHtml =
+    '<div class="filter-shell">'
+    + '<button id="topFilterBtn" class="btn" type="button">Filters</button>'
+    + '<div id="topFilterPanel" class="filter-panel">'
+      + '<div class="filter-grid">'
+        + buildFilterBox('item', 'Item')
+        + buildFilterBox('vendor', 'Vendor')
+        + buildFilterBox('brand', 'Brand')
+        + buildFilterBox('brandCat', 'Brand Category')
+        + buildFilterBox('dept', 'Department')
+        + buildFilterBox('pol', 'P.O.L')
+        + buildFilterBox('product', 'Product Type')
+      + '</div>'
+      + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">'
+        + '<button type="button" class="btn" id="clearAllTopFilters">Clear All</button>'
+        + '<button type="button" class="btn btn-primary" id="applyTopFilters">Apply</button>'
+      + '</div>'
+    + '</div>'
+    + '</div>';
+}
 
     return ''
       + '<style>'
@@ -735,6 +701,7 @@ define([
       + '.qty-input{min-width:80px;}'
       + '.hidden-row{display:none !important;}'
       + '.muted{color:#64748b;font-size:11px;}'
+      + '.panel-backdrop{display:none;}'
       + '@media (max-width:980px){.filter-grid{grid-template-columns:1fr;}.filter-panel{width:min(95vw,980px);}}'
       + '</style>'
 
@@ -763,9 +730,14 @@ define([
       +   '</div>'
       + '</div>'
 
+      + '<div id="filterPortal"></div>'
+
       + '<script>'
       + 'window.DOWNLOAD_URL=' + JSON.stringify(cfg.downloadUrl || '') + ';'
       + 'window.__FILTER_DATA__=' + JSON.stringify(cfg.filterSets) + ';'
+      + 'window.__ADMIN_IDX__=' + JSON.stringify(cfg.adminCsvIndex) + ';'
+      + 'window.__TRUNC_AFTER__=' + JSON.stringify(cfg.truncateAfterAdmin && cfg.adminCsvIndex >= 0) + ';'
+      + 'window.__ADMIN_REMOVED__=' + JSON.stringify(cfg.removeJustAdmin && cfg.adminCsvIndex >= 0) + ';'
       + '</script>'
 
       + '<script>'
@@ -776,12 +748,8 @@ define([
       + 'function lower(v){return text(v).toLowerCase();}'
       + 'function byId(id){return document.getElementById(id);}'
       + 'function uniqSorted(arr){return arr.slice().sort(function(a,b){return String(a).localeCompare(String(b),undefined,{numeric:true,sensitivity:"base"});});}'
-      + 'function toNumber(v){var n=parseFloat(String(v||"").replace(/,/g,""));return isNaN(n)?0:n;}'
-      + 'function escapeHtml(v){return text(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\\\'/g,"&#39;");}'
-      + 'function formatNumber(n,maxFrac){var num=typeof n==="number"?n:toNumber(n);return num.toLocaleString(undefined,{maximumFractionDigits:maxFrac==null?2:maxFrac});}'
-      + 'function perUnitWeightToKg(value,unit){if(!value||isNaN(value)) return 0; unit=lower(unit).trim(); if(unit==="g"||unit==="gram"||unit==="grams") return value/1000; if(unit==="kg"||unit==="kilogram"||unit==="kilograms") return value; return value*0.453592;}'
-      + 'function styleCalcCell(el){ if(!el) return; el.style.backgroundColor="#e6f7ff"; el.style.fontWeight="bold"; }'
-      + 'function clearCalcCell(el){ if(!el) return; el.textContent=""; el.style.backgroundColor=""; el.style.fontWeight=""; }'
+      + 'function toNumber(v){var n=parseFloat(v);return isNaN(n)?0:n;}'
+      + 'function escapeHtml(v){return text(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&#39;");}'
 
       + 'var table=byId("excelTable");'
       + 'var container=byId("tableContainer");'
@@ -806,45 +774,6 @@ define([
 
       + 'function getBodyRows(){ return qsa("#excelTable tbody tr"); }'
       + 'function isRowVisible(tr){ return tr.style.display !== "none"; }'
-
-      + 'function updateRowCells(tr){'
-      + '  if(!tr) return;'
-      + '  var cb=qs(\'input[type="checkbox"][name^="row_select_"]\', tr);'
-      + '  var qtyInput=qs(\'input[type="number"][name^="qty_input_"]\', tr);'
-      + '  var monthCell=qs(".month-stock-cell", tr);'
-      + '  var cubicCell=qs(".item-space-cell", tr);'
-      + '  var weightCell=qs(".weight-cell", tr);'
-      + '  if(!cb || !qtyInput) return;'
-      + '  if(!cb.checked){'
-      + '    clearCalcCell(monthCell);'
-      + '    clearCalcCell(cubicCell);'
-      + '    clearCalcCell(weightCell);'
-      + '    return;'
-      + '  }'
-      + '  var qtyOrdered=toNumber(qtyInput.value);'
-      + '  var monthQty=toNumber(tr.getAttribute("data-monthqty"));'
-      + '  var inTransit=toNumber(tr.getAttribute("data-intransit"));'
-      + '  var onOrder=toNumber(tr.getAttribute("data-onorder"));'
-      + '  var avail=toNumber(tr.getAttribute("data-avail"));'
-      + '  var perCubic=toNumber(tr.getAttribute("data-percubic"));'
-      + '  var perWeightVal=toNumber(tr.getAttribute("data-perweightval"));'
-      + '  var perWeightUnit=tr.getAttribute("data-perweightunit") || "";'
-
-      + '  var total= inTransit + onOrder + avail + qtyOrdered;'
-      + '  var monthOfStock = monthQty ? (total / monthQty) : 0;'
-      + '  monthCell.textContent = monthQty ? monthOfStock.toFixed(2) : "";'
-      + '  styleCalcCell(monthCell);'
-
-      + '  var rowCubic = qtyOrdered * perCubic;'
-      + '  cubicCell.textContent = formatNumber(rowCubic, 2);'
-      + '  styleCalcCell(cubicCell);'
-
-      + '  var perWgtKg = perUnitWeightToKg(perWeightVal, perWeightUnit);'
-      + '  var rowWgtKg = qtyOrdered * perWgtKg;'
-      + '  weightCell.textContent = formatNumber(rowWgtKg, 2) + " kg";'
-      + '  styleCalcCell(weightCell);'
-      + '}'
-
       + 'function updateSummary(){'
       + '  var rows=getBodyRows();'
       + '  var visible=0, selected=0, cubic=0, weight=0;'
@@ -861,11 +790,6 @@ define([
       + '  if(visibleCountEl) visibleCountEl.textContent=String(visible);'
       + '  if(totalCubicValue) totalCubicValue.textContent=(Math.round(cubic*100)/100).toFixed(2).replace(/\\.00$/,"");'
       + '  if(totalWeightValue) totalWeightValue.textContent=(Math.round(weight*100)/100).toFixed(2).replace(/\\.00$/,"");'
-      + '}'
-
-      + 'function recalcAllSelectedRows(){'
-      + '  getBodyRows().forEach(function(tr){ updateRowCells(tr); });'
-      + '  updateSummary();'
       + '}'
 
       + 'function createFilterOptions(boxId, values){'
@@ -893,14 +817,18 @@ define([
       + '  var map={ item:"item", vendor:"vendor", brand:"brand", brandCat:"brandCat", dept:"dept", pol:"pol", product:"product" };'
       + '  var key=map[boxId]; if(!key) return;'
       + '  var selected=activeTopFilters[key];'
-      + '  qsa("input[type=checkbox]", byId(boxId+"_list")).forEach(function(cb){ cb.checked = selected.has(lower(cb.value)); });'
+      + '  qsa("input[type=checkbox]", byId(boxId+"_list")).forEach(function(cb){'
+      + '    cb.checked = selected.has(lower(cb.value));'
+      + '  });'
       + '}'
 
       + 'function syncSelectionsFromBox(boxId){'
       + '  var map={ item:"item", vendor:"vendor", brand:"brand", brandCat:"brandCat", dept:"dept", pol:"pol", product:"product" };'
       + '  var key=map[boxId]; if(!key) return;'
       + '  var selected=activeTopFilters[key];'
-      + '  qsa("input[type=checkbox]", byId(boxId+"_list")).forEach(function(cb){ if(cb.checked) selected.add(lower(cb.value)); else selected.delete(lower(cb.value)); });'
+      + '  qsa("input[type=checkbox]", byId(boxId+"_list")).forEach(function(cb){'
+      + '    if(cb.checked) selected.add(lower(cb.value)); else selected.delete(lower(cb.value));'
+      + '  });'
       + '}'
 
       + '["item","vendor","brand","brandCat","dept","pol","product"].forEach(function(key){'
@@ -1047,15 +975,11 @@ define([
       + '      var qtyInput=qs(\'input[type="number"][name^="qty_input_"]\', tr);'
       + '      var memoInput=qs(\'input[type="text"][name^="memo_input_"]\', tr);'
       + '      var mosCell=qs(".month-stock-cell", tr);'
-      + '      var payloadRaw=tr.getAttribute("data-payload") || "";'
-      + '      var payload={};'
-      + '      try{ payload = payloadRaw ? JSON.parse(decodeURIComponent(payloadRaw)) : {}; } catch(e){ payload={}; }'
       + '      out.push({'
       + '        rowId: rowId,'
       + '        qty: qtyInput ? (qtyInput.value||"0") : "0",'
       + '        memo: memoInput ? (memoInput.value||"") : "",'
-      + '        mos: mosCell ? (mosCell.textContent||"").trim() : "",'
-      + '        payload: payload'
+      + '        mos: mosCell ? (mosCell.textContent||"").trim() : ""'
       + '      });'
       + '    }'
       + '  });'
@@ -1075,25 +999,11 @@ define([
       + 'if(suiteletForm){ suiteletForm.addEventListener("submit", function(){ setTimeout(collectSelectedRows, 0); }, true); }'
 
       + 'document.addEventListener("change", function(e){'
-      + '  if(!e.target) return;'
-      + '  if(e.target.matches(\'input[type="checkbox"][name^="row_select_"]\') || e.target.matches(".qty-input")){'
-      + '    var tr=e.target.closest("tr");'
-      + '    updateRowCells(tr);'
-      + '    updateSummary();'
-      + '  }'
-      + '});'
-
-      + 'document.addEventListener("input", function(e){'
-      + '  if(!e.target) return;'
-      + '  if(e.target.matches(".qty-input")){'
-      + '    var tr=e.target.closest("tr");'
-      + '    updateRowCells(tr);'
-      + '    updateSummary();'
-      + '  }'
+      + '  if(e.target && (e.target.matches(\'input[type="checkbox"][name^="row_select_"]\') || e.target.matches(".qty-input"))){ updateSummary(); }'
       + '});'
 
       + 'applyAllFilters();'
-      + 'recalcAllSelectedRows();'
+      + 'updateSummary();'
       + '})();'
       + '</script>';
   }
@@ -1211,76 +1121,6 @@ define([
     return resultMap;
   }
 
-  function getPurchaseHistoryMap() {
-    var poMap = {};
-
-    var purchaseorderSearchObj = search.create({
-      type: 'purchaseorder',
-      settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
-      filters: [
-        ['type', 'anyof', 'PurchOrd'],
-        'AND',
-        ['closed', 'is', 'F'],
-        'AND',
-        ['mainline', 'is', 'F'],
-        'AND',
-        ['cogs', 'is', 'F'],
-        'AND',
-        ['shipping', 'is', 'F'],
-        'AND',
-        ['item', 'noneof', '@NONE@'],
-        'AND',
-        [
-          ['trandate', 'within', 'lastyear'],
-          'OR',
-          ['trandate', 'within', 'thisyear']
-        ]
-      ],
-      columns: [
-        search.createColumn({
-          name: 'item',
-          summary: 'GROUP',
-          label: 'Item'
-        }),
-        search.createColumn({
-          name: 'formulanumeric',
-          summary: 'SUM',
-          formula: "CASE WHEN TO_CHAR({trandate}, 'YYYY') = TO_CHAR(ADD_MONTHS(SYSDATE, -12), 'YYYY') THEN ABS({quantity}) ELSE 0 END",
-          label: 'Last Year'
-        }),
-        search.createColumn({
-          name: 'formulanumeric',
-          summary: 'SUM',
-          formula: "CASE WHEN TO_CHAR({trandate}, 'YYYY') = TO_CHAR(SYSDATE, 'YYYY') THEN ABS({quantity}) ELSE 0 END",
-          label: 'This Year'
-        })
-      ]
-    });
-
-    purchaseorderSearchObj.run().each(function (result) {
-      var itemId = result.getValue({ name: 'item', summary: 'GROUP' });
-      var lastYearQty = safeParseFloat(result.getValue({
-        name: 'formulanumeric',
-        summary: 'SUM',
-        label: 'Last Year'
-      }));
-      var thisYearQty = safeParseFloat(result.getValue({
-        name: 'formulanumeric',
-        summary: 'SUM',
-        label: 'This Year'
-      }));
-
-      poMap[String(itemId)] = {
-        lastYearQty: lastYearQty,
-        thisYearQty: thisYearQty
-      };
-
-      return true;
-    });
-
-    return poMap;
-  }
-
   function buildCsvContent(outputRows) {
     var lines = [];
     outputRows.forEach(function (row) {
@@ -1374,31 +1214,6 @@ define([
       .toLowerCase();
   }
 
-  function findHeaderIndex(headers, target) {
-    var normalizedTarget = normalizeHeader(target);
-    for (var i = 0; i < headers.length; i++) {
-      if (normalizeHeader(headers[i]) === normalizedTarget) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  function insertValuesAt(arr, insertAfterIdx, valuesToInsert) {
-    var out = arr.slice();
-    var pos = insertAfterIdx + 1;
-
-    if (insertAfterIdx < 0 || insertAfterIdx >= out.length) {
-      pos = out.length;
-    }
-
-    valuesToInsert.forEach(function (val, i) {
-      out.splice(pos + i, 0, val);
-    });
-
-    return out;
-  }
-
   function csvIndexIsExposed(idx, headerMeta) {
     if (headerMeta.adminCsvIndex >= 0 && idx >= headerMeta.adminCsvIndex) {
       return idx + 1;
@@ -1415,10 +1230,6 @@ define([
     if (!isFinite(n)) return 'No Movement';
     if (n <= 0) return 'No Movement';
     return n.toFixed(2);
-  }
-
-  function getSecret() {
-    return runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
   }
 
   function signCron(ts) {
@@ -1439,11 +1250,11 @@ define([
   }
 
   function sign(empid, ts) {
-    var secret = getSecret();
-    var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
-    h.update({ input: empid + '|' + ts + '|' + secret });
-    return h.digest({ outputEncoding: crypto.Encoding.HEX });
-  }
+  var secret = getSecret();
+  var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
+  h.update({ input: empid + '|' + ts + '|' + secret });
+  return h.digest({ outputEncoding: crypto.Encoding.HEX });
+}
 
   function verify(empid, ts, sig) {
     if (!empid || !ts || !sig) return false;
