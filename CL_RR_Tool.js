@@ -5,37 +5,16 @@
 define([], function () {
 
   // ==== Column index constants (TD indices in each <tr>) ====
-  const MONTH_CELL_INDEX = 2;       // "Month of Stock" cell
-  const CUBIC_CELL_INDEX = 3;       // "Item Cubic Space" cell (computed)
-  const WEIGHT_CELL_INDEX = 4;      // "Weight" cell (computed/display)
+  const MONTH_CELL_INDEX = 2;       // “Month of Stock” cell
+  const CUBIC_CELL_INDEX = 3;       // “Item Cubic Space” cell (computed)
+  const WEIGHT_CELL_INDEX = 4;      // “Weight” cell (computed/display)
 
-  // ---------------------------------------------------------------
-  // Source columns in your table (TD indices).
-  //
-  // Two new columns ("PO Qty Last Year" and "PO Qty This Year")
-  // were inserted after the "Item Status" column (~index 8-10).
-  //
-  // This means EVERY TD index that was originally > ~10 is now +2.
-  //
-  // Old → New mapping:
-  //   Old 16 → 18   (month avg / month qty)
-  //   Old 25 → 27   (in transit)
-  //   Old 30 → 32   (on order)
-  //   Old 33 → 35   (per-unit weight value)
-  //   Old 34 → 36   (per-unit weight unit)
-  //   Old 35 → 37   (per-unit cubic)
-  //   Old 36 → 38   (available)
-  // ---------------------------------------------------------------
-  const SRC_MONTH_AVG_IDX_1 = 18;   // preferred month avg           [was 16]
-  const SRC_IN_TRANSIT_IDX = 27;     // in transit                    [was 25]
-  const SRC_ON_ORDER_IDX = 32;       // on order                      [was 30]
-  const SRC_PER_WGT_IDX = 35;       // per-unit weight (value)       [was 33]
-  const SRC_PER_WGT_UNIT_IDX = 36;  // unit string: 'g', 'gram', 'lb' [was 34]
-  const SRC_PER_CUBIC_IDX = 37;     // per-unit cubic (m³ per unit)  [was 35]
-  const SRC_PER_AVAIL_IDX = 38;     // available                     [was 36]
-
-  // monthQty uses the same source as month avg for the divisor
-  const SRC_MONTH_QTY_IDX = 18;     // [was 16, same as SRC_MONTH_AVG_IDX_1]
+  // Source columns in your table (NOT CSV indices)
+  const SRC_PER_CUBIC_IDX = 35;     // per-unit cubic (m³ per unit)
+  const SRC_PER_WGT_IDX = 33;       // per-unit weight (value)
+  const SRC_PER_WGT_UNIT_IDX = 34;  // unit string: 'g', 'gram', 'lb', etc.
+  const SRC_PER_AVAIL_IDX = 36;
+  const SRC_MONTH_AVG_IDX_1 = 16;   // preferred month avg
 
   function pageInit(context) {
     const checkboxes = document.querySelectorAll('input[type="checkbox"][name^="row_select_"]');
@@ -76,22 +55,24 @@ define([], function () {
     if (cells.length <= WEIGHT_CELL_INDEX) return;
 
     // Month of stock
+    const last3rdValue = qtyOrdered;
     const monthAvg = toNum(cells[SRC_MONTH_AVG_IDX_1]?.textContent);
-    console.log(cells);
-
-    const monthQty = parseFloat(cells[SRC_MONTH_QTY_IDX]?.textContent) || 0;
-    const inTransit = parseFloat(cells[SRC_IN_TRANSIT_IDX]?.textContent) || 0;
-    const onOrder = parseFloat(cells[SRC_ON_ORDER_IDX]?.textContent) || 0;
+    console.log(cells)
+    
+    const monthQty = parseFloat(cells[16]?.textContent) || 0;
+    const inTransit = parseFloat(cells[25]?.textContent) || 0;
+    const onOrder = parseFloat(cells[30]?.textContent) || 0;
     const avail = parseFloat(cells[SRC_PER_AVAIL_IDX]?.textContent) || 0;
 
     console.log({
       monthAvg, monthQty, inTransit, onOrder, avail, qtyOrdered
-    });
-
+    })
+    
+    
     const monthCell = cells[MONTH_CELL_INDEX];
-    const total = parseFloat(inTransit) + parseFloat(onOrder) + parseFloat(avail) + parseFloat(qtyOrdered);
-    console.log(total);
-    monthCell.textContent = (total / monthQty).toFixed(2);
+    const total = parseFloat(inTransit) + parseFloat(onOrder) + parseFloat(avail) + parseFloat(qtyOrdered)
+    console.log(total)
+    monthCell.textContent = (total/monthQty).toFixed(2);
     styleCalcCell(monthCell);
 
     // Cubic (m³) for this row = qty * per-unit cubic
@@ -101,7 +82,7 @@ define([], function () {
     cubicCell.textContent = formatNumber(rowCubic, 2);
     styleCalcCell(cubicCell);
 
-    // Weight for this row
+    // Weight for this row (display nice, but totals will recompute from source)
     const perWgtVal = toNum(cells[SRC_PER_WGT_IDX]?.textContent);
     const perWgtUnit = (cells[SRC_PER_WGT_UNIT_IDX]?.textContent || '').toLowerCase().trim();
     const perWgtKg = perUnitWeightToKg(perWgtVal, perWgtUnit);
@@ -125,7 +106,7 @@ define([], function () {
 
   // --- totals across all checked rows ---
   function updateTotals() {
-    let totalCubic = 0;
+    let totalCubic = 0; // m³
     let totalWeightKg = 0;
 
     document.querySelectorAll('input[type="checkbox"][name^="row_select_"]').forEach(cb => {
@@ -150,6 +131,7 @@ define([], function () {
       totalWeightKg += qty * perWgtKg;
     });
 
+    // Push to the pills (if present)
     const cubicEl = document.getElementById('totalCubicValue');
     if (cubicEl) cubicEl.textContent = formatNumber(totalCubic, 2);
 
@@ -159,10 +141,12 @@ define([], function () {
 
   // --- helpers ---
   function perUnitWeightToKg(value, unit) {
+    // Normalize to kg per unit
     if (!value || isNaN(value)) return 0;
-    if (unit === 'g' || unit === 'gram' || unit === 'grams') return value / 1000;
-    if (unit === 'kg' || unit === 'kilogram' || unit === 'kilograms') return value;
-    return value * 0.453592; // default: lb -> kg
+    if (unit === 'g' || unit === 'gram' || unit === 'grams') return value / 1000;      // g -> kg
+    if (unit === 'kg' || unit === 'kilogram' || unit === 'kilograms') return value;    // kg -> kg
+    // default treat as pounds (lb)
+    return value * 0.453592; // lb -> kg
   }
 
   function toNum(v) {
