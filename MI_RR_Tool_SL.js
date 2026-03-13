@@ -330,11 +330,11 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
   /* ── Table viewport ── */
   .rr-viewport {
-    max-width: calc(100vw - 10px);
+    max-width: calc(100vw - 15px);
     width: 100%;
   }
   .rr-table-wrap {
-    max-height: calc(100vh - 180px);
+    max-height: calc(100vh - 175px);
     overflow: auto;
     border: 1px solid #e2e8f0;
     border-radius: 0 0 10px 10px;
