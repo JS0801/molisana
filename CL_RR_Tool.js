@@ -33,7 +33,7 @@ define([], function () {
   const SRC_PER_WGT_IDX = 35;       // per-unit weight (value)       [was 33]
   const SRC_PER_WGT_UNIT_IDX = 36;  // unit string: 'g', 'gram', 'lb', etc. [was 34]
   const SRC_PER_AVAIL_IDX = 38;     // available                     [was 36]
-  const SRC_MONTH_AVG_IDX_1 = 16;   // preferred month avg (unchanged – before insertion point)
+  const SRC_MONTH_AVG_IDX_1 = 18;   // preferred month avg (unchanged – before insertion point)
 
   function pageInit(context) {
     const checkboxes = document.querySelectorAll('input[type="checkbox"][name^="row_select_"]');
