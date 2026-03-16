@@ -1,0 +1,84 @@
+{
+  "projects": [
+    {
+      "id": "klcvham4",
+      "name": "Molisana",
+      "color": "#6366f1",
+      "createdAt": "2026-03-16T21:09:07.061Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "7bnwf4wg",
+      "title": "Molisana",
+      "description": "",
+      "status": "todo",
+      "priority": "medium",
+      "projectId": "",
+      "dueDate": "",
+      "date": "2026-03-16",
+      "createdAt": "2026-03-16T21:07:52.031Z",
+      "updatedAt": "2026-03-16T21:08:04.934Z"
+    },
+    {
+      "id": "u6l03jvb",
+      "title": "Item pricing",
+      "description": "Need information from Dhruv",
+      "status": "todo",
+      "priority": "medium",
+      "projectId": "klcvham4",
+      "dueDate": "",
+      "createdAt": "2026-03-16T21:09:29.063Z",
+      "updatedAt": "2026-03-16T21:09:29.063Z",
+      "date": "2026-03-16"
+    }
+  ],
+  "logs": [
+    {
+      "id": "xnfld1f0",
+      "action": "created",
+      "taskId": "7bnwf4wg",
+      "taskTitle": "Molisana",
+      "timestamp": "2026-03-16T21:07:52.031Z"
+    },
+    {
+      "id": "22p87qnx",
+      "action": "updated",
+      "taskId": "7bnwf4wg",
+      "taskTitle": "Molisana",
+      "timestamp": "2026-03-16T21:08:02.628Z",
+      "details": "Status → In Progress"
+    },
+    {
+      "id": "8303hnjs",
+      "action": "updated",
+      "taskId": "7bnwf4wg",
+      "taskTitle": "Molisana",
+      "timestamp": "2026-03-16T21:08:03.436Z",
+      "details": "Status → Review"
+    },
+    {
+      "id": "21fxorcg",
+      "action": "updated",
+      "taskId": "7bnwf4wg",
+      "taskTitle": "Molisana",
+      "timestamp": "2026-03-16T21:08:04.052Z",
+      "details": "Status → Done"
+    },
+    {
+      "id": "rzzr79sn",
+      "action": "updated",
+      "taskId": "7bnwf4wg",
+      "taskTitle": "Molisana",
+      "timestamp": "2026-03-16T21:08:04.934Z",
+      "details": "Status → To Do"
+    },
+    {
+      "id": "eepyy7kh",
+      "action": "created",
+      "taskId": "u6l03jvb",
+      "taskTitle": "Item pricing",
+      "timestamp": "2026-03-16T21:09:29.063Z"
+    }
+  ]
+}
