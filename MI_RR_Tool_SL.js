@@ -1866,16 +1866,16 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       var resultMap = {};
 
       var purchaseorderSearchObj = search.create({
-        type: "purchaseorder",
+        type: "transaction",
         settings: [{ "name": "consolidationtype", "value": "ACCTTYPE" }],
         filters: [
-          ["type", "anyof", "PurchOrd"],
-          "AND",
-          ["closed", "is", "F"],
+          ["type", "anyof", "VendBill","VendCred"],
+          // "AND",
+          // ["closed", "is", "F"],
           "AND",
           ["mainline", "is", "F"],
-          "AND",
-          ["cogs", "is", "F"],
+          // "AND",
+          // ["cogs", "is", "F"],
           "AND",
           ["shipping", "is", "F"],
           "AND",
