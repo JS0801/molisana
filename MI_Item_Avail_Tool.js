@@ -61,7 +61,8 @@ function (ui, file, log, search, runtime, crypto) {
   function cleanHeader(h) {
     return String(h || '')
       .replace(/^[\uFEFF\s"]+|[\s"]+$/g, '')
-      .replace(/\s+/g, ' ');
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function cleanCsvValue(v) {
@@ -86,6 +87,26 @@ function (ui, file, log, search, runtime, crypto) {
     var rows = content.split('\n');
     rows = rows.map(function (r) { return r.replace(/\r$/, ''); });
     return rows;
+  }
+
+  function toNumber(val) {
+    var n = parseFloat(String(val == null ? '' : val).replace(/,/g, '').replace(/"/g, '').trim());
+    return isNaN(n) ? 0 : n;
+  }
+
+  function getIdx(map, name) {
+    return map.hasOwnProperty(name) ? map[name] : -1;
+  }
+
+  function setRowValue(arr, idx, val) {
+    if (idx >= 0 && idx < arr.length) {
+      arr[idx] = val;
+    }
+  }
+
+  function getRowValue(arr, idx) {
+    if (idx >= 0 && idx < arr.length) return arr[idx];
+    return '';
   }
 
   function getInventoryBalanceMap() {
@@ -266,6 +287,41 @@ function (ui, file, log, search, runtime, crypto) {
     var newContent = [];
     var headers = splitCsvRow(headerRow);
     var headersClean = headers.map(cleanHeader);
+
+    var headerMap = {};
+    for (var h = 0; h < headersClean.length; h++) {
+      headerMap[headersClean[h]] = h;
+    }
+
+    var IDX_ITEM_ID                         = getIdx(headerMap, 'Item ID');
+    var IDX_WARNING_LT_2                    = getIdx(headerMap, 'Warning (< 2 Months)');
+    var IDX_RECOMMENDED_RESTRICTION_QTY     = getIdx(headerMap, 'Recommened Restriction Quantity');
+    var IDX_MAX_COMMITTED                   = getIdx(headerMap, 'Maximum of Committed');
+    var IDX_ON_HOLD                         = getIdx(headerMap, 'Sum of On Hold');
+    var IDX_RESERVED                        = getIdx(headerMap, 'Sum of Reserved');
+    var IDX_ON_HAND_AVAIL_GOOD              = getIdx(headerMap, 'Sum of On Hand Available (Good)');
+    var IDX_ON_HAND_TOTAL                   = getIdx(headerMap, 'Sum of On Hand Total (Good + Deviated)');
+    var IDX_IN_TRANSIT                      = getIdx(headerMap, 'In Transit');
+    var IDX_ON_HAND_TOTAL_TRANSIT           = getIdx(headerMap, 'Sum of On Hand Total + In Transit');
+    var IDX_ON_ORDER                        = getIdx(headerMap, 'On Order (TO SHIP)');
+    var IDX_TOTAL_STOCK                     = getIdx(headerMap, 'Total Stock');
+    var IDX_NEXT_ARRIVAL_QTY                = getIdx(headerMap, 'Next Arrival Qty');
+    var IDX_NEXT_ARRIVAL_DATE               = getIdx(headerMap, 'Next Arrival Date');
+    var IDX_DAYS_TILL_NEXT_ARRIVAL          = getIdx(headerMap, 'Days Till Next Arrival');
+    var IDX_MONTHS_TILL_NEXT_ARRIVAL        = getIdx(headerMap, 'Months Till Next Arrival');
+    var IDX_ON_HAND_TOTAL_MONTHS            = getIdx(headerMap, 'On Hand Total (Months)');
+    var IDX_INSPECTION                      = getIdx(headerMap, 'Inspection');
+    var IDX_LABEL                           = getIdx(headerMap, 'Label');
+    var IDX_DEVIATION                       = getIdx(headerMap, 'Deviation');
+    var IDX_ON_HAND_TRANSIT_MONTHS          = getIdx(headerMap, 'On Hand Total + Transit (Months)');
+    var IDX_TOTAL_STOCK_MONTHS              = getIdx(headerMap, 'Total Stock [Months]');
+    var IDX_30_DAYS                         = getIdx(headerMap, '30 Days');
+    var IDX_60_DAYS                         = getIdx(headerMap, '60 Days');
+    var IDX_90_DAYS                         = getIdx(headerMap, '90 Days');
+    var IDX_120_DAYS                        = getIdx(headerMap, '120 Days');
+    var IDX_4_MONTH_AVG                     = getIdx(headerMap, '4 Month Average');
+    var IDX_SHELF_LIFE                      = getIdx(headerMap, 'Maximum of Shelf Life in Days');
+
     headersClean.push('Last Billed Date');
     headersClean.push('Expire Date');
     headersClean.push('Expiry Status');
@@ -281,7 +337,7 @@ function (ui, file, log, search, runtime, crypto) {
       if (!line || line.trim() === '') return;
       
       var colsRaw = splitCsvRow(line);
-      var rawItemId = (colsRaw[1] || '').replace(/"/g, '').trim();
+      var rawItemId = (colsRaw[IDX_ITEM_ID] || '').replace(/"/g, '').trim();
       
       if (!rawItemId) return;
       if (seenItemIds[rawItemId]) return;
@@ -306,73 +362,84 @@ function (ui, file, log, search, runtime, crypto) {
     rowObjs.forEach(function (obj) {
       var cleaned = obj.cleaned;
       var displayRow = [];
-      var itemid = cleaned[1];
-    
+      var itemid = getRowValue(cleaned, IDX_ITEM_ID);
+
+      var good = 0;
+      var bad = 0;
+      var total = 0;
+      var avail = 0;
+
+      if (balances[itemid]) {
+        good  = balances[itemid].good;
+        bad   = balances[itemid].bad;
+        total = balances[itemid].total;
+        avail = balances[itemid].avail;
+      }
+
+      var inTransit = toNumber(getRowValue(cleaned, IDX_IN_TRANSIT));
+      var onOrder   = toNumber(getRowValue(cleaned, IDX_ON_ORDER)) - inTransit;
+      var avg       = toNumber(getRowValue(cleaned, IDX_4_MONTH_AVG)) / 4;
+      var daysTillAvail = toNumber(getRowValue(cleaned, IDX_DAYS_TILL_NEXT_ARRIVAL));
+      var onHandMonth = 0;
+
+      setRowValue(cleaned, IDX_ON_HOLD, bad);
+      setRowValue(cleaned, IDX_ON_HAND_AVAIL_GOOD, good);
+      setRowValue(cleaned, IDX_ON_HAND_TOTAL, total);
+
+      if (IDX_ON_HAND_TOTAL_TRANSIT >= 0) {
+        setRowValue(cleaned, IDX_ON_HAND_TOTAL_TRANSIT, parseFloat(good) + parseFloat(inTransit || 0));
+      }
+
+      if (IDX_ON_ORDER >= 0) {
+        setRowValue(cleaned, IDX_ON_ORDER, onOrder);
+      }
+
+      if (IDX_TOTAL_STOCK >= 0) {
+        var qtyTransit = toNumber(getRowValue(cleaned, IDX_ON_HAND_TOTAL_TRANSIT));
+        var qtyOnOrder = toNumber(getRowValue(cleaned, IDX_ON_ORDER));
+        setRowValue(cleaned, IDX_TOTAL_STOCK, parseFloat(qtyTransit) + parseFloat(qtyOnOrder));
+      }
+
+      if (IDX_ON_HAND_TOTAL_MONTHS >= 0) {
+        if (avg === 0) {
+          setRowValue(cleaned, IDX_ON_HAND_TOTAL_MONTHS, '');
+        } else {
+          onHandMonth = parseFloat((parseFloat(good) / avg).toFixed(2));
+          setRowValue(cleaned, IDX_ON_HAND_TOTAL_MONTHS, onHandMonth);
+        }
+      }
+
+      if (IDX_ON_HAND_TRANSIT_MONTHS >= 0) {
+        if (avg === 0) {
+          setRowValue(cleaned, IDX_ON_HAND_TRANSIT_MONTHS, '');
+        } else {
+          setRowValue(cleaned, IDX_ON_HAND_TRANSIT_MONTHS, ((parseFloat(good) + parseFloat(inTransit || 0)) / avg).toFixed(2));
+        }
+      }
+
+      if (IDX_TOTAL_STOCK_MONTHS >= 0) {
+        if (avg === 0) {
+          setRowValue(cleaned, IDX_TOTAL_STOCK_MONTHS, '');
+        } else {
+          setRowValue(cleaned, IDX_TOTAL_STOCK_MONTHS, ((parseFloat(avail)) / avg).toFixed(2));
+        }
+      }
+
+      if (IDX_WARNING_LT_2 >= 0) {
+        var yorn = 'No';
+        if (onHandMonth <= 2 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn = 'Yes';
+        setRowValue(cleaned, IDX_WARNING_LT_2, yorn);
+      }
+
+      // Preserve core logic area for editable/input column
+      // old UI used cIdx === 9 as editable field, which now maps to:
+      // "Recommened Restriction Quantity"
+      // not changing business logic, only mapping.
+      
+      // Build display row after all overrides
       for (var cIdx = 0; cIdx < cleaned.length; cIdx++) {
-        var value  = cleaned[cIdx];
-    
-        var good = 0;
-        var bad  = 0;
-        var total = 0;
-        var avail = 0;
-        var inTransit = cleaned[15];
-        var onOrder   = parseFloat(cleaned[17] || 0) - parseFloat(inTransit || 0);
-        var avg       = parseFloat(cleaned[30] || 0) / 4;
-    
-        if (balances[itemid]) {
-          good  = balances[itemid].good;
-          bad   = balances[itemid].bad;
-          total = balances[itemid].total;
-          avail = balances[itemid].avail;
-        }
-    
+        var value = cleaned[cIdx];
         var txt = String(value || '').replace(/^"+|"+$/g, '');
-    
-        if (cIdx === 11)  { txt = bad; cleaned[cIdx] = bad; }
-        if (cIdx === 13)  { txt = good; cleaned[cIdx] = good; }
-        if (cIdx === 14)  { txt = total; cleaned[cIdx] = total; }
-        if (cIdx === 16)  {
-          txt = parseFloat(good) + parseFloat(inTransit || 0);
-          cleaned[cIdx] = txt;
-        }
-        if (cIdx === 17)  { txt = onOrder; cleaned[cIdx] = onOrder; }
-        if (cIdx === 18)  {
-          var qty15 = Number(cleaned[16]) || 0;
-          var qty16 = Number(cleaned[17]) || 0;
-          cleaned[cIdx] = parseFloat(qty15) + parseFloat(qty16);
-          txt = parseFloat(qty15) + parseFloat(qty16);
-        }
-        if (cIdx === 23)  {
-          if (avg == 0) { txt = ''; } else { txt = ((parseFloat(good)) / avg).toFixed(2); }
-          cleaned[cIdx] = txt;
-        }
-        if (cIdx === 24)  {
-          if (avg == 0) { txt = ''; }
-          else { txt = ((parseFloat(good) + parseFloat(inTransit || 0)) / avg).toFixed(2); }
-          cleaned[cIdx] = txt;
-        }
-        if (cIdx === 25)  {
-          if (avg == 0) { txt = ''; } else { txt = ((parseFloat(avail)) / avg).toFixed(2); }
-          cleaned[cIdx] = txt;
-        }
-        
-        var onHandMonth = ((parseFloat(good)) / avg).toFixed(2) || 0;
-        var daysTillAvail = Number(cleaned[21]) || 0;
-    
-        if (cIdx === 7)  {
-          var yorn = 'No';
-          if (onHandMonth <= 1 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn = 'Yes';
-          txt = yorn;
-          cleaned[cIdx] = yorn;
-        }
-    
-        if (cIdx === 8)  {
-          var yorn2 = 'No';
-          if (onHandMonth <= 2 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn2 = 'Yes';
-          txt = yorn2;
-          cleaned[cIdx] = yorn2;
-        }
-    
         displayRow.push(txt);
       }
 
@@ -427,7 +494,9 @@ function (ui, file, log, search, runtime, crypto) {
       headersClean: headersClean,
       displayRows: displayRows,
       newContent: newContent,
-      cleanedCsv: cleanedCsv
+      cleanedCsv: cleanedCsv,
+      recommendedRestrictionIdx: IDX_RECOMMENDED_RESTRICTION_QTY,
+      warningIdx: IDX_WARNING_LT_2
     };
   }
   
@@ -638,10 +707,12 @@ function (ui, file, log, search, runtime, crypto) {
     html += '</tr></thead><tbody>';
 
     var expiryStatusIndex = result.headersClean.indexOf('Expiry Status');
+    var warningColIndex = result.headersClean.indexOf('Warning (< 2 Months)');
+    var editableColIndex = result.headersClean.indexOf('Recommened Restriction Quantity');
 
     result.displayRows.forEach(function (row) {
       var rowClass = '';
-      var warningLessThan2 = String(row[8] || '').trim().toLowerCase();
+      var warningLessThan2 = warningColIndex >= 0 ? String(row[warningColIndex] || '').trim().toLowerCase() : '';
       var expiryStatus = String(row[expiryStatusIndex] || '').trim().toLowerCase();
 
       if (warningLessThan2 === 'yes') {
@@ -657,7 +728,7 @@ function (ui, file, log, search, runtime, crypto) {
       for (var cIdx = 0; cIdx < row.length; cIdx++) {
         var txt = row[cIdx];
 
-        if (cIdx === 9) {
+        if (cIdx === editableColIndex) {
           html += '<td style="width:80px;min-width:80px;max-width:80px;">' +
             '<input type="number" value="' + String(txt || '').replace(/"/g, '') +
             '" style="width:100%;box-sizing:border-box;" />' +
@@ -682,6 +753,8 @@ function (ui, file, log, search, runtime, crypto) {
       'var container = document.querySelector(".table-container");' +
       'var topScroll = document.getElementById("topScroll");' +
       'var topInner = document.getElementById("topScrollInner");' +
+      'var warningColIndex = -1;' +
+      'var editableColIndex = -1;' +
       
       'function updateTopScrollbarWidth(){' +
       'if(!table||!topInner||!container) return;' +
@@ -701,14 +774,13 @@ function (ui, file, log, search, runtime, crypto) {
       'for (var i = 0; i < table.tHead.rows[0].cells.length; i++) {' +
       '  var labelNode = table.tHead.rows[0].cells[i].querySelector(".th-label");' +
       '  var hdr = labelNode ? (labelNode.textContent || "").trim().toLowerCase() : "";' +
-      '  if (hdr === "expiry status") {' +
-      '    expiryStatusColIdx = i;' +
-      '    break;' +
-      '  }' +
+      '  if (hdr === "expiry status") expiryStatusColIdx = i;' +
+      '  if (hdr === "warning (< 2 months)") warningColIndex = i;' +
+      '  if (hdr === "recommened restriction quantity") editableColIndex = i;' +
       '}' +
 
       'function bodyRows(){return table && table.tBodies[0] ? table.tBodies[0].rows : [];}' +
-      'function getCellText(row, idx){var cells=row.cells;if(!cells||idx<0||idx>=cells.length) return "";var t=cells[idx].textContent||"";return String(t).trim();}' +
+      'function getCellText(row, idx){var cells=row.cells;if(!cells||idx<0||idx>=cells.length) return "";var t="";if(cells[idx].querySelector("input")){t=cells[idx].querySelector("input").value||"";}else{t=cells[idx].textContent||"";}return String(t).trim();}' +
       'function normalizeVal(v){var s=String(v==null?"":v).trim();if(/^-+\\s*none\\s*-+$/i.test(s))s="";if(/^nan$/i.test(s))s="";return s.toLowerCase();}' +
       
       'function getAllValuesForColumn(colIdx){' +
@@ -758,7 +830,7 @@ function (ui, file, log, search, runtime, crypto) {
       '    }' +
       '    if (show && activeLegendFilters.size > 0) {' +
       '      var matched = false;' +
-      '      var lessThan2Val = getCellText(row, 8).toLowerCase();' +
+      '      var lessThan2Val = warningColIndex >= 0 ? getCellText(row, warningColIndex).toLowerCase() : "";' +
       '      var expiryVal = expiryStatusColIdx >= 0 ? getCellText(row, expiryStatusColIdx).toLowerCase() : "";' +
       '      activeLegendFilters.forEach(function(key){' +
       '        if (key === "warning" && lessThan2Val === "yes") matched = true;' +
