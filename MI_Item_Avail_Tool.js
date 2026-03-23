@@ -5,7 +5,6 @@
 define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/crypto'],
 function (ui, file, log, search, runtime, crypto) {
   
-  // ====== CONFIG ======
   var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
   
   var FOLDER_ITEM_LIST     = 423668;
@@ -293,34 +292,21 @@ function (ui, file, log, search, runtime, crypto) {
       headerMap[headersClean[h]] = h;
     }
 
-    var IDX_ITEM_ID                         = getIdx(headerMap, 'Item ID');
-    var IDX_WARNING_LT_2                    = getIdx(headerMap, 'Warning (< 2 Months)');
-    var IDX_RECOMMENDED_RESTRICTION_QTY     = getIdx(headerMap, 'Recommened Restriction Quantity');
-    var IDX_MAX_COMMITTED                   = getIdx(headerMap, 'Maximum of Committed');
-    var IDX_ON_HOLD                         = getIdx(headerMap, 'Sum of On Hold');
-    var IDX_RESERVED                        = getIdx(headerMap, 'Sum of Reserved');
-    var IDX_ON_HAND_AVAIL_GOOD              = getIdx(headerMap, 'Sum of On Hand Available (Good)');
-    var IDX_ON_HAND_TOTAL                   = getIdx(headerMap, 'Sum of On Hand Total (Good + Deviated)');
-    var IDX_IN_TRANSIT                      = getIdx(headerMap, 'In Transit');
-    var IDX_ON_HAND_TOTAL_TRANSIT           = getIdx(headerMap, 'Sum of On Hand Total + In Transit');
-    var IDX_ON_ORDER                        = getIdx(headerMap, 'On Order (TO SHIP)');
-    var IDX_TOTAL_STOCK                     = getIdx(headerMap, 'Total Stock');
-    var IDX_NEXT_ARRIVAL_QTY                = getIdx(headerMap, 'Next Arrival Qty');
-    var IDX_NEXT_ARRIVAL_DATE               = getIdx(headerMap, 'Next Arrival Date');
-    var IDX_DAYS_TILL_NEXT_ARRIVAL          = getIdx(headerMap, 'Days Till Next Arrival');
-    var IDX_MONTHS_TILL_NEXT_ARRIVAL        = getIdx(headerMap, 'Months Till Next Arrival');
-    var IDX_ON_HAND_TOTAL_MONTHS            = getIdx(headerMap, 'On Hand Total (Months)');
-    var IDX_INSPECTION                      = getIdx(headerMap, 'Inspection');
-    var IDX_LABEL                           = getIdx(headerMap, 'Label');
-    var IDX_DEVIATION                       = getIdx(headerMap, 'Deviation');
-    var IDX_ON_HAND_TRANSIT_MONTHS          = getIdx(headerMap, 'On Hand Total + Transit (Months)');
-    var IDX_TOTAL_STOCK_MONTHS              = getIdx(headerMap, 'Total Stock [Months]');
-    var IDX_30_DAYS                         = getIdx(headerMap, '30 Days');
-    var IDX_60_DAYS                         = getIdx(headerMap, '60 Days');
-    var IDX_90_DAYS                         = getIdx(headerMap, '90 Days');
-    var IDX_120_DAYS                        = getIdx(headerMap, '120 Days');
-    var IDX_4_MONTH_AVG                     = getIdx(headerMap, '4 Month Average');
-    var IDX_SHELF_LIFE                      = getIdx(headerMap, 'Maximum of Shelf Life in Days');
+    var IDX_ITEM_ID                     = getIdx(headerMap, 'Item ID');
+    var IDX_WARNING_LT_2                = getIdx(headerMap, 'Warning (< 2 Months)');
+    var IDX_RECOMMENDED_RESTRICTION_QTY = getIdx(headerMap, 'Recommened Restriction Quantity');
+    var IDX_ON_HOLD                     = getIdx(headerMap, 'Sum of On Hold');
+    var IDX_ON_HAND_AVAIL_GOOD          = getIdx(headerMap, 'Sum of On Hand Available (Good)');
+    var IDX_ON_HAND_TOTAL               = getIdx(headerMap, 'Sum of On Hand Total (Good + Deviated)');
+    var IDX_IN_TRANSIT                  = getIdx(headerMap, 'In Transit');
+    var IDX_ON_HAND_TOTAL_TRANSIT       = getIdx(headerMap, 'Sum of On Hand Total + In Transit');
+    var IDX_ON_ORDER                    = getIdx(headerMap, 'On Order (TO SHIP)');
+    var IDX_TOTAL_STOCK                 = getIdx(headerMap, 'Total Stock');
+    var IDX_DAYS_TILL_NEXT_ARRIVAL      = getIdx(headerMap, 'Days Till Next Arrival');
+    var IDX_ON_HAND_TOTAL_MONTHS        = getIdx(headerMap, 'On Hand Total (Months)');
+    var IDX_ON_HAND_TRANSIT_MONTHS      = getIdx(headerMap, 'On Hand Total + Transit (Months)');
+    var IDX_TOTAL_STOCK_MONTHS          = getIdx(headerMap, 'Total Stock [Months]');
+    var IDX_4_MONTH_AVG                 = getIdx(headerMap, '4 Month Average');
 
     headersClean.push('Last Billed Date');
     headersClean.push('Expire Date');
@@ -361,7 +347,6 @@ function (ui, file, log, search, runtime, crypto) {
     
     rowObjs.forEach(function (obj) {
       var cleaned = obj.cleaned;
-      var displayRow = [];
       var itemid = getRowValue(cleaned, IDX_ITEM_ID);
 
       var good = 0;
@@ -431,21 +416,14 @@ function (ui, file, log, search, runtime, crypto) {
         setRowValue(cleaned, IDX_WARNING_LT_2, yorn);
       }
 
-      // Preserve core logic area for editable/input column
-      // old UI used cIdx === 9 as editable field, which now maps to:
-      // "Recommened Restriction Quantity"
-      // not changing business logic, only mapping.
-      
-      // Build display row after all overrides
+      var displayRow = [];
       for (var cIdx = 0; cIdx < cleaned.length; cIdx++) {
-        var value = cleaned[cIdx];
-        var txt = String(value || '').replace(/^"+|"+$/g, '');
+        var txt = String(cleaned[cIdx] || '').replace(/^"+|"+$/g, '');
         displayRow.push(txt);
       }
 
       if (rowsBilled && rowsBilled[itemid]) {
         var relatedDate = rowsBilled[itemid];
-        log.audit('relatedDate', relatedDate);
         displayRow.push(relatedDate.billedDate);
         displayRow.push(relatedDate.expireDate);
         displayRow.push(relatedDate.stat);
@@ -495,8 +473,8 @@ function (ui, file, log, search, runtime, crypto) {
       displayRows: displayRows,
       newContent: newContent,
       cleanedCsv: cleanedCsv,
-      recommendedRestrictionIdx: IDX_RECOMMENDED_RESTRICTION_QTY,
-      warningIdx: IDX_WARNING_LT_2
+      warningColIndex: IDX_WARNING_LT_2,
+      editableColIndex: IDX_RECOMMENDED_RESTRICTION_QTY
     };
   }
   
@@ -707,13 +685,13 @@ function (ui, file, log, search, runtime, crypto) {
     html += '</tr></thead><tbody>';
 
     var expiryStatusIndex = result.headersClean.indexOf('Expiry Status');
-    var warningColIndex = result.headersClean.indexOf('Warning (< 2 Months)');
-    var editableColIndex = result.headersClean.indexOf('Recommened Restriction Quantity');
+    var warningColIndex = result.warningColIndex;
+    var editableColIndex = result.editableColIndex;
 
     result.displayRows.forEach(function (row) {
       var rowClass = '';
       var warningLessThan2 = warningColIndex >= 0 ? String(row[warningColIndex] || '').trim().toLowerCase() : '';
-      var expiryStatus = String(row[expiryStatusIndex] || '').trim().toLowerCase();
+      var expiryStatus = expiryStatusIndex >= 0 ? String(row[expiryStatusIndex] || '').trim().toLowerCase() : '';
 
       if (warningLessThan2 === 'yes') {
         rowClass = ' class="row-warning"';
