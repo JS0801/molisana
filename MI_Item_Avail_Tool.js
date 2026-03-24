@@ -179,6 +179,16 @@ function (ui, file, log, search, runtime, crypto) {
           formula: "case when {status} = 'Deviation' then {onhand} else 0 end"
         }),
         search.createColumn({
+          name: 'formulanumeric1',
+          summary: 'SUM',
+          formula: "case when {status} = 'Inspection' then {onhand} else 0 end"
+        }),
+        search.createColumn({
+          name: 'formulanumeric1',
+          summary: 'SUM',
+          formula: "case when {status} = 'Label' then {onhand} else 0 end"
+        }),
+        search.createColumn({
           name: 'available',
           summary: 'SUM',
           label: 'Available'
@@ -190,12 +200,16 @@ function (ui, file, log, search, runtime, crypto) {
       var itemId = result.getValue({ name: 'item', summary: 'GROUP' });
       var goodQty = parseFloat(result.getValue({ name: 'formulanumeric', summary: 'SUM' })) || 0;
       var badQty  = parseFloat(result.getValue({ name: 'formulanumeric1', summary: 'SUM' })) || 0;
+      var labelQty  = parseFloat(result.getValue({ name: 'formulanumeric1', summary: 'SUM' })) || 0;
+      var inspQty  = parseFloat(result.getValue({ name: 'formulanumeric1', summary: 'SUM' })) || 0;
       var total = parseFloat((goodQty + badQty).toFixed(2));
       var avail = parseFloat(result.getValue({ name: 'available', summary: 'SUM' })) || 0;
 
       resultMap[itemId] = {
         good: goodQty,
         bad: badQty,
+        label: labelQty,
+        insp: inspQty,
         total: total,
         avail: avail
       };
@@ -390,17 +404,22 @@ function (ui, file, log, search, runtime, crypto) {
 
         var good = 0;
         var bad = 0;
+        var labelQ = 0;
+        var inspectQ = 0;
         var total = 0;
         var avail = 0;
         var inTransit = cleaned[IDX_IN_TRANSIT];
         var onOrder = toNumber(cleaned[IDX_ON_ORDER]) - toNumber(inTransit);
         var avg = toNumber(cleaned[IDX_4_MONTH_AVG]) / 4;
-
+        
         if (balances[itemid]) {
           good  = balances[itemid].good;
           bad   = balances[itemid].bad;
+          labelQ = balances[itemid].label;
+          inspectQ = balances[itemid].insp;
           total = balances[itemid].total;
           avail = balances[itemid].avail;
+          
         }
 
         var txt = String(value || '').replace(/^"+|"+$/g, '');
@@ -413,6 +432,21 @@ function (ui, file, log, search, runtime, crypto) {
         if (cIdx === IDX_ON_HAND_AVAIL_GOOD) {
           txt = good;
           cleaned[cIdx] = good;
+        }
+
+        if (cIdx === IDX_INSPECTION) {
+          txt = inspectQ;
+          cleaned[cIdx] = inspectQ;
+        }
+
+        if (cIdx === IDX_LABEL) {
+          txt = labelQ;
+          cleaned[cIdx] = labelQ;
+        }
+
+        if (cIdx === IDX_DEVIATION) {
+          txt = bad;
+          cleaned[cIdx] = bad;
         }
 
         if (cIdx === IDX_ON_HAND_TOTAL) {
