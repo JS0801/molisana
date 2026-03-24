@@ -226,11 +226,11 @@ function (ui, file, log, search, runtime, crypto) {
       var fId = result.getValue({ name: 'internalid', join: 'file', summary: 'MAX' });
       
       if (folderId === FOLDER_ITEM_LIST) {
-        fileIdItem = 1219137//fId;
+        fileIdItem = fId;
       } else if (folderId === FOLDER_INV_ITEM_LIST) {
-        fileIdInv = 1219136//fId;
+        fileIdInv = fId;
       } else if (folderId === FOLDER_ASSEMBLY) {
-        fileIdAssembly = 1219135//fId;
+        fileIdAssembly = fId;
       } else if (folderId === lastBilledFile) {
         fileIdBilled = fId;
       }
