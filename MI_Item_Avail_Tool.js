@@ -467,6 +467,13 @@ function (ui, file, log, search, runtime, crypto) {
 
         var daysTillAvail = Number(cleaned[IDX_DAYS_TILL_NEXT_ARRIVAL]) || 0;
 
+        if (cIdx === IDX_CRITICAL_STOCK_RESTRICTION)  {
+          var yorn = 'No';
+          if (onHandMonth <= 1 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn = 'Yes';
+          txt = yorn;
+          cleaned[cIdx] = yorn;
+        }
+
         if (cIdx === IDX_WARNING_LT_2) {
           var yorn2 = 'No';
           if (onHandMonth <= 2 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn2 = 'Yes';
