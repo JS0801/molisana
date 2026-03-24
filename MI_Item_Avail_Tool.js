@@ -5,7 +5,6 @@
 define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/crypto'],
 function (ui, file, log, search, runtime, crypto) {
 
-  // ====== CONFIG ======
   var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
 
   var FOLDER_ITEM_LIST     = 423668;
@@ -16,6 +15,52 @@ function (ui, file, log, search, runtime, crypto) {
   var lastBilledFile       = 447164;
 
   var TOKEN_TTL_MS = 30 * 60 * 1000;
+
+  // =========================
+  // FIXED COLUMN INDEXES
+  // =========================
+  var IDX_ITEM_NAME                  = 0;
+  var IDX_ITEM_ID                    = 1;
+  var IDX_DISPLAY_NAME               = 2;
+  var IDX_PRODUCT_STATUS             = 3;
+  var IDX_CORE_ITEM_CATEGORY         = 4;
+  var IDX_UNITS                      = 5;
+  var IDX_SIZE                       = 6;
+  var IDX_CASE_UPC_CODE              = 7;
+  var IDX_PALLET_QTY                 = 8;
+  var IDX_LCL_LISTED                 = 9;
+  var IDX_REORDER_VENDOR_GROUP       = 10;
+  var IDX_CRITICAL_STOCK_RESTRICTION = 11;
+  var IDX_WARNING_LT_2               = 12;
+  var IDX_RECOMMENDED_RESTRICTION    = 13;
+  var IDX_COMMITTED                  = 14;
+  var IDX_ON_HOLD                    = 15;
+  var IDX_RESERVED                   = 16;
+  var IDX_ON_HAND_AVAIL_GOOD         = 17;
+  var IDX_ON_HAND_TOTAL              = 18;
+  var IDX_IN_TRANSIT                 = 19;
+  var IDX_ON_HAND_TOTAL_TRANSIT      = 20;
+  var IDX_ON_ORDER                   = 21;
+  var IDX_TOTAL_STOCK                = 22;
+  var IDX_NEXT_ARRIVAL_QTY           = 23;
+  var IDX_NEXT_ARRIVAL_DATE          = 24;
+  var IDX_DAYS_TILL_NEXT_ARRIVAL     = 25;
+  var IDX_MONTHS_TILL_NEXT_ARRIVAL   = 26;
+  var IDX_ON_HAND_TOTAL_MONTHS       = 27;
+  var IDX_INSPECTION                 = 28;
+  var IDX_LABEL                      = 29;
+  var IDX_DEVIATION                  = 30;
+  var IDX_ON_HAND_TRANSIT_MONTHS     = 31;
+  var IDX_TOTAL_STOCK_MONTHS         = 32;
+  var IDX_30_DAYS                    = 33;
+  var IDX_60_DAYS                    = 34;
+  var IDX_90_DAYS                    = 35;
+  var IDX_120_DAYS                   = 36;
+  var IDX_4_MONTH_AVG                = 37;
+  var IDX_MAX_SHELF_LIFE             = 38;
+  var IDX_LAST_BILLED_DATE           = 39;
+  var IDX_EXPIRE_DATE                = 40;
+  var IDX_EXPIRY_STATUS              = 41;
 
   function sign(empid, ts) {
     var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
@@ -216,14 +261,6 @@ function (ui, file, log, search, runtime, crypto) {
     return resultMap;
   }
 
-  function findIdx(headerMap, names) {
-    var i;
-    for (i = 0; i < names.length; i++) {
-      if (headerMap.hasOwnProperty(names[i])) return headerMap[names[i]];
-    }
-    return -1;
-  }
-
   function determineRowClass(warningVal, expiryVal) {
     var warning = normalizeText(warningVal);
     var expiry = normalizeText(expiryVal);
@@ -300,32 +337,6 @@ function (ui, file, log, search, runtime, crypto) {
     var headers = splitCsvRow(headerRow);
     var headersClean = headers.map(cleanHeader);
 
-    var headerMap = {};
-    var h;
-    for (h = 0; h < headersClean.length; h++) {
-      headerMap[headersClean[h]] = h;
-    }
-
-    var IDX_ITEM_ID                     = findIdx(headerMap, ['Item ID']);
-    var IDX_WARNING_LT_2                = findIdx(headerMap, ['Warning (< 2 Months)']);
-    var IDX_RECOMMENDED_RESTRICTION_QTY = findIdx(headerMap, ['Recommened Restriction Quantity']);
-    var IDX_ON_HOLD                     = findIdx(headerMap, ['On Hold', 'Sum of On Hold']);
-    var IDX_ON_HAND_AVAIL_GOOD          = findIdx(headerMap, ['On Hand Available (Good)', 'Sum of On Hand Available (Good)']);
-    var IDX_ON_HAND_TOTAL               = findIdx(headerMap, ['On Hand Total (Good + Deviated)', 'Sum of On Hand Total (Good + Deviated)']);
-    var IDX_IN_TRANSIT                  = findIdx(headerMap, ['In Transit']);
-    var IDX_ON_HAND_TOTAL_TRANSIT       = findIdx(headerMap, ['On Hand Total + In Transit', 'Sum of On Hand Total + In Transit']);
-    var IDX_ON_ORDER                    = findIdx(headerMap, ['On Order (TO SHIP)']);
-    var IDX_TOTAL_STOCK                 = findIdx(headerMap, ['Total Stock']);
-    var IDX_DAYS_TILL_NEXT_ARRIVAL      = findIdx(headerMap, ['Days Till Next Arrival']);
-    var IDX_ON_HAND_TOTAL_MONTHS        = findIdx(headerMap, ['On Hand Total (Months)']);
-    var IDX_ON_HAND_TRANSIT_MONTHS      = findIdx(headerMap, ['On Hand Total + Transit (Months)']);
-    var IDX_TOTAL_STOCK_MONTHS          = findIdx(headerMap, ['Total Stock [Months]']);
-    var IDX_4_MONTH_AVG                 = findIdx(headerMap, ['4 Month Average']);
-
-    if (IDX_ITEM_ID < 0) {
-      throw new Error('Item ID column not found in the source file.');
-    }
-
     var newHeaders = headersClean.slice(0);
     newHeaders.push('Last Billed Date');
     newHeaders.push('Expire Date');
@@ -367,101 +378,127 @@ function (ui, file, log, search, runtime, crypto) {
 
     rowObjs.forEach(function (obj) {
       var cleaned = obj.cleaned;
-      var itemid = cleaned[IDX_ITEM_ID];
-      var itemBalance = balances[itemid] || { good: 0, bad: 0, total: 0, avail: 0 };
-
-      var good = itemBalance.good;
-      var bad = itemBalance.bad;
-      var total = itemBalance.total;
-      var avail = itemBalance.avail;
-
-      var inTransit = IDX_IN_TRANSIT >= 0 ? toNumber(cleaned[IDX_IN_TRANSIT]) : 0;
-      var onOrderCurrent = IDX_ON_ORDER >= 0 ? toNumber(cleaned[IDX_ON_ORDER]) : 0;
-      var onOrder = onOrderCurrent - inTransit;
-      var avg = IDX_4_MONTH_AVG >= 0 ? toNumber(cleaned[IDX_4_MONTH_AVG]) / 4 : 0;
-      var daysTillAvail = IDX_DAYS_TILL_NEXT_ARRIVAL >= 0 ? toNumber(cleaned[IDX_DAYS_TILL_NEXT_ARRIVAL]) : 0;
-      var onHandMonth = 0;
-
-      if (IDX_ON_HOLD >= 0) {
-        cleaned[IDX_ON_HOLD] = bad;
-      }
-      if (IDX_ON_HAND_AVAIL_GOOD >= 0) {
-        cleaned[IDX_ON_HAND_AVAIL_GOOD] = good;
-      }
-      if (IDX_ON_HAND_TOTAL >= 0) {
-        cleaned[IDX_ON_HAND_TOTAL] = total;
-      }
-      if (IDX_ON_HAND_TOTAL_TRANSIT >= 0) {
-        cleaned[IDX_ON_HAND_TOTAL_TRANSIT] = parseFloat(good) + parseFloat(inTransit || 0);
-      }
-      if (IDX_ON_ORDER >= 0) {
-        cleaned[IDX_ON_ORDER] = onOrder;
-      }
-      if (IDX_TOTAL_STOCK >= 0) {
-        cleaned[IDX_TOTAL_STOCK] = toNumber(cleaned[IDX_ON_HAND_TOTAL_TRANSIT]) + toNumber(cleaned[IDX_ON_ORDER]);
-      }
-
-      if (IDX_ON_HAND_TOTAL_MONTHS >= 0) {
-        if (avg === 0) {
-          cleaned[IDX_ON_HAND_TOTAL_MONTHS] = '';
-        } else {
-          onHandMonth = parseFloat((parseFloat(good) / avg).toFixed(2));
-          cleaned[IDX_ON_HAND_TOTAL_MONTHS] = onHandMonth;
-        }
-      } else {
-        if (avg !== 0) {
-          onHandMonth = parseFloat((parseFloat(good) / avg).toFixed(2));
-        }
-      }
-
-      if (IDX_ON_HAND_TRANSIT_MONTHS >= 0) {
-        if (avg === 0) {
-          cleaned[IDX_ON_HAND_TRANSIT_MONTHS] = '';
-        } else {
-          cleaned[IDX_ON_HAND_TRANSIT_MONTHS] = ((parseFloat(good) + parseFloat(inTransit || 0)) / avg).toFixed(2);
-        }
-      }
-
-      if (IDX_TOTAL_STOCK_MONTHS >= 0) {
-        if (avg === 0) {
-          cleaned[IDX_TOTAL_STOCK_MONTHS] = '';
-        } else {
-          cleaned[IDX_TOTAL_STOCK_MONTHS] = (parseFloat(avail) / avg).toFixed(2);
-        }
-      }
-
-      if (IDX_WARNING_LT_2 >= 0) {
-        var yorn = 'No';
-        if (onHandMonth <= 2 && (daysTillAvail === 0 || daysTillAvail > 30)) {
-          yorn = 'Yes';
-        }
-        cleaned[IDX_WARNING_LT_2] = yorn;
-      }
-
-      var relatedDate = rowsBilled[itemid] || {
-        billedDate: '',
-        expireDate: '',
-        stat: ''
-      };
-
-      cleaned.push(relatedDate.billedDate);
-      cleaned.push(relatedDate.expireDate);
-      cleaned.push(relatedDate.stat);
-
       var displayRow = [];
-      var cIdx;
-      for (cIdx = 0; cIdx < cleaned.length; cIdx++) {
-        displayRow.push(String(cleaned[cIdx] == null ? '' : cleaned[cIdx]).replace(/^"+|"+$/g, ''));
+      var itemid = cleaned[IDX_ITEM_ID];
+
+      for (var cIdx = 0; cIdx < cleaned.length; cIdx++) {
+        var value = cleaned[cIdx];
+
+        var good = 0;
+        var bad = 0;
+        var total = 0;
+        var avail = 0;
+        var inTransit = cleaned[IDX_IN_TRANSIT];
+        var onOrder = toNumber(cleaned[IDX_ON_ORDER]) - toNumber(inTransit);
+        var avg = toNumber(cleaned[IDX_4_MONTH_AVG]) / 4;
+
+        if (balances[itemid]) {
+          good  = balances[itemid].good;
+          bad   = balances[itemid].bad;
+          total = balances[itemid].total;
+          avail = balances[itemid].avail;
+        }
+
+        var txt = String(value || '').replace(/^"+|"+$/g, '');
+
+        if (cIdx === IDX_ON_HOLD) {
+          txt = bad;
+          cleaned[cIdx] = bad;
+        }
+
+        if (cIdx === IDX_ON_HAND_AVAIL_GOOD) {
+          txt = good;
+          cleaned[cIdx] = good;
+        }
+
+        if (cIdx === IDX_ON_HAND_TOTAL) {
+          txt = total;
+          cleaned[cIdx] = total;
+        }
+
+        if (cIdx === IDX_ON_HAND_TOTAL_TRANSIT) {
+          txt = parseFloat(good) + parseFloat(inTransit || 0);
+          cleaned[cIdx] = txt;
+        }
+
+        if (cIdx === IDX_ON_ORDER) {
+          txt = onOrder;
+          cleaned[cIdx] = onOrder;
+        }
+
+        if (cIdx === IDX_TOTAL_STOCK) {
+          var qty1 = Number(cleaned[IDX_ON_HAND_TOTAL_TRANSIT]) || 0;
+          var qty2 = Number(cleaned[IDX_ON_ORDER]) || 0;
+          cleaned[cIdx] = parseFloat(qty1) + parseFloat(qty2);
+          txt = parseFloat(qty1) + parseFloat(qty2);
+        }
+
+        if (cIdx === IDX_ON_HAND_TOTAL_MONTHS) {
+          if (avg == 0) {
+            txt = '';
+          } else {
+            txt = ((parseFloat(good)) / avg).toFixed(2);
+          }
+          cleaned[cIdx] = txt;
+        }
+
+        if (cIdx === IDX_ON_HAND_TRANSIT_MONTHS) {
+          if (avg == 0) {
+            txt = '';
+          } else {
+            txt = ((parseFloat(good) + parseFloat(inTransit || 0)) / avg).toFixed(2);
+          }
+          cleaned[cIdx] = txt;
+        }
+
+        if (cIdx === IDX_TOTAL_STOCK_MONTHS) {
+          if (avg == 0) {
+            txt = '';
+          } else {
+            txt = ((parseFloat(avail)) / avg).toFixed(2);
+          }
+          cleaned[cIdx] = txt;
+        }
+
+        var onHandMonth = 0;
+        if (avg != 0) {
+          onHandMonth = ((parseFloat(good)) / avg).toFixed(2);
+        }
+
+        var daysTillAvail = Number(cleaned[IDX_DAYS_TILL_NEXT_ARRIVAL]) || 0;
+
+        if (cIdx === IDX_WARNING_LT_2) {
+          var yorn2 = 'No';
+          if (onHandMonth <= 2 && (daysTillAvail === 0 || daysTillAvail > 30)) yorn2 = 'Yes';
+          txt = yorn2;
+          cleaned[cIdx] = yorn2;
+        }
+
+        displayRow.push(txt);
       }
 
-      var warningVal = IDX_WARNING_LT_2 >= 0 ? displayRow[IDX_WARNING_LT_2] : '';
-      var expiryVal = relatedDate.stat || '';
+      if (rowsBilled && rowsBilled[itemid]) {
+        var relatedDate = rowsBilled[itemid];
+        displayRow.push(relatedDate.billedDate);
+        displayRow.push(relatedDate.expireDate);
+        displayRow.push(relatedDate.stat);
+        cleaned.push(relatedDate.billedDate);
+        cleaned.push(relatedDate.expireDate);
+        cleaned.push(relatedDate.stat);
+      } else {
+        displayRow.push('');
+        displayRow.push('');
+        displayRow.push('');
+        cleaned.push('');
+        cleaned.push('');
+        cleaned.push('');
+      }
 
       displayRows.push({
         cells: displayRow,
-        warning: warningVal,
-        expiry: expiryVal,
-        rowClass: determineRowClass(warningVal, expiryVal)
+        warning: displayRow[IDX_WARNING_LT_2] || '',
+        expiry: displayRow[IDX_EXPIRY_STATUS] || '',
+        rowClass: determineRowClass(displayRow[IDX_WARNING_LT_2] || '', displayRow[IDX_EXPIRY_STATUS] || '')
       });
 
       newContent.push(cleaned);
@@ -493,8 +530,7 @@ function (ui, file, log, search, runtime, crypto) {
       name: reloadFile.name || '',
       headersClean: newHeaders,
       displayRows: displayRows,
-      cleanedCsv: cleanedCsv,
-      editableColIndex: IDX_RECOMMENDED_RESTRICTION_QTY
+      cleanedCsv: cleanedCsv
     };
   }
 
@@ -625,11 +661,9 @@ function (ui, file, log, search, runtime, crypto) {
       '#excelTable thead th{position:sticky;top:0;background-color:#f3f3f3;z-index:9;}' +
       '.download-btn{background-color:white;border:none;font-size:13px;cursor:pointer;margin-bottom:8px;}' +
       '.download-btn:hover{background-color:#eef7ff;}' +
-
       '.row-warning td{background-color:#ffd6d6 !important;}' +
       '.row-expired td{background-color:#ead6ff !important;}' +
       '.row-expiring td{background-color:#fff7bf !important;}' +
-
       '.toolbar-wrap{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;}' +
       '.legend-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}' +
       '.legend-label{font-size:12px;font-weight:600;color:#333;}' +
@@ -640,7 +674,6 @@ function (ui, file, log, search, runtime, crypto) {
       '.legend-red .legend-dot{background:#ffd6d6;}' +
       '.legend-purple .legend-dot{background:#ead6ff;}' +
       '.legend-yellow .legend-dot{background:#fff7bf;}' +
-
       '.th-filter-wrap{position:relative;display:inline-flex;align-items:center;gap:6px;}' +
       '.th-filter-btn{cursor:pointer;border:1px solid #cbd5e1;background:#fff;padding:2px 4px;border-radius:4px;line-height:1;font-size:11px;}' +
       '.th-filter-btn:hover{background:#f3f4f6;}' +
@@ -695,14 +728,13 @@ function (ui, file, log, search, runtime, crypto) {
         ' data-warning="' + escHtml(warningVal) + '"' +
         ' data-expiry="' + escHtml(expiryVal) + '">';
 
-      var cIdx;
-      for (cIdx = 0; cIdx < cells.length; cIdx++) {
+      for (var cIdx = 0; cIdx < cells.length; cIdx++) {
         var txt = cells[cIdx];
 
-        if (cIdx === result.editableColIndex) {
+        if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
           html += '<td style="width:80px;min-width:80px;max-width:80px;">' +
             '<input type="number" value="' + escHtml(String(txt || '').replace(/"/g, '')) + '" style="width:100%;box-sizing:border-box;" />' +
-            '</td>';
+          '</td>';
         } else {
           html += '<td>' + escHtml(txt) + '</td>';
         }
@@ -819,7 +851,7 @@ function (ui, file, log, search, runtime, crypto) {
           'var expiryVal = String(row.getAttribute("data-expiry")||"").toLowerCase();' +
           'var matched = false;' +
           'activeLegendFilters.forEach(function(key){' +
-            'if(key==="warning" && warningVal==="yes" && expiryVal!== "expired" && expiryVal!=="expiring") matched = true;' +
+            'if(key==="warning" && warningVal==="yes" && expiryVal!=="expired" && expiryVal!=="expiring") matched = true;' +
             'if(key==="expired" && expiryVal==="expired") matched = true;' +
             'if(key==="expiring" && expiryVal==="expiring") matched = true;' +
           '});' +
