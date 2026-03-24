@@ -265,9 +265,13 @@ function (ui, file, log, search, runtime, crypto) {
     var warning = normalizeText(warningVal);
     var expiry = normalizeText(expiryVal);
 
+    // Keep old script priority:
+    // 1) Warning (< 2 Months)
+    // 2) Expired
+    // 3) Expiring
+    if (warning === 'yes') return 'row-warning';
     if (expiry === 'expired') return 'row-expired';
     if (expiry === 'expiring') return 'row-expiring';
-    if (warning === 'yes') return 'row-warning';
     return '';
   }
 
