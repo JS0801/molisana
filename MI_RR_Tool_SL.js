@@ -1937,38 +1937,58 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       var resultMap = {};
 
       var itemSearchObj = search.create({
-        type: "item",
-        filters: [
-        ],
-        columns: [
+    type: "item",
+    filters: [],
+    columns: [
+        search.createColumn({
+            name: "internalid",
+            summary: "GROUP",
+            sort: search.Sort.ASC,
+            label: "Internal ID"
+        }),
+        search.createColumn({
+            name: "formulanumeric",
+            summary: "SUM",
+            formula: "NVL({locationquantitycommitted},0) + NVL({locationtoresvcommitted},0)",
+            label: "Formula (Numeric)"
+        }),
+        search.createColumn({
+            name: "locationquantitybackordered",
+            summary: "SUM",
+            label: "Location Back Ordered"
+        })
+    ]
+});
 
-          search.createColumn({
-         name: "internalid",
-         summary: "GROUP",
-         label: "Internal ID"
-      }),
-          search.createColumn({
-         name: "formulanumeric",
-         summary: "SUM",
-         formula: "NVL({locationquantitycommitted},0) + NVL({locationtoresvcommitted},0)",
-         label: "Formula (Numeric)"
-      }),
-      search.createColumn({
-         name: "locationquantitybackordered",
-         summary: "SUM",
-         label: "Location Back Ordered"
-      })
-        ]
-      });
+var pagedData = itemSearchObj.runPaged({
+    pageSize: 1000
+});
 
-      itemSearchObj.run().each(function (result) {
-        var itemId = result.getValue({ name: "internalid", summary: "GROUP" });
-        var qtyComm = result.getValue({ name: "formulanumeric", summary: "SUM" });
-        var qtyBack = result.getValue({ name: "locationquantitybackordered", summary: "SUM" });
+pagedData.pageRanges.forEach(function (pageRange) {
+    var page = pagedData.fetch({ index: pageRange.index });
 
-        resultMap[itemId] = { qtyComm: qtyComm, qtyBack: qtyBack };
-        return true;
-      });
+    page.data.forEach(function (result) {
+        var itemId = result.getValue({
+            name: "internalid",
+            summary: "GROUP"
+        });
+
+        var qtyComm = result.getValue({
+            name: "formulanumeric",
+            summary: "SUM"
+        });
+
+        var qtyBack = result.getValue({
+            name: "locationquantitybackordered",
+            summary: "SUM"
+        });
+
+        resultMap[itemId] = {
+            qtyComm: qtyComm,
+            qtyBack: qtyBack
+        };
+    });
+});
 
       return resultMap;
     }
