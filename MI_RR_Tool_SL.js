@@ -1840,7 +1840,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         ],
         columns: [
           search.createColumn({ name: "item", summary: "GROUP" }),
-          search.createColumn({ name: "onhand", summary: "MAX" }),
+          search.createColumn({ name: "onhand", summary: "SUM" }),
           search.createColumn({
             name: "formulanumeric", summary: "SUM",
             formula: "case when {status} = 'Good' then {onhand} else 0 end"
@@ -1867,7 +1867,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
       inventorybalanceSearchObj.run().each(function (result) {
         var itemId = result.getValue({ name: "item", summary: "GROUP" });
-        var onH = result.getValue({ name: "onhand", summary: "MAX" });
+        var onH = result.getValue({ name: "onhand", summary: "SUM" });
         var goodQty = parseFloat(result.getValue({ name: "formulanumeric", summary: "SUM" })) || 0;
         var badQty = parseFloat(result.getValue({ name: "formulanumeric1", summary: "SUM" })) || 0;
         var holdQty = parseFloat(result.getValue({ name: "formulanumeric2", summary: "SUM" })) || 0;
