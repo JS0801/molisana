@@ -777,7 +777,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
           calcCols[csvIndexIsExposed(65)] =  calcCols[csvIndexIsExposed(11)];
-          calcCols[csvIndexIsExposed(66)] = calcCols[csvIndexIsExposed(11)];
+          calcCols[csvIndexIsExposed(66)] = stockingQty;
 
           let recommendedQty = 0;
           if (qtytotal < stockingQty) {
