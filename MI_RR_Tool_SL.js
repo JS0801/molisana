@@ -741,10 +741,10 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             log.debug('Test', good - col12Val);
           }
 
-          var availtoProm = avail - bad  - col12Val;
+          var availtoProm = avail - bad  - col12Val - availtoProm;
 
           calcCols[calcCols.length] = 'Black';
-          calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + 'T"';
+          calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
           calcCols[csvIndexIsExposed(13)] = '"' + good + '"';
           calcCols[csvIndexIsExposed(14)] = '"' + bad + '"';
           calcCols[csvIndexIsExposed(15)] = '"' + inspect + '"';
