@@ -922,11 +922,11 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
   // Source columns in the table (data column TD indices)
   // +2 shift for all >= old 6 due to Qty Last Year / This Year inserted after col 5
-  var SRC_PER_CUBIC_IDX = 38;      // was 35, +2
-  var SRC_PER_WGT_IDX = 36;        // was 33, +2
-  var SRC_PER_WGT_UNIT_IDX = 37;   // was 34, +2
-  var SRC_PER_AVAIL_IDX = 39;      // was 36, +2
-  var SRC_MONTH_AVG_IDX_1 = 19;    // was 16, +2
+  var SRC_PER_CUBIC_IDX = 38; 
+  var SRC_PER_WGT_IDX = 36;   
+  var SRC_PER_WGT_UNIT_IDX = 37;
+  var SRC_PER_AVAIL_IDX = 39;   
+  var SRC_MONTH_AVG_IDX_1 = 18; 
 
   // ── Helpers ──
   function toNum(v) {
