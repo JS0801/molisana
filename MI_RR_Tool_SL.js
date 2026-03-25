@@ -742,7 +742,9 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             avail   = parseFloat(balances[itemid].avail);
           }
 
-          if (itemid == 5472) {
+          if (itemid == 1163) {
+            log.debug('committedQty', committedQty);
+            log.debug('onH', onH);
             log.debug('good', good);
             log.debug('avail', avail);
             log.debug('total', total);
@@ -750,6 +752,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             log.debug('balances', balances[itemid]);
             log.debug('Test', good - col12Val);
           }
+
+          
 
           var availtoProm = onH - committedQty - bad;
 
