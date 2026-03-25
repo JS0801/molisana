@@ -709,25 +709,27 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           diff = Math.abs(diff);
           calcCols[csvIndexIsExposed(25)] = diff === 0 ? "" : '"' + diff + '"';
 
-          let good = 0;
-          let bad = 0;
-          let hold = 0;
-          let inspect = 0;
-          let label = 0;
-          let total = 0;
-          let avail = 0;
+          let good     = 0;
+          let bad      = 0;
+          let hold     = 0;
+          let inspect  = 0;
+          let label    = 0;
+          let total    = 0;
+          let avail    = 0;
+          let onH      = 0;
           let col14Val = calcCols[csvIndexIsExposed(18)];
           let col12Val = parseFloat(calcCols[csvIndexIsExposed(12)] || 0);
           let col19Val = diff;
 
           if (balances[itemid]) {
-            good = parseFloat(balances[itemid].good);
-            bad = balances[itemid].bad;
-            hold = balances[itemid].hold;
+            good    = parseFloat(balances[itemid].good);
+            bad     = balances[itemid].bad;
+            hold    = balances[itemid].hold;
             inspect = balances[itemid].inspect;
-            label = balances[itemid].label;
-            total = parseFloat(balances[itemid].total);
-            avail = parseFloat(balances[itemid].avail);
+            label   = balances[itemid].label;
+            onH     = parseFloat(balances[itemid].onH);
+            total   = parseFloat(balances[itemid].total);
+            avail   = parseFloat(balances[itemid].avail);
           }
 
           if (itemid == 5472) {
@@ -739,7 +741,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             log.debug('Test', good - col12Val);
           }
 
-          var availtoProm = good - col12Val ;
+          var availtoProm = onH - col12Val - bad;
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
@@ -1821,6 +1823,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         ],
         columns: [
           search.createColumn({ name: "item", summary: "GROUP" }),
+          search.createColumn({ name: "onhand", summary: "MAX" }),
           search.createColumn({
             name: "formulanumeric", summary: "SUM",
             formula: "case when {status} = 'Good' then {onhand} else 0 end"
@@ -1847,6 +1850,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
       inventorybalanceSearchObj.run().each(function (result) {
         var itemId = result.getValue({ name: "item", summary: "GROUP" });
+        var onH = result.getValue({ name: "onhand", summary: "MAX" });
         var goodQty = parseFloat(result.getValue({ name: "formulanumeric", summary: "SUM" })) || 0;
         var badQty = parseFloat(result.getValue({ name: "formulanumeric1", summary: "SUM" })) || 0;
         var holdQty = parseFloat(result.getValue({ name: "formulanumeric2", summary: "SUM" })) || 0;
@@ -1855,7 +1859,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         var total = parseFloat((goodQty + badQty).toFixed(2));
         var avail = parseFloat(result.getValue({ name: "available", summary: "SUM" })) || 0;
 
-        resultMap[itemId] = { good: goodQty, bad: badQty, hold: holdQty, inspect: inspectQty, label: labelQty, total: total, avail: avail };
+        resultMap[itemId] = { good: goodQty, bad: badQty, hold: holdQty, inspect: inspectQty, label: labelQty, total: total, avail: avail, onH: onH };
         return true;
       });
 
