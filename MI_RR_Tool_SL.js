@@ -720,9 +720,16 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           let total    = 0;
           let avail    = 0;
           let onH      = 0;
+          let committedQty = 0;
+          let backOrdered = 0;
           let col14Val = calcCols[csvIndexIsExposed(18)];
           let col12Val = parseFloat(calcCols[csvIndexIsExposed(12)] || 0);
           let col19Val = diff;
+          
+          if (commMap[itemid]) {
+            committedQty    = parseFloat(commMap[itemid].qtyComm);
+            backOrdered     = parseFloat(commMap[itemid].qtyBack);
+          }
 
           if (balances[itemid]) {
             good    = parseFloat(balances[itemid].good);
@@ -744,7 +751,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             log.debug('Test', good - col12Val);
           }
 
-          var availtoProm = avail - bad  - col12Val;
+          var availtoProm = onH - committedQty - bad;
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
@@ -776,7 +783,10 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
-          calcCols[csvIndexIsExposed(65)] =  calcCols[csvIndexIsExposed(11)];
+          calcCols[csvIndexIsExposed(62)] = committedQty;
+          calcCols[csvIndexIsExposed(63)] = backOrdered;
+
+          calcCols[csvIndexIsExposed(65)] = calcCols[csvIndexIsExposed(11)];
           calcCols[csvIndexIsExposed(66)] = stockingQty;
 
           let recommendedQty = 0;
