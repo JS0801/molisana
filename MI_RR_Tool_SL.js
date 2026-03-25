@@ -1944,7 +1944,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
           search.createColumn({
          name: "internalid",
-         summary: "MAX",
+         summary: "GROUP",
          label: "Internal ID"
       }),
           search.createColumn({
@@ -1962,7 +1962,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       });
 
       itemSearchObj.run().each(function (result) {
-        var itemId = result.getValue({ name: "internalid", summary: "MAX" });
+        var itemId = result.getValue({ name: "internalid", summary: "GROUP" });
         var qtyComm = result.getValue({ name: "formulanumeric", summary: "SUM" });
         var qtyBack = result.getValue({ name: "locationquantitybackordered", summary: "SUM" });
 
