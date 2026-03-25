@@ -675,6 +675,9 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         log.debug('Inventory Balance Map', balances);
         var poQtyMap = getPurchaseOrderQtyMap();
         log.debug('PO Qty Map', poQtyMap);
+
+        var commMap = getCommBackMap();
+        log.debug('Commited Qty Map', commMap);
         var alreadyExsist = {};
 
         rows.slice(1).forEach(function (row) {
@@ -741,7 +744,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             log.debug('Test', good - col12Val);
           }
 
-          var availtoProm = avail - bad  - col12Val - availtoProm;
+          var availtoProm = avail - bad  - col12Val;
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
@@ -1913,6 +1916,46 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       });
 
       log.debug('PO Qty Map count', Object.keys(resultMap).length);
+      return resultMap;
+    }
+
+    function getCommBackMap() {
+      var resultMap = {};
+
+      var itemSearchObj = search.create({
+        type: "item",
+        filters: [
+        ],
+        columns: [
+
+          search.createColumn({
+         name: "internalid",
+         summary: "MAX",
+         label: "Internal ID"
+      }),
+          search.createColumn({
+         name: "formulanumeric",
+         summary: "SUM",
+         formula: "NVL({locationquantitycommitted},0) + NVL({locationtoresvcommitted},0)",
+         label: "Formula (Numeric)"
+      }),
+      search.createColumn({
+         name: "locationquantitybackordered",
+         summary: "SUM",
+         label: "Location Back Ordered"
+      })
+        ]
+      });
+
+      itemSearchObj.run().each(function (result) {
+        var itemId = result.getValue({ name: "internalid", summary: "MAX" });
+        var qtyComm = result.getValue({ name: "formulanumeric", summary: "SUM" });
+        var qtyBack = result.getValue({ name: "locationquantitybackordered", summary: "SUM" });
+
+        resultMap[itemId] = { qtyComm: qtyComm, qtyBack: qtyBack };
+        return true;
+      });
+
       return resultMap;
     }
 
