@@ -776,8 +776,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
-          calcCols[csvIndexIsExposed(66)] =  calcCols[csvIndexIsExposed(11)];
-          calcCols[csvIndexIsExposed(67)] = '"' + parseFloat(calcCols[csvIndexIsExposed(11)]) * 4 + '"';
+          calcCols[csvIndexIsExposed(65)] =  calcCols[csvIndexIsExposed(11)];
+          calcCols[csvIndexIsExposed(66)] = calcCols[csvIndexIsExposed(11)];
 
           let recommendedQty = 0;
           if (qtytotal < stockingQty) {
