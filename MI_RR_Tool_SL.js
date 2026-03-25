@@ -147,12 +147,12 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
         var newContent = [];
         const ITEM_INDEX = 2;
-        const VENDOR_INDEX = 35;
-        const BRAND_CATEGORY_INDEX = 33;
-        const BRAND_INDEX = 32;
-        const DEPT_INDEX = 52;
-        const POL_INDEX = 36;
-        const PRODUCT_INDEX = 55;
+        const VENDOR_INDEX = 36;
+        const BRAND_CATEGORY_INDEX = 34;
+        const BRAND_INDEX = 33;
+        const DEPT_INDEX = 53;
+        const POL_INDEX = 37;
+        const PRODUCT_INDEX = 56;
         const NEW_COL_SHIFT = 2; // 2 new columns inserted after index 5
 
         const uniqueItems = new Set();
@@ -706,11 +706,11 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           if (columns[csvIndexIsExposed(POL_INDEX)]) uniquePOL.add(columns[csvIndexIsExposed(POL_INDEX)].replace(/"/g, '').trim());
           if (columns[csvIndexIsExposed(PRODUCT_INDEX)]) uniquePRODUCT.add(columns[csvIndexIsExposed(PRODUCT_INDEX)].replace(/"/g, '').trim());
 
-          var val43 = parseFloat(calcCols[csvIndexIsExposed(25)] || 0);
-          var val41 = parseFloat(calcCols[csvIndexIsExposed(20)] || 0);
+          var val43 = parseFloat(calcCols[csvIndexIsExposed(26)] || 0);
+          var val41 = parseFloat(calcCols[csvIndexIsExposed(21)] || 0);
           var diff = val43 - val41;
           diff = Math.abs(diff);
-          calcCols[csvIndexIsExposed(25)] = diff === 0 ? "" : '"' + diff + '"';
+          calcCols[csvIndexIsExposed(26)] = diff === 0 ? "" : '"' + diff + '"';
 
           let good     = 0;
           let bad      = 0;
@@ -722,7 +722,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           let onH      = 0;
           let committedQty = 0;
           let backOrdered = 0;
-          let col14Val = calcCols[csvIndexIsExposed(18)];
+          let col14Val = calcCols[csvIndexIsExposed(19)];
           let col12Val = parseFloat(calcCols[csvIndexIsExposed(12)] || 0);
           let col19Val = diff;
           
@@ -759,18 +759,18 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
-          calcCols[csvIndexIsExposed(13)] = '"' + good + '"';
-          calcCols[csvIndexIsExposed(14)] = '"' + bad + '"';
-          calcCols[csvIndexIsExposed(15)] = '"' + inspect + '"';
-          calcCols[csvIndexIsExposed(16)] = '"' + label + '"';
-          calcCols[csvIndexIsExposed(17)] = '"' + hold + '"';
-          calcCols[csvIndexIsExposed(18)] = '"' + total + '"';
-          calcCols[csvIndexIsExposed(19)] = '"' + ((parseFloat(total)) / monthAvg).toFixed(2) + '"';
-          calcCols[csvIndexIsExposed(24)] = '"' + (((parseFloat(total)) + parseFloat(val41 || 0)) / monthAvg).toFixed(2) + '"';
-          calcCols[csvIndexIsExposed(23)] = '"' + ((parseFloat(total)) + parseFloat(val41 || 0)).toFixed(2) + '"';
-          calcCols[csvIndexIsExposed(27)] = '"' + ((parseFloat(total) + parseFloat(val43 || 0)) / monthAvg).toFixed(2) + '"';
-          calcCols[csvIndexIsExposed(26)] = '"' + (parseFloat(total) + parseFloat(val43 || 0)).toFixed(2) + '"';
-          calcCols[csvIndexIsExposed(31)] = '"' + avail + '"';
+          calcCols[csvIndexIsExposed(14)] = '"' + good + '"';
+          calcCols[csvIndexIsExposed(15)] = '"' + bad + '"';
+          calcCols[csvIndexIsExposed(16)] = '"' + inspect + '"';
+          calcCols[csvIndexIsExposed(17)] = '"' + label + '"';
+          calcCols[csvIndexIsExposed(18)] = '"' + hold + '"';
+          calcCols[csvIndexIsExposed(19)] = '"' + total + '"';
+          calcCols[csvIndexIsExposed(20)] = '"' + ((parseFloat(total)) / monthAvg).toFixed(2) + '"';
+          calcCols[csvIndexIsExposed(25)] = '"' + (((parseFloat(total)) + parseFloat(val41 || 0)) / monthAvg).toFixed(2) + '"';
+          calcCols[csvIndexIsExposed(24)] = '"' + ((parseFloat(total)) + parseFloat(val41 || 0)).toFixed(2) + '"';
+          calcCols[csvIndexIsExposed(28)] = '"' + ((parseFloat(total) + parseFloat(val43 || 0)) / monthAvg).toFixed(2) + '"';
+          calcCols[csvIndexIsExposed(27)] = '"' + (parseFloat(total) + parseFloat(val43 || 0)).toFixed(2) + '"';
+          calcCols[csvIndexIsExposed(32)] = '"' + avail + '"';
 
           function normalizeMovement(val) {
             if (val === null || val === undefined) return "No Movement";
@@ -783,22 +783,22 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           }
 
           var col9 = normalizeMovement(monthAvg);
-          const qtytotal = diff + safeParseFloat(calcCols[csvIndexIsExposed(20)]) + parseFloat(avail) - parseFloat(col12Val);
+          const qtytotal = diff + safeParseFloat(calcCols[csvIndexIsExposed(21)]) + parseFloat(avail) - parseFloat(col12Val);
           const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
-          calcCols[csvIndexIsExposed(62)] = committedQty;
-          calcCols[csvIndexIsExposed(63)] = backOrdered;
+          calcCols[csvIndexIsExposed(63)] = committedQty;
+          calcCols[csvIndexIsExposed(64)] = backOrdered;
 
-          calcCols[csvIndexIsExposed(65)] = calcCols[csvIndexIsExposed(11)];
-          calcCols[csvIndexIsExposed(66)] = stockingQty;
+          calcCols[csvIndexIsExposed(66)] = calcCols[csvIndexIsExposed(11)];
+          calcCols[csvIndexIsExposed(67)] = stockingQty;
 
           let recommendedQty = 0;
           if (qtytotal < stockingQty) {
             recommendedQty = (stockingQty - qtytotal).toFixed(2);
           }
 
-          const monthsStock = (diff + parseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(20)])) / monthAvg;
+          const monthsStock = (diff + parseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(21)])) / monthAvg;
 
           if (calcCols[1] == 0) calcCols[1] = '""';
           calcCols[1] = '"' + recommendedQty + '"';
@@ -922,11 +922,11 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
   // Source columns in the table (data column TD indices)
   // +2 shift for all >= old 6 due to Qty Last Year / This Year inserted after col 5
-  var SRC_PER_CUBIC_IDX = 37;      // was 35, +2
-  var SRC_PER_WGT_IDX = 35;        // was 33, +2
-  var SRC_PER_WGT_UNIT_IDX = 36;   // was 34, +2
-  var SRC_PER_AVAIL_IDX = 38;      // was 36, +2
-  var SRC_MONTH_AVG_IDX_1 = 18;    // was 16, +2
+  var SRC_PER_CUBIC_IDX = 38;      // was 35, +2
+  var SRC_PER_WGT_IDX = 36;        // was 33, +2
+  var SRC_PER_WGT_UNIT_IDX = 37;   // was 34, +2
+  var SRC_PER_AVAIL_IDX = 39;      // was 36, +2
+  var SRC_MONTH_AVG_IDX_1 = 19;    // was 16, +2
 
   // ── Helpers ──
   function toNum(v) {
