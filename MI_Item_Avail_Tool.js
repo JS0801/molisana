@@ -159,8 +159,8 @@ function (ui, file, log, search, runtime, crypto) {
     var inventorybalanceSearchObj = search.create({
       type: 'inventorybalance',
       filters: [
-        ['status', 'anyof', '6', '1'],
-        'AND',
+        // ['status', 'anyof', '6', '1'],
+        // 'AND',
         ['item.isinactive', 'is', 'F']
       ],
       columns: [
