@@ -741,7 +741,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             log.debug('Test', good - col12Val);
           }
 
-          var availtoProm = onH - col12Val - bad;
+          var availtoProm = avail - bad;
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
