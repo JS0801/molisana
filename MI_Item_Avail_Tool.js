@@ -508,6 +508,11 @@ pagedData.pageRanges.forEach(function (pageRange) {
           cleaned[cIdx] = availtoProm;
         }
 
+        if (cIdx === IDX_COMMITTED) {
+          txt = committedQty;
+          cleaned[cIdx] = committedQty;
+        }
+
         if (cIdx === IDX_ON_HAND_AVAIL_GOOD) {
           txt = good;
           cleaned[cIdx] = good;
