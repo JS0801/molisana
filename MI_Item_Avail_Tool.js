@@ -33,34 +33,35 @@ function (ui, file, log, search, runtime, crypto) {
   var IDX_CRITICAL_STOCK_RESTRICTION = 11;
   var IDX_WARNING_LT_2               = 12;
   var IDX_RECOMMENDED_RESTRICTION    = 13;
-  var IDX_COMMITTED                  = 14;
-  var IDX_ON_HOLD                    = 15;
-  var IDX_RESERVED                   = 16;
-  var IDX_ON_HAND_AVAIL_GOOD         = 17;
-  var IDX_ON_HAND_TOTAL              = 18;
-  var IDX_IN_TRANSIT                 = 19;
-  var IDX_ON_HAND_TOTAL_TRANSIT      = 20;
-  var IDX_ON_ORDER                   = 21;
-  var IDX_TOTAL_STOCK                = 22;
-  var IDX_NEXT_ARRIVAL_QTY           = 23;
-  var IDX_NEXT_ARRIVAL_DATE          = 24;
-  var IDX_DAYS_TILL_NEXT_ARRIVAL     = 25;
-  var IDX_MONTHS_TILL_NEXT_ARRIVAL   = 26;
-  var IDX_ON_HAND_TOTAL_MONTHS       = 27;
-  var IDX_INSPECTION                 = 28;
-  var IDX_LABEL                      = 29;
-  var IDX_DEVIATION                  = 30;
-  var IDX_ON_HAND_TRANSIT_MONTHS     = 31;
-  var IDX_TOTAL_STOCK_MONTHS         = 32;
-  var IDX_30_DAYS                    = 33;
-  var IDX_60_DAYS                    = 34;
-  var IDX_90_DAYS                    = 35;
-  var IDX_120_DAYS                   = 36;
-  var IDX_4_MONTH_AVG                = 37;
-  var IDX_MAX_SHELF_LIFE             = 38;
-  var IDX_LAST_BILLED_DATE           = 39;
-  var IDX_EXPIRE_DATE                = 40;
-  var IDX_EXPIRY_STATUS              = 41;
+  var IDX_AVAILABLE                  = 14;
+  var IDX_COMMITTED                  = 15;
+  var IDX_ON_HOLD                    = 16;
+  var IDX_RESERVED                   = 17;
+  var IDX_ON_HAND_AVAIL_GOOD         = 18;
+  var IDX_ON_HAND_TOTAL              = 19;
+  var IDX_IN_TRANSIT                 = 20;
+  var IDX_ON_HAND_TOTAL_TRANSIT      = 21;
+  var IDX_ON_ORDER                   = 22;
+  var IDX_TOTAL_STOCK                = 23;
+  var IDX_NEXT_ARRIVAL_QTY           = 24;
+  var IDX_NEXT_ARRIVAL_DATE          = 25;
+  var IDX_DAYS_TILL_NEXT_ARRIVAL     = 26;
+  var IDX_MONTHS_TILL_NEXT_ARRIVAL   = 27;
+  var IDX_ON_HAND_TOTAL_MONTHS       = 28;
+  var IDX_INSPECTION                 = 29;
+  var IDX_LABEL                      = 30;
+  var IDX_DEVIATION                  = 31;
+  var IDX_ON_HAND_TRANSIT_MONTHS     = 32;
+  var IDX_TOTAL_STOCK_MONTHS         = 33;
+  var IDX_30_DAYS                    = 34;
+  var IDX_60_DAYS                    = 35;
+  var IDX_90_DAYS                    = 36;
+  var IDX_120_DAYS                   = 37;
+  var IDX_4_MONTH_AVG                = 38;
+  var IDX_MAX_SHELF_LIFE             = 39;
+  var IDX_LAST_BILLED_DATE           = 40;
+  var IDX_EXPIRE_DATE                = 41;
+  var IDX_EXPIRY_STATUS              = 42;
 
   function sign(empid, ts) {
     var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
@@ -153,6 +154,66 @@ function (ui, file, log, search, runtime, crypto) {
     return String(val == null ? '' : val).trim().toLowerCase();
   }
 
+  function getCommBackMap() {
+      var resultMap = {};
+
+      var itemSearchObj = search.create({
+    type: "item",
+    filters: [],
+    columns: [
+        search.createColumn({
+            name: "internalid",
+            summary: "GROUP",
+            sort: search.Sort.ASC,
+            label: "Internal ID"
+        }),
+        search.createColumn({
+            name: "formulanumeric",
+            summary: "SUM",
+            formula: "NVL({locationquantitycommitted},0) + NVL({locationtoresvcommitted},0)",
+            label: "Formula (Numeric)"
+        }),
+        search.createColumn({
+            name: "locationquantitybackordered",
+            summary: "SUM",
+            label: "Location Back Ordered"
+        })
+    ]
+});
+
+var pagedData = itemSearchObj.runPaged({
+    pageSize: 1000
+});
+
+pagedData.pageRanges.forEach(function (pageRange) {
+    var page = pagedData.fetch({ index: pageRange.index });
+
+    page.data.forEach(function (result) {
+        var itemId = result.getValue({
+            name: "internalid",
+            summary: "GROUP"
+        });
+
+        var qtyComm = result.getValue({
+            name: "formulanumeric",
+            summary: "SUM"
+        });
+
+        var qtyBack = result.getValue({
+            name: "locationquantitybackordered",
+            summary: "SUM"
+        });
+
+        resultMap[itemId] = {
+            qtyComm: qtyComm,
+            qtyBack: qtyBack
+        };
+    });
+});
+
+      return resultMap;
+    }
+
   function getInventoryBalanceMap() {
     var resultMap = {};
 
@@ -168,6 +229,7 @@ function (ui, file, log, search, runtime, crypto) {
           name: 'item',
           summary: 'GROUP'
         }),
+        search.createColumn({ name: "onhand", summary: "SUM" }),
         search.createColumn({
           name: 'formulanumeric',
           summary: 'SUM',
@@ -198,6 +260,7 @@ function (ui, file, log, search, runtime, crypto) {
 
     inventorybalanceSearchObj.run().each(function(result) {
       var itemId = result.getValue({ name: 'item', summary: 'GROUP' });
+      var onH = result.getValue({ name: 'onhand', summary: 'SUM' }) || 0;
       var goodQty = parseFloat(result.getValue({ name: 'formulanumeric', summary: 'SUM' })) || 0;
       var badQty  = parseFloat(result.getValue({ name: 'formulanumeric1', summary: 'SUM' })) || 0;
       var labelQty  = parseFloat(result.getValue({ name: 'formulanumeric1', summary: 'SUM' })) || 0;
@@ -207,6 +270,7 @@ function (ui, file, log, search, runtime, crypto) {
 
       resultMap[itemId] = {
         good: goodQty,
+        onH: onH,
         bad: badQty,
         label: labelQty,
         insp: inspQty,
@@ -366,6 +430,8 @@ function (ui, file, log, search, runtime, crypto) {
     var seenItemIds = {};
     var rowObjs = [];
     var balances = getInventoryBalanceMap();
+    var commMap = getCommBackMap();
+    log.debug('Commited Qty Map', commMap);
 
     allRows.slice(1).forEach(function (line) {
       if (!line || line.trim() === '') return;
@@ -408,25 +474,38 @@ function (ui, file, log, search, runtime, crypto) {
         var inspectQ = 0;
         var total = 0;
         var avail = 0;
+        var onH      = 0;
+        var committedQty = 0;
+        var backOrdered = 0;
         var inTransit = cleaned[IDX_IN_TRANSIT];
         var onOrder = toNumber(cleaned[IDX_ON_ORDER]) - toNumber(inTransit);
         var avg = toNumber(cleaned[IDX_4_MONTH_AVG]) / 4;
         
         if (balances[itemid]) {
-          good  = balances[itemid].good;
-          bad   = balances[itemid].bad;
-          labelQ = balances[itemid].label;
+          good     = balances[itemid].good;
+          bad      = balances[itemid].bad;
+          labelQ   = balances[itemid].label;
           inspectQ = balances[itemid].insp;
-          total = balances[itemid].total;
-          avail = balances[itemid].avail;
-          
+          total    = balances[itemid].total;
+          avail    = balances[itemid].avail;
+          onH      = parseFloat(balances[itemid].onH);
         }
+        if (commMap[itemid]) {
+            committedQty    = parseFloat(commMap[itemid].qtyComm);
+            backOrdered     = parseFloat(commMap[itemid].qtyBack);
+        }
+        var availtoProm = onH - committedQty - bad;
 
         var txt = String(value || '').replace(/^"+|"+$/g, '');
 
         if (cIdx === IDX_ON_HOLD) {
           txt = bad;
           cleaned[cIdx] = bad;
+        }
+
+        if (cIdx === IDX_AVAILABLE) {
+          txt = availtoProm;
+          cleaned[cIdx] = availtoProm;
         }
 
         if (cIdx === IDX_ON_HAND_AVAIL_GOOD) {
