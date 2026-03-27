@@ -965,7 +965,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     var onOrder = parseFloat(cells[33] ? cells[33].textContent : 0) || 0;
     var avail = parseFloat(cells[SRC_PER_AVAIL_IDX] ? cells[SRC_PER_AVAIL_IDX].textContent : 0) || 0;
 
-    console.log)('Values', {monthQty, inTransit, onOrder, avail})
+    console.log('Values', {monthQty, inTransit, onOrder, avail})
 
     var totalForMos = inTransit + onOrder + avail + qtyOrdered;
     var monthCell = cells[MONTH_CELL_INDEX];
