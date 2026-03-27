@@ -795,7 +795,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
           let recommendedQty = 0;
           if (qtytotal < stockingQty) {
-            recommendedQty = (stockingQty - qtytotal).toFixed(2);
+            recommendedQty = ( parseFloat(stockingQty) -  parseFloat(qtytotal)).toFixed(2);
           }
 
           const monthsStock = (diff + parseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(21)])) / monthAvg;
