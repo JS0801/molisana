@@ -755,7 +755,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
           
 
-          var availtoProm = onH - committedQty - bad;
+          var availtoProm = good - committedQty;
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
