@@ -961,8 +961,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     if (cells.length <= WEIGHT_CELL_INDEX) return;
 
     var monthQty = parseFloat(cells[SRC_MONTH_AVG_IDX_1] ? cells[SRC_MONTH_AVG_IDX_1].textContent : 0) || 0;
-    var inTransit = parseFloat(cells[27] ? cells[27].textContent : 0) || 0;
-    var onOrder = parseFloat(cells[32] ? cells[32].textContent : 0) || 0;
+    var inTransit = parseFloat(cells[28] ? cells[28].textContent : 0) || 0;
+    var onOrder = parseFloat(cells[33] ? cells[33].textContent : 0) || 0;
     var avail = parseFloat(cells[SRC_PER_AVAIL_IDX] ? cells[SRC_PER_AVAIL_IDX].textContent : 0) || 0;
 
     var totalForMos = inTransit + onOrder + avail + qtyOrdered;
