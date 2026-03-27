@@ -783,7 +783,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           }
 
           var col9 = normalizeMovement(monthAvg);
-          const qtytotal = diff + safeParseFloat(calcCols[csvIndexIsExposed(21)]) + parseFloat(avail) - parseFloat(col12Val);
+          const qtytotal = safeParseFloat(calcCols[csvIndexIsExposed(26)]) + parseFloat(availtoProm);
           const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
