@@ -4,7 +4,6 @@
  */
 define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, format, log) {
 
-    var ITEM_TYPE = 'lotnumberedassemblyitem';
     var FLD_DATE = 'custitem_mi_earliest_port_date';
     var FLD_QTY = 'custitem_mi_earliest_expected_quantity';
 
@@ -20,14 +19,12 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
             ]
         }).run().each(function (res) {
             var itemId = res.getValue({ name: 'item', summary: 'GROUP' });
-            if (itemId) {
-                itemsObj[itemId] = true;
-            }
+            if (itemId) itemsObj[itemId] = true;
             return true;
         });
 
         search.create({
-            type: ITEM_TYPE,
+            type: 'item',
             filters: [
                 [FLD_DATE, 'isnotempty', ''],
                 'OR',
@@ -36,9 +33,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
             columns: ['internalid']
         }).run().each(function (res) {
             var itemId = res.getValue('internalid');
-            if (itemId) {
-                itemsObj[itemId] = true;
-            }
+            if (itemId) itemsObj[itemId] = true;
             return true;
         });
 
@@ -54,17 +49,23 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
         var itemId = row.itemId;
         if (!itemId) return;
 
+        var itemType = getItemRecordType(itemId);
+        if (!itemType) {
+            log.error('Unable to find item type', itemId);
+            return;
+        }
+
         var earliest = getEarliestInbound(itemId);
 
         var currentValues;
         try {
             currentValues = search.lookupFields({
-                type: ITEM_TYPE,
+                type: itemType,
                 id: itemId,
                 columns: [FLD_DATE, FLD_QTY]
             });
         } catch (e) {
-            log.error('lookupFields failed', { itemId: itemId, error: e });
+            log.error('lookupFields failed', { itemId: itemId, itemType: itemType, error: e });
             return;
         }
 
@@ -83,24 +84,22 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
             }
         }
 
-        oldQty = oldQty === '' || oldQty == null ? '' : Number(oldQty);
+        oldQty = (oldQty === '' || oldQty == null) ? '' : Number(oldQty);
 
-        // No inbound shipment now -> clear fields
         if (!earliest) {
             if (!oldDate && (oldQty === '' || oldQty == null)) {
                 return;
             }
 
             try {
+                var clearObj = {};
+                clearObj[FLD_DATE] = null;   // date field must be null
+                clearObj[FLD_QTY] = '';
+
                 record.submitFields({
-                    type: ITEM_TYPE,
+                    type: itemType,
                     id: itemId,
-                    values: (function () {
-                        var obj = {};
-                        obj[FLD_DATE] = '';
-                        obj[FLD_QTY] = '';
-                        return obj;
-                    })(),
+                    values: clearObj,
                     options: {
                         enableSourcing: false,
                         ignoreMandatoryFields: true
@@ -108,10 +107,11 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
                 });
 
                 log.audit('Item cleared', {
-                    itemId: itemId
+                    itemId: itemId,
+                    itemType: itemType
                 });
             } catch (e) {
-                log.error('Clear failed', { itemId: itemId, error: e });
+                log.error('Clear failed', { itemId: itemId, itemType: itemType, error: e });
             }
 
             return;
@@ -122,15 +122,14 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
         }
 
         try {
+            var updateObj = {};
+            updateObj[FLD_DATE] = earliest.dateObj;
+            updateObj[FLD_QTY] = earliest.qty;
+
             record.submitFields({
-                type: ITEM_TYPE,
+                type: itemType,
                 id: itemId,
-                values: (function () {
-                    var obj = {};
-                    obj[FLD_DATE] = earliest.dateObj;
-                    obj[FLD_QTY] = earliest.qty;
-                    return obj;
-                })(),
+                values: updateObj,
                 options: {
                     enableSourcing: false,
                     ignoreMandatoryFields: true
@@ -139,13 +138,28 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
 
             log.audit('Item updated', {
                 itemId: itemId,
+                itemType: itemType,
                 inboundId: earliest.inboundId,
                 date: earliest.dateStr,
                 qty: earliest.qty
             });
         } catch (e) {
-            log.error('Update failed', { itemId: itemId, error: e });
+            log.error('Update failed', { itemId: itemId, itemType: itemType, error: e });
         }
+    }
+
+    function getItemRecordType(itemId) {
+        var result = search.create({
+            type: 'item',
+            filters: [['internalid', 'anyof', itemId]],
+            columns: ['recordtype']
+        }).run().getRange({ start: 0, end: 1 });
+
+        if (!result || !result.length) {
+            return null;
+        }
+
+        return result[0].recordType || result[0].getValue('recordtype');
     }
 
     function getEarliestInbound(itemId) {
@@ -161,19 +175,12 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
                 search.createColumn({ name: 'quantityexpected' }),
                 search.createColumn({ name: 'internalid' })
             ]
-        }).run().getRange({
-            start: 0,
-            end: 1
-        });
+        }).run().getRange({ start: 0, end: 1 });
 
-        if (!results || !results.length) {
-            return null;
-        }
+        if (!results || !results.length) return null;
 
         var dateRaw = results[0].getValue('custrecord_port_eta');
-        if (!dateRaw) {
-            return null;
-        }
+        if (!dateRaw) return null;
 
         var dateObj, dateStr;
         try {
@@ -186,6 +193,7 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
                 type: format.Type.DATE
             });
         } catch (e) {
+            log.error('Date parse failed', { itemId: itemId, raw: dateRaw, error: e });
             return null;
         }
 
