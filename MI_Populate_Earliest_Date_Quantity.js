@@ -149,18 +149,21 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
     }
 
     function getItemRecordType(itemId) {
-        var result = search.create({
-            type: 'item',
-            filters: [['internalid', 'anyof', itemId]],
-            columns: ['recordtype']
-        }).run().getRange({ start: 0, end: 1 });
+    var results = search.create({
+        type: search.Type.ITEM,
+        filters: [['internalid', 'anyof', itemId]],
+        columns: ['internalid']
+    }).run().getRange({
+        start: 0,
+        end: 1
+    });
 
-        if (!result || !result.length) {
-            return null;
-        }
-
-        return result[0].recordType || result[0].getValue('recordtype');
+    if (!results || !results.length) {
+        return null;
     }
+
+    return results[0].recordType || null;
+}
 
     function getEarliestInbound(itemId) {
         var results = search.create({
