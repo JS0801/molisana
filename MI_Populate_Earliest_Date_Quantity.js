@@ -222,9 +222,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
                 ['item', 'anyof', itemId]
             ],
             columns: [
-                search.createColumn({ name: 'custrecord_port_eta', sort: search.Sort.ASC }),
-                search.createColumn({ name: 'quantityexpected' }),
-                search.createColumn({ name: 'internalid' })
+                search.createColumn({ name: 'custrecord_port_eta', summary : 'MIN', sort: search.Sort.ASC }),
+                search.createColumn({ name: 'quantityexpected', summary : 'SUM' }),
+                search.createColumn({ name: 'internalid', summary : 'GROUP' })
             ]
         }).run().getRange({ start: 0, end: 1 });
 
@@ -232,9 +232,9 @@ define(['N/search', 'N/record', 'N/format', 'N/log'], function (search, record, 
             return null;
         }
 
-        var dateRaw = results[0].getValue('custrecord_port_eta');
-        var qtyRaw = results[0].getValue('quantityexpected');
-        var inboundId = results[0].getValue('internalid');
+        var dateRaw = results[0].getValue({ name: 'custrecord_port_eta', summary : 'MIN'});
+        var qtyRaw = results[0].getValue({ name: 'quantityexpected', summary : 'SUM'});
+        var inboundId = results[0].getValue({ name: 'internalid', summary : 'GROUP'});
 
         log.debug('Raw inbound result', {
             itemId: itemId,
