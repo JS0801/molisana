@@ -755,7 +755,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
           
 
-          var availtoProm = good - committedQty;
+          var availtoProm = total - bad - committedQty;
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
@@ -1878,7 +1878,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         var holdQty = parseFloat(result.getValue({ name: "formulanumeric2", summary: "SUM" })) || 0;
         var inspectQty = parseFloat(result.getValue({ name: "formulanumeric3", summary: "SUM" })) || 0;
         var labelQty = parseFloat(result.getValue({ name: "formulanumeric4", summary: "SUM" })) || 0;
-        var total = parseFloat((goodQty + badQty).toFixed(2));
+        var total = parseFloat((goodQty + badQty + inspectQty + labelQty).toFixed(2));
         var avail = parseFloat(result.getValue({ name: "available", summary: "SUM" })) || 0;
 
         resultMap[itemId] = { good: goodQty, bad: badQty, hold: holdQty, inspect: inspectQty, label: labelQty, total: total, avail: avail, onH: onH };
