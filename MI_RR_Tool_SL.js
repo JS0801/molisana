@@ -965,11 +965,12 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
     var monthQty = parseFloat(cells[SRC_MONTH_AVG_IDX_1] ? cells[SRC_MONTH_AVG_IDX_1].textContent : 0) || 0;
     var inTransit = parseFloat(cells[28] ? cells[28].textContent : 0) || 0;
     var onOrder = parseFloat(cells[33] ? cells[33].textContent : 0) || 0;
+    var committedQty = parseFloat(cells[70] ? cells[70].textContent : 0) || 0;
     var avail = parseFloat(cells[SRC_PER_AVAIL_IDX] ? cells[SRC_PER_AVAIL_IDX].textContent : 0) || 0;
 
     console.log('Values', {monthQty, inTransit, onOrder, avail})
 
-    var totalForMos = inTransit + onOrder + avail + qtyOrdered;
+    var totalForMos = inTransit + onOrder + avail + qtyOrdered - committedQty;
     var monthCell = cells[MONTH_CELL_INDEX];
     monthCell.textContent = monthQty ? (totalForMos / monthQty).toFixed(2) : '0.00';
     styleCalcCell(monthCell);
