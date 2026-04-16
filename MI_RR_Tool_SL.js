@@ -676,6 +676,9 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         var poQtyMap = getPurchaseOrderQtyMap();
         log.debug('PO Qty Map', poQtyMap);
 
+        var toQtyMap = getTransferOrderQtyMap();
+        log.debug('TO Qty Map', toQtyMap);
+
         var commMap = getCommBackMap();
         log.debug('Commited Qty Map', commMap);
         var alreadyExsist = {};
@@ -706,9 +709,16 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           if (columns[csvIndexIsExposed(POL_INDEX)]) uniquePOL.add(columns[csvIndexIsExposed(POL_INDEX)].replace(/"/g, '').trim());
           if (columns[csvIndexIsExposed(PRODUCT_INDEX)]) uniquePRODUCT.add(columns[csvIndexIsExposed(PRODUCT_INDEX)].replace(/"/g, '').trim());
 
+
+          let toOnOrd  = 0;
+          if (toQtyMap[itemid]) {
+            log.debug('TO Item', itemid)
+            toOnOrd = toQtyMap[itemid];
+          }
+          
           var val43 = parseFloat(calcCols[csvIndexIsExposed(26)] || 0);
           var val41 = parseFloat(calcCols[csvIndexIsExposed(21)] || 0);
-          var diff = val43 - val41;
+          var diff = val43 - val41 - toOnOrd;
           diff = Math.abs(diff);
           calcCols[csvIndexIsExposed(26)] = diff === 0 ? "" : '"' + diff + '"';
 
@@ -720,6 +730,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           let total    = 0;
           let avail    = 0;
           let onH      = 0;
+          
           let committedQty = 0;
           let backOrdered = 0;
           let col14Val = calcCols[csvIndexIsExposed(19)];
@@ -741,6 +752,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             total   = parseFloat(balances[itemid].total);
             avail   = parseFloat(balances[itemid].avail);
           }
+
+          
 
           if (itemid == 1163) {
             log.debug('committedQty', committedQty);
@@ -1935,6 +1948,47 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       });
 
       log.debug('PO Qty Map count', Object.keys(resultMap).length);
+      return resultMap;
+    }
+
+    function getTransferOrderQtyMap() {
+      var resultMap = {};
+
+      var transferorderSearchObj = search.create({
+   type: "transferorder",
+   settings:[{"name":"consolidationtype","value":"ACCTTYPE"}],
+   filters:
+   [
+      ["type","anyof","TrnfrOrd"], 
+      "AND", 
+      ["formulanumeric: {quantity} - {quantityshiprecv}","greaterthan","0"]
+   ],
+   columns:
+   [
+      search.createColumn({
+         name: "item",
+         summary: "GROUP",
+         label: "Item"
+      }),
+      search.createColumn({
+         name: "formulanumeric",
+         summary: "SUM",
+         formula: "{quantity} - {quantityshiprecv}",
+         label: "Formula (Numeric)"
+      })
+   ]
+});
+
+      transferorderSearchObj.run().each(function (result) {
+        var itemId = result.getValue({ name: "item", summary: "GROUP" });
+        var cols = result.columns;
+        var onOrderTO = parseFloat(result.getValue({ name: "formulanumeric", summary: "SUM" })) || 0;
+
+        resultMap[itemId] = onOrderTO;
+        return true;
+      });
+
+      log.debug('TO Qty Map count', Object.keys(resultMap).length);
       return resultMap;
     }
 
