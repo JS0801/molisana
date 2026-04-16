@@ -716,9 +716,9 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             toOnOrd = toQtyMap[itemid];
           }
           
-          var val43 = parseFloat(calcCols[csvIndexIsExposed(26)] || 0);
+          var val43 = parseFloat(calcCols[csvIndexIsExposed(26)] || 0) - toOnOrd;
           var val41 = parseFloat(calcCols[csvIndexIsExposed(21)] || 0);
-          var diff = val43 - val41 - toOnOrd;
+          var diff = val43 - val41 ;
           diff = Math.abs(diff);
           calcCols[csvIndexIsExposed(26)] = diff === 0 ? "" : '"' + diff + '"';
 
