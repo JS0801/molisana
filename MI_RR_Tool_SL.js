@@ -1961,6 +1961,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
    [
       ["type","anyof","TrnfrOrd"], 
       "AND", 
+     ["closed","is","F"], 
+      "AND", 
       ["formulanumeric: {quantity} - {quantityshiprecv}","greaterthan","0"]
    ],
    columns:
