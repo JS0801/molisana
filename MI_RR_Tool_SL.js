@@ -802,11 +802,11 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           if (itemid == 1179)log.audit('Item Qty', {val43, avail, committedQty, qtytotal, stockingQty})
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
-          calcCols[csvIndexIsExposed(63)] = committedQty;
-          calcCols[csvIndexIsExposed(64)] = backOrdered;
+          calcCols[csvIndexIsExposed(64)] = committedQty;
+          calcCols[csvIndexIsExposed(65)] = backOrdered;
 
-          calcCols[csvIndexIsExposed(66)] = calcCols[csvIndexIsExposed(11)];
-          calcCols[csvIndexIsExposed(67)] = stockingQty;
+          calcCols[csvIndexIsExposed(67)] = calcCols[csvIndexIsExposed(11)];
+          calcCols[csvIndexIsExposed(68)] = stockingQty;
 
           let recommendedQty = 0;
           if (qtytotal < stockingQty) {
