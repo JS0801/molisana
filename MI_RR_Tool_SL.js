@@ -811,11 +811,11 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           if (itemid == 1179)log.audit('Item Qty', {val43, avail, committedQty, qtytotal, stockingQty})
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
-          calcCols[csvIndexIsExposed(65)] = committedQty;
-          calcCols[csvIndexIsExposed(66)] = backOrdered;
+          calcCols[csvIndexIsExposed(64)] = committedQty;
+          calcCols[csvIndexIsExposed(65)] = backOrdered;
 
-          calcCols[csvIndexIsExposed(68)] = calcCols[csvIndexIsExposed(11)];
-          calcCols[csvIndexIsExposed(69)] = stockingQty;
+          calcCols[csvIndexIsExposed(67)] = calcCols[csvIndexIsExposed(11)];
+          calcCols[csvIndexIsExposed(68)] = stockingQty;
 
           let recommendedQty = 0;
           if (qtytotal < stockingQty) {
@@ -2096,7 +2096,7 @@ var invoiceSearchObj = search.create({
    ]
 });
 
-var pagedData = itemSearchObj.runPaged({
+var pagedData = invoiceSearchObj.runPaged({
     pageSize: 1000
 });
 
