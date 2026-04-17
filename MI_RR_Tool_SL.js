@@ -2114,7 +2114,7 @@ pagedData.pageRanges.forEach(function (pageRange) {
             summary: "SUM"
         });
 
-        resultMap[itemId] = praseFloat(qty) || 0;
+        resultMap[itemId] = qty || 0;
     });
 });
 
