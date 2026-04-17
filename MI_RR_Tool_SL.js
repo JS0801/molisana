@@ -679,6 +679,10 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         var toQtyMap = getTransferOrderQtyMap();
         log.debug('TO Qty Map', toQtyMap);
 
+        var lclQtyMap = getLCLMap();
+        log.debug('LCL Qty Map', lclQtyMap);
+        
+
         var commMap = getCommBackMap();
         log.debug('Commited Qty Map', commMap);
         var alreadyExsist = {};
@@ -730,6 +734,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           let total    = 0;
           let avail    = 0;
           let onH      = 0;
+          let lclQty   = 0;
           
           let committedQty = 0;
           let backOrdered = 0;
@@ -740,6 +745,10 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           if (commMap[itemid]) {
             committedQty    = parseFloat(commMap[itemid].qtyComm);
             backOrdered     = parseFloat(commMap[itemid].qtyBack);
+          }
+
+          if (lclQtyMap[itemid]) {
+            lclQty    = parseFloat(lclQtyMap[itemid]);
           }
 
           if (balances[itemid]) {
@@ -2048,6 +2057,64 @@ pagedData.pageRanges.forEach(function (pageRange) {
             qtyComm: qtyComm,
             qtyBack: qtyBack
         };
+    });
+});
+
+      return resultMap;
+    }
+
+    function getLCLMap() {
+      var resultMap = {};
+
+var invoiceSearchObj = search.create({
+   type: "invoice",
+   settings:[{"name":"consolidationtype","value":"ACCTTYPE"}],
+   filters:
+   [
+      ["type","anyof","CustInvc"], 
+      "AND", 
+      [["customermain.internalidnumber","equalto","30"],"OR",["customermain.parent","anyof","30"]], 
+      "AND", 
+      ["mainline","is","F"], 
+      "AND", 
+      ["taxline","is","F"], 
+      "AND", 
+      ["trandate","onorafter","monthsago4"]
+   ],
+   columns:
+   [
+      search.createColumn({
+         name: "item",
+         summary: "GROUP",
+         label: "Item"
+      }),
+      search.createColumn({
+         name: "quantity",
+         summary: "SUM",
+         label: "Quantity"
+      })
+   ]
+});
+
+var pagedData = itemSearchObj.runPaged({
+    pageSize: 1000
+});
+
+pagedData.pageRanges.forEach(function (pageRange) {
+    var page = pagedData.fetch({ index: pageRange.index });
+
+    page.data.forEach(function (result) {
+        var itemId = result.getValue({
+            name: "item",
+            summary: "GROUP"
+        });
+
+        var qty = result.getValue({
+            name: "quantity",
+            summary: "SUM"
+        });
+
+        resultMap[itemId] = praseFloat(qty) || 0;
     });
 });
 
