@@ -811,7 +811,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           const qtytotal = parseFloat(val43) + parseFloat(avail) - parseFloat(committedQty) - parseFloat(committedQtyRes);
           const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
 
-          if (itemid == 1179)log.audit('Item Qty', {val43, avail, committedQty, qtytotal, stockingQty})
+          if (itemid == 4020)log.audit('Item Qty', {val43, avail, committedQty, qtytotal, stockingQty})
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
           calcCols[csvIndexIsExposed(64)] = committedQty;
