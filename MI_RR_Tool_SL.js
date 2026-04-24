@@ -1695,6 +1695,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         var newFileId = newfileObj.save();
         fileField.defaultValue = newFileId;
 
+        log.debug('newContent', newContent)
+
         var newfileObj2 = file.create({
           name: "RR Tool Details.csv",
           fileType: file.Type.CSV,
@@ -1976,7 +1978,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
    [
       ["type","anyof","TrnfrOrd"], 
       "AND", 
-     ["closed","is","F"], 
+      ["closed","is","F"], 
       "AND", 
       ["formulanumeric: {quantity} - {quantityshiprecv}","greaterthan","0"]
    ],
