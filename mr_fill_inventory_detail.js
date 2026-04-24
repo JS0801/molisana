@@ -15,7 +15,7 @@
 define(['N/file', 'N/record', 'N/search', 'N/runtime'],
 (file, record, search, runtime) => {
 
-    const PARAM_FILE_ID = 'custscript_mi_csv_file_id';
+    const PARAM_FILE_ID = 1278609;
 
     // =========================================================
     // 1) getInputData  — read CSV, group by item per shipment
