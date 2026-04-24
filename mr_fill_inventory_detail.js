@@ -3,261 +3,355 @@
  * @NScriptType MapReduceScript
  *
  * Fill Inventory Detail on Inbound Shipment from CSV.
- *
- * Match the PO line using:
- *   Column1        -> custcol_mi_vendor_ref_number
- *   Item ID        -> item
- *   Purchase Order -> purchaseorder   (e.g. PO3549)
- *
- * A lot qty can span two POs of the same item, so we walk lots
- * in order and fill each PO's qty until it's complete.
+ * Heavy logging version — trace every step.
  */
-define(['N/file', 'N/record', 'N/search', 'N/runtime'],
-(file, record, search, runtime) => {
+define(['N/file', 'N/record', 'N/search'],
+(file, record, search) => {
 
+    const FILE_ID = 1278609;
 
     // =========================================================
-    // 1) getInputData  — read CSV, group by item per shipment
+    // 1) getInputData
     // =========================================================
     const getInputData = () => {
-        log.audit('STAGE 1', 'getInputData START');
+        log.audit('STAGE-1 ▶▶▶', 'getInputData START');
 
-        const lines = file.load({ id: 1278609 })
-            .getContents().split(/\r?\n/);
-        log.debug('CSV line count', lines.length);
+        let raw;
+        try {
+            raw = file.load({ id: FILE_ID }).getContents();
+            log.audit('STAGE-1 file loaded', 'length=' + raw.length);
+        } catch (e) {
+            log.error('STAGE-1 file.load FAILED', e);
+            return [];
+        }
 
-        // Parse rows (skip header on line 0)
+        const lines = raw.split(/\r?\n/);
+        log.audit('STAGE-1 line count', lines.length);
+
+        // Parse
         const rows = [];
         for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) continue;
+            if (!lines[i].trim()) { log.debug('skip empty row', i); continue; }
             const c = parseCsv(lines[i]);
-            rows.push({
+            const r = {
                 shipment : c[0],
-                vendorRef: c[1],             // Column1
-                po       : c[5],             // Purchase Order
+                vendorRef: c[1],
+                po       : c[5],
                 itemId   : c[6],
                 lot      : c[13],
                 exp      : c[14],
                 qtyExp   : toNum(c[15]),
                 qtyRec   : toNum(c[16])
-            });
+            };
+            rows.push(r);
+            log.debug('row ' + i, JSON.stringify(r));
         }
-        log.debug('Parsed rows', rows.length);
+        log.audit('STAGE-1 rows parsed', rows.length);
 
-        // Carry down shipment + vendorRef (blank on lot rows)
+        // Group
         let curShip = '', curVRef = '';
         const groups = {};
 
-        rows.forEach(r => {
+        rows.forEach((r, idx) => {
             if (r.shipment)  curShip = r.shipment;
             if (r.vendorRef) curVRef = r.vendorRef;
 
             const key = curShip + '|' + curVRef + '|' + r.itemId;
+            log.debug('group key for row ' + idx, key);
+
             if (!groups[key]) {
                 groups[key] = {
                     shipment : curShip,
                     vendorRef: curVRef,
                     itemId   : r.itemId,
-                    pos      : [],   // [{po, qty}]
-                    lots     : []    // [{lot, exp, qty}]
+                    pos      : [],
+                    lots     : []
                 };
+                log.debug('NEW group', key);
             }
 
             if (r.po) {
                 groups[key].pos.push({ po: r.po, qty: r.qtyExp });
+                log.debug('  + PO', r.po + ' qty=' + r.qtyExp);
             } else if (r.lot) {
-                groups[key].lots.push({
-                    lot: r.lot, exp: r.exp, qty: r.qtyRec
-                });
+                groups[key].lots.push({ lot: r.lot, exp: r.exp, qty: r.qtyRec });
+                log.debug('  + LOT', r.lot + ' qty=' + r.qtyRec);
+            } else {
+                log.debug('  row has no PO and no Lot — ignored', JSON.stringify(r));
             }
         });
 
         const list = Object.values(groups);
-        log.audit('STAGE 1', 'Groups = ' + list.length);
+        log.audit('STAGE-1 groups built', list.length);
+
+        // Log every group so we know exactly what goes into map
+        list.forEach((g, i) => {
+            log.audit('STAGE-1 group[' + i + ']', JSON.stringify(g));
+        });
+
+        log.audit('STAGE-1 ◀◀◀', 'getInputData END, returning ' + list.length);
         return list;
     };
 
     // =========================================================
-    // 2) map  — split lots across POs, emit per PO allocation
+    // 2) map
     // =========================================================
     const map = (ctx) => {
-        const g = JSON.parse(ctx.value);
-        log.audit('STAGE 2 map',
-            'ship=' + g.shipment + ' item=' + g.itemId +
-            ' POs=' + g.pos.length + ' Lots=' + g.lots.length);
+        log.audit('STAGE-2 ▶▶▶', 'map START key=' + ctx.key);
+        log.debug('STAGE-2 raw value', ctx.value);
 
+        try {
+            const g = JSON.parse(ctx.value);
+            log.audit('STAGE-2 parsed',
+                'ship=' + g.shipment + ' vRef=' + g.vendorRef +
+                ' item=' + g.itemId +
+                ' POs=' + (g.pos ? g.pos.length : 'UNDEF') +
+                ' Lots=' + (g.lots ? g.lots.length : 'UNDEF'));
 
-      try {
-        
-        // Working copies with "remaining" counters
-        const pos  = g.pos.map(p  => ({ po: p.po, remaining: p.qty, lots: [] }));
-        const lots = g.lots.map(l => ({ lot: l.lot, exp: l.exp, remaining: l.qty }));
-
-        // Walk lots, fill each PO's qty in order
-        let pi = 0;
-        for (const lot of lots) {
-            while (lot.remaining > 0 && pi < pos.length) {
-                if (pos[pi].remaining <= 0) { pi++; continue; }
-
-                const take = Math.min(lot.remaining, pos[pi].remaining);
-                pos[pi].lots.push({ lot: lot.lot, exp: lot.exp, qty: take });
-                pos[pi].remaining -= take;
-                lot.remaining     -= take;
-
-                log.debug('Split', 'item=' + g.itemId +
-                    ' ' + take + ' of ' + lot.lot + ' → ' + pos[pi].po);
-
-                if (pos[pi].remaining <= 0) pi++;
+            if (!g.pos || !g.pos.length) {
+                log.error('STAGE-2 NO POs', 'item=' + g.itemId + ' — nothing to emit');
+                return;
             }
+            if (!g.lots || !g.lots.length) {
+                log.error('STAGE-2 NO LOTS', 'item=' + g.itemId + ' — nothing to emit');
+                return;
+            }
+
+            // Working copies
+            const pos = g.pos.map(p =>
+                ({ po: p.po, remaining: p.qty, lots: [] }));
+            const lots = g.lots.map(l =>
+                ({ lot: l.lot, exp: l.exp, remaining: l.qty }));
+
+            log.debug('STAGE-2 pos init', JSON.stringify(pos));
+            log.debug('STAGE-2 lots init', JSON.stringify(lots));
+
+            // Greedy split
+            let pi = 0;
+            for (const lot of lots) {
+                log.debug('STAGE-2 process lot', lot.lot + ' remaining=' + lot.remaining);
+                while (lot.remaining > 0 && pi < pos.length) {
+                    if (pos[pi].remaining <= 0) {
+                        log.debug('  PO full, advancing', pos[pi].po);
+                        pi++;
+                        continue;
+                    }
+                    const take = Math.min(lot.remaining, pos[pi].remaining);
+                    pos[pi].lots.push({ lot: lot.lot, exp: lot.exp, qty: take });
+                    pos[pi].remaining -= take;
+                    lot.remaining -= take;
+
+                    log.audit('STAGE-2 SPLIT',
+                        'item=' + g.itemId + ' ' + take +
+                        ' of ' + lot.lot + ' → ' + pos[pi].po +
+                        ' (PO left=' + pos[pi].remaining +
+                        ', lot left=' + lot.remaining + ')');
+
+                    if (pos[pi].remaining <= 0) pi++;
+                }
+            }
+
+            // Emit
+            let emitted = 0;
+            pos.forEach((p, i) => {
+                log.debug('STAGE-2 pos[' + i + '] final',
+                    p.po + ' remaining=' + p.remaining +
+                    ' lots=' + JSON.stringify(p.lots));
+
+                if (!p.lots.length) {
+                    log.audit('STAGE-2 skip — no lots assigned', p.po);
+                    return;
+                }
+                const payload = {
+                    shipment : g.shipment,
+                    vendorRef: g.vendorRef,
+                    itemId   : g.itemId,
+                    po       : p.po,
+                    lots     : p.lots
+                };
+                const keyOut = g.shipment || 'UNKNOWN';
+                log.audit('STAGE-2 EMIT', 'key=' + keyOut + ' value=' + JSON.stringify(payload));
+                ctx.write({ key: keyOut, value: JSON.stringify(payload) });
+                emitted++;
+            });
+
+            log.audit('STAGE-2 ◀◀◀', 'map END item=' + g.itemId + ' emitted=' + emitted);
+
+        } catch (e) {
+            log.error('STAGE-2 map EXCEPTION', e.message + ' stack=' + e.stack);
         }
-
-        // Emit one payload per PO, keyed by shipment
-        pos.forEach(p => {
-            if (!p.lots.length) return;
-            const payload = {
-                shipment : g.shipment,
-                vendorRef: g.vendorRef,
-                itemId   : g.itemId,
-                po       : p.po,
-                lots     : p.lots
-            };
-            log.debug('Emit', JSON.stringify(payload));
-            ctx.write({ key: g.shipment, value: JSON.stringify(payload) });
-        });
-
-      } catch (error) {
-        log.error('Map Error', error)
-      }
     };
 
     // =========================================================
-    // 3) reduce  — for each shipment, fill inventory detail
+    // 3) reduce
     // =========================================================
     const reduce = (ctx) => {
-        const shipmentNum = ctx.key;
-        log.audit('STAGE 3 reduce',
-            'shipment=' + shipmentNum + ' payloads=' + ctx.values.length);
+        log.audit('STAGE-3 ▶▶▶', 'reduce START key=' + ctx.key +
+            ' values=' + (ctx.values ? ctx.values.length : 'NONE'));
 
-      try {
-                // Find the inbound shipment
-        const hits = search.create({
-            type: 'inboundshipment',
-            filters: [['shipmentnumber', 'is', shipmentNum]],
-            columns: ['internalid']
-        }).run().getRange({ start: 0, end: 1 });
+        try {
+            const shipmentNum = ctx.key;
 
-        if (!hits.length) {
-            log.error('Shipment not found', shipmentNum);
-            return;
-        }
-
-        const shipId = hits[0].getValue('internalid');
-        log.debug('Shipment ID', shipId);
-
-        const rec = record.load({
-            type: 'inboundshipment', id: shipId, isDynamic: true
-        });
-        const lineCount = rec.getLineCount({ sublistId: 'items' });
-        log.debug('Line count', lineCount);
-
-        ctx.values.forEach(v => {
-            const p = JSON.parse(v);
-            log.audit('Filling',
-                'item=' + p.itemId + ' PO=' + p.po + ' vRef=' + p.vendorRef);
-
-            // ---- locate the matching line ----
-            let idx = -1;
-            for (let i = 0; i < lineCount; i++) {
-                rec.selectLine({ sublistId: 'items', line: i });
-
-                const lineItem = rec.getCurrentSublistValue({
-                    sublistId: 'items', fieldId: 'item' });
-                const lineVRef = rec.getCurrentSublistValue({
-                    sublistId: 'items', fieldId: 'custcol_mi_vendor_ref_number' });
-                const linePO = rec.getCurrentSublistText({
-                    sublistId: 'items', fieldId: 'purchaseorder' });
-
-                if (String(lineItem) === String(p.itemId) &&
-                    String(lineVRef) === String(p.vendorRef) &&
-                    String(linePO)   === String(p.po)) {
-                    idx = i;
-                    break;
-                }
-            }
-
-            if (idx === -1) {
-                log.error('Line not matched',
-                    'item=' + p.itemId + ' PO=' + p.po);
-                return;
-            }
-            log.debug('Matched line', idx);
-
-            // ---- open inventory detail subrecord ----
-            rec.selectLine({ sublistId: 'items', line: idx });
-            const inv = rec.getCurrentSublistSubrecord({
-                sublistId: 'items', fieldId: 'inventorydetail'
+            // Log every payload we received
+            ctx.values.forEach((v, i) => {
+                log.debug('STAGE-3 incoming[' + i + ']', v);
             });
 
-            // ---- add each lot ----
-            p.lots.forEach((lt, j) => {
-                if (j === 0) {
-                    inv.selectLine({ sublistId: 'inventoryassignment', line: 0 });
-                } else {
-                    inv.selectNewLine({ sublistId: 'inventoryassignment' });
-                }
+            // Find inbound shipment
+            log.debug('STAGE-3 searching inbound shipment', shipmentNum);
+            const hits = search.create({
+                type: 'inboundshipment',
+                filters: [['shipmentnumber', 'is', shipmentNum]],
+                columns: ['internalid']
+            }).run().getRange({ start: 0, end: 5 });
 
-                inv.setCurrentSublistValue({
-                    sublistId: 'inventoryassignment',
-                    fieldId  : 'receiptinventorynumber',
-                    value    : lt.lot
-                });
-                inv.setCurrentSublistValue({
-                    sublistId: 'inventoryassignment',
-                    fieldId  : 'quantity',
-                    value    : lt.qty
-                });
+            log.audit('STAGE-3 search result', 'hits=' + hits.length);
 
-                if (lt.exp) {
-                    const d = parseDDMMYYYY(lt.exp);
-                    if (d) {
-                        inv.setCurrentSublistValue({
-                            sublistId: 'inventoryassignment',
-                            fieldId  : 'expirationdate',
-                            value    : d
-                        });
+            if (!hits.length) {
+                log.error('STAGE-3 NOT FOUND', 'shipment=' + shipmentNum);
+                return;
+            }
+
+            const shipId = hits[0].getValue('internalid');
+            log.audit('STAGE-3 shipment id', shipId);
+
+            const rec = record.load({
+                type: 'inboundshipment', id: shipId, isDynamic: true
+            });
+            const lineCount = rec.getLineCount({ sublistId: 'items' });
+            log.audit('STAGE-3 line count', lineCount);
+
+            // Log every existing line so we can see what we're matching against
+            for (let i = 0; i < lineCount; i++) {
+                rec.selectLine({ sublistId: 'items', line: i });
+                const it = rec.getCurrentSublistValue({ sublistId: 'items', fieldId: 'item' });
+                const vr = rec.getCurrentSublistValue({ sublistId: 'items', fieldId: 'custcol_mi_vendor_ref_number' });
+                const pt = rec.getCurrentSublistText({ sublistId: 'items', fieldId: 'purchaseorder' });
+                log.debug('STAGE-3 existing line ' + i,
+                    'item=' + it + ' vRef=' + vr + ' PO=' + pt);
+            }
+
+            // Process each payload
+            ctx.values.forEach((v, pIdx) => {
+                log.audit('STAGE-3 processing payload ' + pIdx, v);
+                const p = JSON.parse(v);
+
+                let idx = -1;
+                for (let i = 0; i < lineCount; i++) {
+                    rec.selectLine({ sublistId: 'items', line: i });
+                    const lineItem = rec.getCurrentSublistValue({
+                        sublistId: 'items', fieldId: 'item' });
+                    const lineVRef = rec.getCurrentSublistValue({
+                        sublistId: 'items', fieldId: 'custcol_mi_vendor_ref_number' });
+                    const linePO = rec.getCurrentSublistText({
+                        sublistId: 'items', fieldId: 'purchaseorder' });
+
+                    log.debug('STAGE-3 compare line ' + i,
+                        'li=' + lineItem + '/' + p.itemId +
+                        ' vr=' + lineVRef + '/' + p.vendorRef +
+                        ' po=' + linePO + '/' + p.po);
+
+                    if (String(lineItem) === String(p.itemId) &&
+                        String(lineVRef) === String(p.vendorRef) &&
+                        String(linePO)   === String(p.po)) {
+                        idx = i;
+                        log.audit('STAGE-3 MATCHED', 'line=' + i);
+                        break;
                     }
                 }
 
-                inv.commitLine({ sublistId: 'inventoryassignment' });
-                log.debug('  lot added', lt.lot + ' qty=' + lt.qty);
+                if (idx === -1) {
+                    log.error('STAGE-3 NO LINE MATCH',
+                        'item=' + p.itemId + ' PO=' + p.po + ' vRef=' + p.vendorRef);
+                    return;
+                }
+
+                // Open inventory detail
+                rec.selectLine({ sublistId: 'items', line: idx });
+                const inv = rec.getCurrentSublistSubrecord({
+                    sublistId: 'items', fieldId: 'inventorydetail'
+                });
+                log.debug('STAGE-3 inv detail subrecord opened for line', idx);
+
+                // Add lots
+                p.lots.forEach((lt, j) => {
+                    log.debug('STAGE-3 adding lot ' + j,
+                        lt.lot + ' qty=' + lt.qty + ' exp=' + lt.exp);
+
+                    if (j === 0) {
+                        inv.selectLine({ sublistId: 'inventoryassignment', line: 0 });
+                    } else {
+                        inv.selectNewLine({ sublistId: 'inventoryassignment' });
+                    }
+
+                    inv.setCurrentSublistValue({
+                        sublistId: 'inventoryassignment',
+                        fieldId  : 'receiptinventorynumber',
+                        value    : lt.lot
+                    });
+                    inv.setCurrentSublistValue({
+                        sublistId: 'inventoryassignment',
+                        fieldId  : 'quantity',
+                        value    : lt.qty
+                    });
+
+                    if (lt.exp) {
+                        const d = parseDDMMYYYY(lt.exp);
+                        if (d) {
+                            inv.setCurrentSublistValue({
+                                sublistId: 'inventoryassignment',
+                                fieldId  : 'expirationdate',
+                                value    : d
+                            });
+                            log.debug('  exp set', d.toString());
+                        } else {
+                            log.error('  bad exp', lt.exp);
+                        }
+                    }
+
+                    inv.commitLine({ sublistId: 'inventoryassignment' });
+                    log.debug('  committed assignment line');
+                });
+
+                rec.commitLine({ sublistId: 'items' });
+                log.audit('STAGE-3 item line committed', 'line=' + idx);
             });
 
-            rec.commitLine({ sublistId: 'items' });
-        });
+            log.debug('STAGE-3 about to save', 'shipment=' + shipmentNum);
+            const savedId = rec.save({ ignoreMandatoryFields: true });
+            log.audit('STAGE-3 ◀◀◀ SAVED', 'shipment=' + shipmentNum + ' id=' + savedId);
 
-    //    const savedId = rec.save({ ignoreMandatoryFields: true });
-        log.audit('SAVED', 'shipment=' + shipmentNum + ' id=' + savedId);
-      } catch (error) {
-        log.error('Reduce Error', error)
-      }
-
-
+        } catch (e) {
+            log.error('STAGE-3 reduce EXCEPTION', e.message + ' stack=' + e.stack);
+        }
     };
 
     // =========================================================
     // 4) summarize
     // =========================================================
     const summarize = (s) => {
-        log.audit('STAGE 4 summarize',
-            'map=' + s.mapSummary.usage +
+        log.audit('STAGE-4 ▶▶▶', 'summarize START');
+        log.audit('STAGE-4 usage',
+            'input=' + s.inputSummary.usage +
+            ' map=' + s.mapSummary.usage +
             ' reduce=' + s.reduceSummary.usage);
+        log.audit('STAGE-4 counts',
+            'mapKeys=' + s.mapSummary.keys.iterator + // just a reference
+            ' mapErrors=' + s.mapSummary.errors.iterator +
+            ' reduceErrors=' + s.reduceSummary.errors.iterator);
+
+        if (s.inputSummary.error) {
+            log.error('STAGE-4 INPUT ERROR', s.inputSummary.error);
+        }
 
         s.mapSummary.errors.iterator().each((k, e) => {
-            log.error('map error ' + k, e); return true;
+            log.error('STAGE-4 MAP ERR key=' + k, e); return true;
         });
         s.reduceSummary.errors.iterator().each((k, e) => {
-            log.error('reduce error ' + k, e); return true;
+            log.error('STAGE-4 REDUCE ERR key=' + k, e); return true;
         });
+
+        log.audit('STAGE-4 ◀◀◀', 'summarize END');
     };
 
     // =========================================================
@@ -280,7 +374,6 @@ define(['N/file', 'N/record', 'N/search', 'N/runtime'],
         return isNaN(n) ? 0 : n;
     };
 
-    // "18/02/2027" -> Date
     const parseDDMMYYYY = (s) => {
         const m = (s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
         if (!m) return null;
