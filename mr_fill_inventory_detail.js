@@ -15,7 +15,6 @@
 define(['N/file', 'N/record', 'N/search', 'N/runtime'],
 (file, record, search, runtime) => {
 
-    const PARAM_FILE_ID = 1278609;
 
     // =========================================================
     // 1) getInputData  — read CSV, group by item per shipment
@@ -23,11 +22,7 @@ define(['N/file', 'N/record', 'N/search', 'N/runtime'],
     const getInputData = () => {
         log.audit('STAGE 1', 'getInputData START');
 
-        const fileId = runtime.getCurrentScript()
-            .getParameter({ name: PARAM_FILE_ID });
-        log.debug('CSV File ID', fileId);
-
-        const lines = file.load({ id: fileId })
+        const lines = file.load({ id: 1278609 })
             .getContents().split(/\r?\n/);
         log.debug('CSV line count', lines.length);
 
