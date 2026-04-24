@@ -738,13 +738,15 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           
           let committedQty = 0;
           let backOrdered = 0;
+          let committedQtyRes = 0;
           let col14Val = calcCols[csvIndexIsExposed(19)];
           let col12Val = parseFloat(calcCols[csvIndexIsExposed(12)] || 0);
           let col19Val = diff;
           
           if (commMap[itemid]) {
-            committedQty    = parseFloat(commMap[itemid].qtyComm);
-            backOrdered     = parseFloat(commMap[itemid].qtyBack);
+            committedQty       = parseFloat(commMap[itemid].qtyComm);
+            committedQtyRes    = parseFloat(commMap[itemid].qtyCommRes);
+            backOrdered        = parseFloat(commMap[itemid].qtyBack);
           }
 
           if (lclQtyMap[itemid]) {
@@ -777,7 +779,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
           
 
-          var availtoProm = total - bad - committedQty;
+          var availtoProm = total - bad - committedQty - committedQtyRes;
 
           calcCols[calcCols.length] = 'Black';
           calcCols[csvIndexIsExposed(12)] = '"' + availtoProm + '"';
@@ -814,9 +816,10 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
           calcCols[csvIndexIsExposed(64)] = committedQty;
           calcCols[csvIndexIsExposed(65)] = backOrdered;
+          calcCols[csvIndexIsExposed(66)] = committedQtyRes;
 
-          calcCols[csvIndexIsExposed(67)] = calcCols[csvIndexIsExposed(11)];
-          calcCols[csvIndexIsExposed(68)] = stockingQty;
+          calcCols[csvIndexIsExposed(68)] = calcCols[csvIndexIsExposed(11)];
+          calcCols[csvIndexIsExposed(69)] = stockingQty;
 
           let recommendedQty = 0;
           if (qtytotal < stockingQty) {
@@ -2008,9 +2011,9 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
       var resultMap = {};
 
       var itemSearchObj = search.create({
-    type: "item",
-    filters: [],
-    columns: [
+        type: "item",
+        filters: [],
+        columns: [
         search.createColumn({
             name: "internalid",
             summary: "GROUP",
@@ -2020,7 +2023,13 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
         search.createColumn({
             name: "formulanumeric",
             summary: "SUM",
-            formula: "NVL({locationquantitycommitted},0) + NVL({locationtoresvcommitted},0)",
+            formula: "NVL({locationquantitycommitted},0)",
+            label: "Formula (Numeric)"
+        }),
+        search.createColumn({
+            name: "formulanumeric1",
+            summary: "SUM",
+            formula: "NVL({locationtoresvcommitted},0)",
             label: "Formula (Numeric)"
         }),
         search.createColumn({
@@ -2028,8 +2037,8 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             summary: "SUM",
             label: "Location Back Ordered"
         })
-    ]
-});
+        ]
+       });
 
 var pagedData = itemSearchObj.runPaged({
     pageSize: 1000
@@ -2049,6 +2058,11 @@ pagedData.pageRanges.forEach(function (pageRange) {
             summary: "SUM"
         });
 
+        var qtyCommRes = result.getValue({
+            name: "formulanumeric1",
+            summary: "SUM"
+        });
+
         var qtyBack = result.getValue({
             name: "locationquantitybackordered",
             summary: "SUM"
@@ -2056,6 +2070,7 @@ pagedData.pageRanges.forEach(function (pageRange) {
 
         resultMap[itemId] = {
             qtyComm: qtyComm,
+            qtyCommRes: qtyCommRes,
             qtyBack: qtyBack
         };
     });
@@ -2121,7 +2136,6 @@ pagedData.pageRanges.forEach(function (pageRange) {
 
       return resultMap;
     }
-
     function safeParseFloat(val) {
       var num = parseFloat(val);
       return isNaN(num) ? 0 : num;
