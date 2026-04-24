@@ -793,7 +793,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           calcCols[csvIndexIsExposed(28)] = '"' + ((parseFloat(total) + parseFloat(val43 || 0)) / monthAvg).toFixed(2) + '"';
           calcCols[csvIndexIsExposed(27)] = '"' + (parseFloat(total) + parseFloat(val43 || 0)).toFixed(2) + '"';
           calcCols[csvIndexIsExposed(32)] = '"' + avail + '"';
-          calcCols[csvIndexIsExposed(62)] = '"' + lclQty + '"';
+          calcCols[csvIndexIsExposed(61)] = '"' + lclQty + '"';
 
           function normalizeMovement(val) {
             if (val === null || val === undefined) return "No Movement";
