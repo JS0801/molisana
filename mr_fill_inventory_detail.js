@@ -86,6 +86,9 @@ define(['N/file', 'N/record', 'N/search', 'N/runtime'],
             'ship=' + g.shipment + ' item=' + g.itemId +
             ' POs=' + g.pos.length + ' Lots=' + g.lots.length);
 
+
+      try {
+        
         // Working copies with "remaining" counters
         const pos  = g.pos.map(p  => ({ po: p.po, remaining: p.qty, lots: [] }));
         const lots = g.lots.map(l => ({ lot: l.lot, exp: l.exp, remaining: l.qty }));
@@ -121,6 +124,10 @@ define(['N/file', 'N/record', 'N/search', 'N/runtime'],
             log.debug('Emit', JSON.stringify(payload));
             ctx.write({ key: g.shipment, value: JSON.stringify(payload) });
         });
+
+      } catch (error) {
+        log.error('Map Error', error)
+      }
     };
 
     // =========================================================
@@ -131,7 +138,8 @@ define(['N/file', 'N/record', 'N/search', 'N/runtime'],
         log.audit('STAGE 3 reduce',
             'shipment=' + shipmentNum + ' payloads=' + ctx.values.length);
 
-        // Find the inbound shipment
+      try {
+                // Find the inbound shipment
         const hits = search.create({
             type: 'inboundshipment',
             filters: [['shipmentnumber', 'is', shipmentNum]],
@@ -229,6 +237,11 @@ define(['N/file', 'N/record', 'N/search', 'N/runtime'],
 
     //    const savedId = rec.save({ ignoreMandatoryFields: true });
         log.audit('SAVED', 'shipment=' + shipmentNum + ' id=' + savedId);
+      } catch (error) {
+        log.error('Reduce Error', error)
+      }
+
+
     };
 
     // =========================================================
