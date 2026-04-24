@@ -998,7 +998,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
 
     console.log('Values', {monthQty, inTransit, onOrder, avail})
 
-    var totalForMos = inTransit + onOrder + avail + qtyOrdered - committedQty;
+    var totalForMos = inTransit + onOrder + avail + qtyOrdered - committedQty - committedQtyRes;
     var monthCell = cells[MONTH_CELL_INDEX];
     monthCell.textContent = monthQty ? (totalForMos / monthQty).toFixed(2) : '0.00';
     styleCalcCell(monthCell);
