@@ -815,8 +815,9 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
           calcCols[csvIndexIsExposed(64)] = committedQty;
-          calcCols[csvIndexIsExposed(65)] = backOrdered;
-          calcCols[csvIndexIsExposed(66)] = committedQtyRes;
+          calcCols[csvIndexIsExposed(65)] = committedQtyRes;
+          calcCols[csvIndexIsExposed(66)] = backOrdered;
+          
 
           calcCols[csvIndexIsExposed(68)] = calcCols[csvIndexIsExposed(11)];
           calcCols[csvIndexIsExposed(69)] = stockingQty;
