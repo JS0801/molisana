@@ -808,7 +808,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           }
 
           var col9 = normalizeMovement(monthAvg);
-          const qtytotal = parseFloat(diff) + parseFloat(avail) - parseFloat(committedQty) - parseFloat(committedQtyRes);
+          const qtytotal = parseFloat(val43) + parseFloat(avail) - parseFloat(committedQty) - parseFloat(committedQtyRes);
           const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
 
           if (itemid == 1179)log.audit('Item Qty', {val43, avail, committedQty, qtytotal, stockingQty})
