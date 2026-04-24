@@ -811,7 +811,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           const qtytotal = parseFloat(val43) + parseFloat(avail) - parseFloat(committedQty) - parseFloat(committedQtyRes);
           const stockingQty = Math.ceil(parseFloat(calcCols[csvIndexIsExposed(11)]) * 4.5);
 
-          if (itemid == 4020)log.audit('Item Qty', {val43, avail, committedQty, qtytotal, stockingQty})
+          if (itemid == 4020)log.audit('Item Qty', {val43, avail, committedQty, committedQtyRes, qtytotal, stockingQty})
           calcCols[csvIndexIsExposed(11)] = '"' + col9 + '"';
 
           calcCols[csvIndexIsExposed(64)] = committedQty;
@@ -828,7 +828,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
           }
 
           const monthsStock = (diff + parseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(21)])) / monthAvg;
-
+          if (itemid == 4020)log.audit('Item Qty', {diff, avail, 21: safeParseFloat(calcCols[csvIndexIsExposed(21)]), monthAvg, monthsStock})
           if (calcCols[1] == 0) calcCols[1] = '""';
           calcCols[1] = '"' + recommendedQty + '"';
 
