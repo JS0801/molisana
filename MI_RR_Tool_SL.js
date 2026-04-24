@@ -827,7 +827,7 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/record', 'N/runti
             recommendedQty = ( parseFloat(stockingQty) -  parseFloat(qtytotal)).toFixed(2);
           }
 
-          const monthsStock = (val43 + parseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(21)])) / monthAvg;
+          const monthsStock = (diff + parseFloat(avail) + safeParseFloat(calcCols[csvIndexIsExposed(21)])) / monthAvg;
           if (itemid == 4020)log.audit('Item Qty', {diff, avail, 21: safeParseFloat(calcCols[csvIndexIsExposed(21)]), monthAvg, monthsStock})
           if (calcCols[1] == 0) calcCols[1] = '""';
           calcCols[1] = '"' + recommendedQty + '"';
