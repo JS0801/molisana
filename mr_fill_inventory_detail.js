@@ -74,8 +74,8 @@ define(['N/file', 'N/record', 'N/search'],
                 groups[key].pos.push({ po: r.po, qty: r.qtyExp });
                 log.debug('  + PO', r.po + ' qty=' + r.qtyExp);
             } else if (r.lot) {
-                groups[key].lots.push({ lot: r.lot, exp: r.exp, qty: r.qtyRec });
-                log.debug('  + LOT', r.lot + ' qty=' + r.qtyRec);
+                groups[key].lots.push({ lot: r.lot, exp: r.exp, qty: r.qtyExp });
+                log.debug('  + LOT', r.lot + ' qty=' + r.qtyExp);
             } else {
                 log.debug('  row has no PO and no Lot — ignored', JSON.stringify(r));
             }
