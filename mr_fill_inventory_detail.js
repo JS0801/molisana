@@ -240,9 +240,9 @@ define(['N/file', 'N/record', 'N/search'],
                 for (let i = 0; i < lineCount; i++) {
                     rec.selectLine({ sublistId: 'items', line: i });
                     const lineItem = rec.getCurrentSublistValue({
-                        sublistId: 'items', fieldId: 'item' });
+                        sublistId: 'items', fieldId: 'itemid' });
                     const lineVRef = rec.getCurrentSublistValue({
-                        sublistId: 'items', fieldId: 'custcol_mi_vendor_ref_number' });
+                        sublistId: 'items', fieldId: 'custrecord_mi_vendor_ref_number' });
                     const linePO = rec.getCurrentSublistText({
                         sublistId: 'items', fieldId: 'purchaseorder' });
 
