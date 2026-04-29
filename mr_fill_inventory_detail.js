@@ -367,7 +367,7 @@ define(['N/file', 'N/record', 'N/search'],
             });
 
             log.debug('STAGE-3 about to save PO', poNumber);
-          //  const savedId = rec.save({ ignoreMandatoryFields: true });
+            const savedId = rec.save({ ignoreMandatoryFields: true });
             log.audit('STAGE-3 ◀◀◀ PO SAVED', 'po=' + poNumber + ' id=' + savedId);
 
         } catch (e) {
