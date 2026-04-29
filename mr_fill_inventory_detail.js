@@ -32,7 +32,7 @@ define(['N/file', 'N/record', 'N/search'],
     // PO line custom column / standard fields used for matching
     const FLD_LINE_ITEM      = 'item';
     const FLD_LINE_VENDORREF = 'custcol_mi_vendor_ref_number'; // adjust if different on PO
-    const FLD_LINE_ISHIP     = 'inboundshipment';              // standard NS field on PO line
+    const FLD_LINE_ISHIP     = 'custcol_mi_related_inbound';              // standard NS field on PO line
 
     // =========================================================
     // 1) getInputData
