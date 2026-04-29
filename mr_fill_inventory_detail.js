@@ -243,8 +243,11 @@ define(['N/file', 'N/record', 'N/search'],
                         sublistId: 'items', fieldId: 'itemid' });
                     const lineVRef = rec.getCurrentSublistValue({
                         sublistId: 'items', fieldId: 'custrecord_mi_vendor_ref_number' });
-                    const linePO = rec.getCurrentSublistText({
+                    let linePO = rec.getCurrentSublistText({
                         sublistId: 'items', fieldId: 'purchaseorder' });
+                    if (linePO && linePO.indexOf('PO#') != -1) {
+                        linePO = linePO.replace('PO#', '');
+                    }
 
                     log.debug('STAGE-3 compare line ' + i,
                         'li=' + lineItem + '/' + p.itemId +
