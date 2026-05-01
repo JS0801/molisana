@@ -4,25 +4,11 @@
  *
  * Fill Inventory Detail on Purchase Order lines from CSV.
  *
- * Flow:
- *   Stage 1 (getInputData)
- *     - Load CSV file by ID
- *     - Parse rows; group by shipment | vendorRef | itemId
- *     - Each group has list of POs (with expected qty) and list of Lots (with qty)
+ * Updated for new Molisana file setup:
+ * - Old file: PO row and Lot rows are separate
+ * - New file: PO + Lot + Expiry + Qty are on same row
  *
- *   Stage 2 (map)
- *     - For each group, greedily split lot quantities across POs in order
- *     - Emit one payload per (PO, item) combination, keyed by PO number
- *
- *   Stage 3 (reduce)
- *     - Key = PO number; values = all item payloads for that PO
- *     - Load PO, find correct line by item + vendor ref + inbound shipment
- *     - Open inventorydetail subrecord on PO line, add lot assignments, save
- *
- *   Stage 4 (summarize)
- *     - Log usage and any errors
- *
- * Heavy logging — every meaningful step is traced.
+ * This script supports both formats.
  */
 define(['N/file', 'N/record', 'N/search'],
 (file, record, search) => {
@@ -31,8 +17,8 @@ define(['N/file', 'N/record', 'N/search'],
 
     // PO line custom column / standard fields used for matching
     const FLD_LINE_ITEM      = 'item';
-    const FLD_LINE_VENDORREF = 'custcol_mi_vendor_ref_number'; // adjust if different on PO
-    const FLD_LINE_ISHIP     = 'custcol_mi_related_inbound';              // standard NS field on PO line
+    const FLD_LINE_VENDORREF = 'custcol_mi_vendor_ref_number';
+    const FLD_LINE_ISHIP     = 'custcol_mi_related_inbound';
 
     // =========================================================
     // 1) getInputData
@@ -52,36 +38,70 @@ define(['N/file', 'N/record', 'N/search'],
         const lines = raw.split(/\r?\n/);
         log.audit('STAGE-1 line count', lines.length);
 
-        // Parse rows
         const rows = [];
+
         for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) { log.debug('skip empty row', i); continue; }
+            if (!lines[i] || !lines[i].trim()) {
+                log.debug('skip empty row', i);
+                continue;
+            }
+
             const c = parseCsv(lines[i]);
+
             const r = {
-                shipment : c[0],
-                vendorRef: c[1],
-                po       : c[5],
-                itemId   : c[6],
-                lot      : c[13],
-                exp      : c[14],
+                shipment : clean(c[0]),
+                vendorRef: clean(c[1]),
+                po       : clean(c[5]),
+                itemId   : clean(c[6]),
+                lot      : clean(c[13]),
+                exp      : clean(c[14]),
                 qtyExp   : toNum(c[15]),
                 qtyRec   : toNum(c[16])
             };
+
             rows.push(r);
             log.debug('row ' + i, JSON.stringify(r));
         }
+
         log.audit('STAGE-1 rows parsed', rows.length);
 
-        // Group by shipment | vendorRef | itemId
-        let curShip = '', curVRef = '';
+        /*
+         * Group by shipment | vendorRef | itemId
+         *
+         * Old file:
+         *   Row 1 = PO + Qty
+         *   Row 2+ = Lot + Qty
+         *
+         * New Molisana file:
+         *   Every row = PO + Lot + Qty
+         *
+         * So now we add PO when PO exists,
+         * and also add Lot when Lot exists.
+         */
+        let curShip = '';
+        let curVRef = '';
+
         const groups = {};
 
         rows.forEach((r, idx) => {
-            if (r.shipment)  curShip = r.shipment;
-            if (r.vendorRef) curVRef = r.vendorRef;
+            if (r.shipment) {
+                curShip = r.shipment;
+            }
+
+            if (r.vendorRef) {
+                curVRef = r.vendorRef;
+            }
+
+            if (!curShip || !curVRef || !r.itemId) {
+                log.error('STAGE-1 row missing key data',
+                    'row=' + idx +
+                    ' ship=' + curShip +
+                    ' vendorRef=' + curVRef +
+                    ' item=' + r.itemId);
+                return;
+            }
 
             const key = curShip + '|' + curVRef + '|' + r.itemId;
-            log.debug('group key for row ' + idx, key);
 
             if (!groups[key]) {
                 groups[key] = {
@@ -89,26 +109,54 @@ define(['N/file', 'N/record', 'N/search'],
                     vendorRef: curVRef,
                     itemId   : r.itemId,
                     pos      : [],
+                    poIndex  : {},
                     lots     : []
                 };
+
                 log.debug('NEW group', key);
             }
 
-            if (r.po) {
-                groups[key].pos.push({ po: r.po, qty: r.qtyExp });
-                log.debug('  + PO', r.po + ' qty=' + r.qtyExp);
-            } else if (r.lot) {
-                // Lot qty in this CSV lives in c[15] (Qty Expected column).
-                // Fall back to c[16] in case future exports flip it.
-                const lotQty = r.qtyExp || r.qtyRec;
-                groups[key].lots.push({ lot: r.lot, exp: r.exp, qty: lotQty });
-                log.debug('  + LOT', r.lot + ' qty=' + lotQty);
-            } else {
+            const g = groups[key];
+
+            const qty = r.qtyExp || r.qtyRec;
+
+            // Add / combine PO qty
+            // This works for:
+            // - old file PO header rows
+            // - new file lot rows where PO exists on every row
+            if (r.po && qty > 0) {
+                addPoQty(g, r.po, qty);
+                log.debug('  + PO', r.po + ' qty=' + qty);
+            }
+
+            // Add lot qty
+            // IMPORTANT: this is no longer else-if.
+            // New file has PO and Lot on same row.
+            if (r.lot && qty > 0) {
+                g.lots.push({
+                    lot: r.lot,
+                    exp: r.exp,
+                    qty: qty
+                });
+
+                log.debug('  + LOT', r.lot + ' qty=' + qty + ' exp=' + r.exp);
+            }
+
+            if (!r.po && !r.lot) {
                 log.debug('  row has no PO and no Lot — ignored', JSON.stringify(r));
             }
         });
 
-        const list = Object.values(groups);
+        // Remove internal poIndex before sending to map stage
+        const list = [];
+
+        for (const key in groups) {
+            if (groups.hasOwnProperty(key)) {
+                delete groups[key].poIndex;
+                list.push(groups[key]);
+            }
+        }
+
         log.audit('STAGE-1 groups built', list.length);
 
         list.forEach((g, i) => {
@@ -120,7 +168,7 @@ define(['N/file', 'N/record', 'N/search'],
     };
 
     // =========================================================
-    // 2) map  —  split lots across POs, emit keyed by PO
+    // 2) map — split lots across POs, emit keyed by PO
     // =========================================================
     const map = (ctx) => {
         log.audit('STAGE-2 ▶▶▶', 'map START key=' + ctx.key);
@@ -128,6 +176,7 @@ define(['N/file', 'N/record', 'N/search'],
 
         try {
             const g = JSON.parse(ctx.value);
+
             log.audit('STAGE-2 parsed',
                 'ship=' + g.shipment + ' vRef=' + g.vendorRef +
                 ' item=' + g.itemId +
@@ -138,53 +187,72 @@ define(['N/file', 'N/record', 'N/search'],
                 log.error('STAGE-2 NO POs', 'item=' + g.itemId + ' — nothing to emit');
                 return;
             }
+
             if (!g.lots || !g.lots.length) {
                 log.error('STAGE-2 NO LOTS', 'item=' + g.itemId + ' — nothing to emit');
                 return;
             }
 
-            // Working copies
-            const pos = g.pos.map(p =>
-                ({ po: p.po, remaining: p.qty, lots: [] }));
-            const lots = g.lots.map(l =>
-                ({ lot: l.lot, exp: l.exp, remaining: l.qty }));
+            const pos = g.pos.map(p => ({
+                po: p.po,
+                remaining: p.qty,
+                lots: []
+            }));
+
+            const lots = g.lots.map(l => ({
+                lot: l.lot,
+                exp: l.exp,
+                remaining: l.qty
+            }));
 
             log.debug('STAGE-2 pos init', JSON.stringify(pos));
             log.debug('STAGE-2 lots init', JSON.stringify(lots));
 
-            // Greedy split: walk lots, fill PO buckets in order
             let pi = 0;
+
             for (const lot of lots) {
                 log.debug('STAGE-2 process lot', lot.lot + ' remaining=' + lot.remaining);
+
                 while (lot.remaining > 0 && pi < pos.length) {
                     if (pos[pi].remaining <= 0) {
                         log.debug('  PO full, advancing', pos[pi].po);
                         pi++;
                         continue;
                     }
+
                     const take = Math.min(lot.remaining, pos[pi].remaining);
-                    pos[pi].lots.push({ lot: lot.lot, exp: lot.exp, qty: take });
+
+                    pos[pi].lots.push({
+                        lot: lot.lot,
+                        exp: lot.exp,
+                        qty: take
+                    });
+
                     pos[pi].remaining -= take;
                     lot.remaining -= take;
 
                     log.audit('STAGE-2 SPLIT',
                         'item=' + g.itemId + ' ' + take +
                         ' of ' + lot.lot + ' → ' + pos[pi].po +
-                        ' (PO left=' + pos[pi].remaining +
-                        ', lot left=' + lot.remaining + ')');
+                        ' PO left=' + pos[pi].remaining +
+                        ' lot left=' + lot.remaining);
 
-                    if (pos[pi].remaining <= 0) pi++;
+                    if (pos[pi].remaining <= 0) {
+                        pi++;
+                    }
                 }
+
                 if (lot.remaining > 0) {
                     log.error('STAGE-2 LOT LEFTOVER',
-                        'item=' + g.itemId + ' lot=' + lot.lot +
+                        'item=' + g.itemId +
+                        ' lot=' + lot.lot +
                         ' leftover=' + lot.remaining +
-                        ' (PO capacity exhausted)');
+                        ' PO capacity exhausted');
                 }
             }
 
-            // Emit one payload per PO, keyed by PO number
             let emitted = 0;
+
             pos.forEach((p, i) => {
                 log.debug('STAGE-2 pos[' + i + '] final',
                     p.po + ' remaining=' + p.remaining +
@@ -203,15 +271,21 @@ define(['N/file', 'N/record', 'N/search'],
                     lots     : p.lots
                 };
 
-                const keyOut = p.po; // group reduce by PO number
-                log.audit('STAGE-2 EMIT', 'key=' + keyOut +
-                    ' value=' + JSON.stringify(payload));
-                ctx.write({ key: keyOut, value: JSON.stringify(payload) });
+                const keyOut = p.po;
+
+                log.audit('STAGE-2 EMIT',
+                    'key=' + keyOut + ' value=' + JSON.stringify(payload));
+
+                ctx.write({
+                    key: keyOut,
+                    value: JSON.stringify(payload)
+                });
+
                 emitted++;
             });
 
-            log.audit('STAGE-2 ◀◀◀', 'map END item=' + g.itemId +
-                ' emitted=' + emitted);
+            log.audit('STAGE-2 ◀◀◀',
+                'map END item=' + g.itemId + ' emitted=' + emitted);
 
         } catch (e) {
             log.error('STAGE-2 map EXCEPTION', e.message + ' stack=' + e.stack);
@@ -219,10 +293,11 @@ define(['N/file', 'N/record', 'N/search'],
     };
 
     // =========================================================
-    // 3) reduce  —  load PO, match line by item+vRef+iship, write inv detail
+    // 3) reduce — load PO, match line, write inventory detail
     // =========================================================
     const reduce = (ctx) => {
-        log.audit('STAGE-3 ▶▶▶', 'reduce START key(PO)=' + ctx.key +
+        log.audit('STAGE-3 ▶▶▶',
+            'reduce START key(PO)=' + ctx.key +
             ' values=' + (ctx.values ? ctx.values.length : 'NONE'));
 
         try {
@@ -232,8 +307,8 @@ define(['N/file', 'N/record', 'N/search'],
                 log.debug('STAGE-3 incoming[' + i + ']', v);
             });
 
-            // ---- find PO by tranid ----
             log.debug('STAGE-3 searching PO', poNumber);
+
             const hits = search.create({
                 type: 'purchaseorder',
                 filters: [
@@ -241,7 +316,10 @@ define(['N/file', 'N/record', 'N/search'],
                     ['mainline', 'is', 'T']
                 ],
                 columns: ['internalid']
-            }).run().getRange({ start: 0, end: 5 });
+            }).run().getRange({
+                start: 0,
+                end: 5
+            });
 
             log.audit('STAGE-3 PO search result', 'hits=' + hits.length);
 
@@ -251,55 +329,91 @@ define(['N/file', 'N/record', 'N/search'],
             }
 
             const poId = hits[0].getValue('internalid');
+
             log.audit('STAGE-3 PO id', poId);
 
             const rec = record.load({
-                type: 'purchaseorder', id: poId, isDynamic: true
+                type: 'purchaseorder',
+                id: poId,
+                isDynamic: true
             });
-            const lineCount = rec.getLineCount({ sublistId: 'item' });
+
+            const lineCount = rec.getLineCount({
+                sublistId: 'item'
+            });
+
             log.audit('STAGE-3 PO line count', lineCount);
 
-            // ---- log every existing PO line for traceability ----
             for (let i = 0; i < lineCount; i++) {
-                rec.selectLine({ sublistId: 'item', line: i });
+                rec.selectLine({
+                    sublistId: 'item',
+                    line: i
+                });
+
                 const it = rec.getCurrentSublistValue({
-                    sublistId: 'item', fieldId: FLD_LINE_ITEM });
+                    sublistId: 'item',
+                    fieldId: FLD_LINE_ITEM
+                });
+
                 const vr = rec.getCurrentSublistValue({
-                    sublistId: 'item', fieldId: FLD_LINE_VENDORREF });
+                    sublistId: 'item',
+                    fieldId: FLD_LINE_VENDORREF
+                });
+
                 const isText = rec.getCurrentSublistText({
-                    sublistId: 'item', fieldId: FLD_LINE_ISHIP });
+                    sublistId: 'item',
+                    fieldId: FLD_LINE_ISHIP
+                });
+
                 const qty = rec.getCurrentSublistValue({
-                    sublistId: 'item', fieldId: 'quantity' });
+                    sublistId: 'item',
+                    fieldId: 'quantity'
+                });
+
                 log.debug('STAGE-3 existing PO line ' + i,
-                    'item=' + it + ' vRef=' + vr +
-                    ' iship=' + isText + ' qty=' + qty);
+                    'item=' + it +
+                    ' vRef=' + vr +
+                    ' iship=' + isText +
+                    ' qty=' + qty);
             }
 
-            // ---- process each payload (one item per payload) ----
             ctx.values.forEach((v, pIdx) => {
                 log.audit('STAGE-3 processing payload ' + pIdx, v);
+
                 const p = JSON.parse(v);
 
-                // match line by item + vendor ref + inbound shipment
                 let idx = -1;
+
                 for (let i = 0; i < lineCount; i++) {
-                    rec.selectLine({ sublistId: 'item', line: i });
+                    rec.selectLine({
+                        sublistId: 'item',
+                        line: i
+                    });
 
                     const lineItem = rec.getCurrentSublistValue({
-                        sublistId: 'item', fieldId: FLD_LINE_ITEM });
+                        sublistId: 'item',
+                        fieldId: FLD_LINE_ITEM
+                    });
+
                     const lineVRef = rec.getCurrentSublistValue({
-                        sublistId: 'item', fieldId: FLD_LINE_VENDORREF });
+                        sublistId: 'item',
+                        fieldId: FLD_LINE_VENDORREF
+                    });
+
                     const lineIShip = rec.getCurrentSublistText({
-                        sublistId: 'item', fieldId: FLD_LINE_ISHIP });
+                        sublistId: 'item',
+                        fieldId: FLD_LINE_ISHIP
+                    });
 
                     log.debug('STAGE-3 compare PO line ' + i,
                         'item=' + lineItem + '/' + p.itemId +
                         ' vRef=' + lineVRef + '/' + p.vendorRef +
                         ' iship=' + lineIShip + '/' + p.shipment);
 
-                    if (String(lineItem)  === String(p.itemId)    &&
-                        String(lineVRef)  === String(p.vendorRef) &&
+                    if (String(lineItem) === String(p.itemId) &&
+                        String(lineVRef) === String(p.vendorRef) &&
                         String(lineIShip) === String(p.shipment)) {
+
                         idx = i;
                         log.audit('STAGE-3 MATCHED PO line', 'line=' + i);
                         break;
@@ -315,60 +429,87 @@ define(['N/file', 'N/record', 'N/search'],
                     return;
                 }
 
-                // ---- open inventory detail subrecord on PO line ----
-                rec.selectLine({ sublistId: 'item', line: idx });
-                const inv = rec.getCurrentSublistSubrecord({
-                    sublistId: 'item', fieldId: 'inventorydetail'
+                rec.selectLine({
+                    sublistId: 'item',
+                    line: idx
                 });
+
+                const inv = rec.getCurrentSublistSubrecord({
+                    sublistId: 'item',
+                    fieldId: 'inventorydetail'
+                });
+
                 log.debug('STAGE-3 inv detail subrecord opened on PO line', idx);
 
-                // ---- add lot assignments ----
                 p.lots.forEach((lt, j) => {
                     log.debug('STAGE-3 adding lot ' + j,
                         lt.lot + ' qty=' + lt.qty + ' exp=' + lt.exp);
 
-                    if (j === 0) {
-                        inv.selectLine({ sublistId: 'inventoryassignment', line: 0 });
+                    const assignCount = inv.getLineCount({
+                        sublistId: 'inventoryassignment'
+                    });
+
+                    if (assignCount > j) {
+                        inv.selectLine({
+                            sublistId: 'inventoryassignment',
+                            line: j
+                        });
                     } else {
-                        inv.selectNewLine({ sublistId: 'inventoryassignment' });
+                        inv.selectNewLine({
+                            sublistId: 'inventoryassignment'
+                        });
                     }
 
                     inv.setCurrentSublistValue({
                         sublistId: 'inventoryassignment',
-                        fieldId  : 'receiptinventorynumber',
-                        value    : lt.lot
+                        fieldId: 'receiptinventorynumber',
+                        value: lt.lot
                     });
+
                     inv.setCurrentSublistValue({
                         sublistId: 'inventoryassignment',
-                        fieldId  : 'quantity',
-                        value    : lt.qty
+                        fieldId: 'quantity',
+                        value: lt.qty
                     });
 
                     if (lt.exp) {
-                        const d = parseDDMMYYYY(lt.exp);
+                        const d = parseExpiryDate(lt.exp);
+
                         if (d) {
                             inv.setCurrentSublistValue({
                                 sublistId: 'inventoryassignment',
-                                fieldId  : 'expirationdate',
-                                value    : d
+                                fieldId: 'expirationdate',
+                                value: d
                             });
+
                             log.debug('  exp set', d.toString());
                         } else {
                             log.error('  bad exp', lt.exp);
                         }
                     }
 
-                    inv.commitLine({ sublistId: 'inventoryassignment' });
+                    inv.commitLine({
+                        sublistId: 'inventoryassignment'
+                    });
+
                     log.debug('  committed assignment line');
                 });
 
-                rec.commitLine({ sublistId: 'item' });
+                rec.commitLine({
+                    sublistId: 'item'
+                });
+
                 log.audit('STAGE-3 PO item line committed', 'line=' + idx);
             });
 
             log.debug('STAGE-3 about to save PO', poNumber);
-            const savedId = rec.save({ ignoreMandatoryFields: true });
-            log.audit('STAGE-3 ◀◀◀ PO SAVED', 'po=' + poNumber + ' id=' + savedId);
+
+            // const savedId = rec.save({
+            //     ignoreMandatoryFields: true
+            // });
+
+            log.audit('STAGE-3 ◀◀◀ PO SAVED',
+                'po=' + poNumber + ' id=' + savedId);
 
         } catch (e) {
             log.error('STAGE-3 reduce EXCEPTION', e.message + ' stack=' + e.stack);
@@ -380,6 +521,7 @@ define(['N/file', 'N/record', 'N/search'],
     // =========================================================
     const summarize = (s) => {
         log.audit('STAGE-4 ▶▶▶', 'summarize START');
+
         log.audit('STAGE-4 usage',
             'input=' + s.inputSummary.usage +
             ' map=' + s.mapSummary.usage +
@@ -390,10 +532,13 @@ define(['N/file', 'N/record', 'N/search'],
         }
 
         s.mapSummary.errors.iterator().each((k, e) => {
-            log.error('STAGE-4 MAP ERR key=' + k, e); return true;
+            log.error('STAGE-4 MAP ERR key=' + k, e);
+            return true;
         });
+
         s.reduceSummary.errors.iterator().each((k, e) => {
-            log.error('STAGE-4 REDUCE ERR key=' + k, e); return true;
+            log.error('STAGE-4 REDUCE ERR key=' + k, e);
+            return true;
         });
 
         log.audit('STAGE-4 ◀◀◀', 'summarize END');
@@ -402,28 +547,87 @@ define(['N/file', 'N/record', 'N/search'],
     // =========================================================
     // helpers
     // =========================================================
+
+    const addPoQty = (group, po, qty) => {
+        if (!group.poIndex[po] && group.poIndex[po] !== 0) {
+            group.poIndex[po] = group.pos.length;
+            group.pos.push({
+                po: po,
+                qty: 0
+            });
+        }
+
+        const idx = group.poIndex[po];
+        group.pos[idx].qty += qty;
+    };
+
     const parseCsv = (line) => {
-        const out = []; let cur = '', q = false;
+        const out = [];
+        let cur = '';
+        let q = false;
+
         for (let i = 0; i < line.length; i++) {
             const ch = line[i];
-            if (ch === '"') { q = !q; continue; }
-            if (ch === ',' && !q) { out.push(cur); cur = ''; continue; }
+
+            if (ch === '"') {
+                if (q && line[i + 1] === '"') {
+                    cur += '"';
+                    i++;
+                } else {
+                    q = !q;
+                }
+                continue;
+            }
+
+            if (ch === ',' && !q) {
+                out.push(cur);
+                cur = '';
+                continue;
+            }
+
             cur += ch;
         }
+
         out.push(cur);
         return out;
     };
 
+    const clean = (s) => {
+        return String(s || '').replace(/^\uFEFF/, '').trim();
+    };
+
     const toNum = (s) => {
-        const n = parseFloat((s || '').replace(/,/g, ''));
+        const n = parseFloat(String(s || '').replace(/,/g, '').trim());
         return isNaN(n) ? 0 : n;
     };
 
-    const parseDDMMYYYY = (s) => {
-        const m = (s || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if (!m) return null;
-        return new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    const parseExpiryDate = (s) => {
+        s = clean(s);
+
+        // Supports:
+        // 14/10/27
+        // 14/10/2027
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+
+        if (!m) {
+            return null;
+        }
+
+        const day = parseInt(m[1], 10);
+        const month = parseInt(m[2], 10);
+        let year = parseInt(m[3], 10);
+
+        if (year < 100) {
+            year = 2000 + year;
+        }
+
+        return new Date(year, month - 1, day);
     };
 
-    return { getInputData, map, reduce, summarize };
+    return {
+        getInputData,
+        map,
+        reduce,
+        summarize
+    };
 });
