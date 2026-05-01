@@ -420,19 +420,44 @@ define(['N/file', 'N/record', 'N/search'],
                     }
                 }
 
-                if (idx === -1) {
-                    log.error('STAGE-3 NO LINE MATCH ON PO',
-                        'po=' + poNumber +
-                        ' item=' + p.itemId +
-                        ' vRef=' + p.vendorRef +
-                        ' iship=' + p.shipment);
-                    return;
-                }
+if (idx === -1) {
+    log.error('STAGE-3 NO LINE MATCH ON PO',
+        'po=' + poNumber +
+        ' item=' + p.itemId +
+        ' vRef=' + p.vendorRef +
+        ' iship=' + p.shipment);
+    return;
+}
 
-                rec.selectLine({
-                    sublistId: 'item',
-                    line: idx
-                });
+// Build lot summary for audit log
+var lotSummary = '';
+
+for (var l = 0; l < p.lots.length; l++) {
+    if (lotSummary) {
+        lotSummary += ' | ';
+    }
+
+    lotSummary += 'Lot=' + p.lots[l].lot +
+        ', Qty=' + p.lots[l].qty +
+        ', Exp=' + p.lots[l].exp;
+}
+
+// Main log you asked for
+log.audit('PO LINE LOT DETAIL',
+    'PO=' + poNumber +
+    ' | PO Internal ID=' + poId +
+    ' | NS Line Index=' + idx +
+    ' | UI Line No=' + (idx + 1) +
+    ' | Item=' + p.itemId +
+    ' | Vendor Ref=' + p.vendorRef +
+    ' | Inbound Shipment=' + p.shipment +
+    ' | Lots: ' + lotSummary
+);
+
+rec.selectLine({
+    sublistId: 'item',
+    line: idx
+});
 
                 const inv = rec.getCurrentSublistSubrecord({
                     sublistId: 'item',
