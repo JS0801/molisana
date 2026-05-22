@@ -13,7 +13,9 @@
 define(['N/file', 'N/record', 'N/search'],
 (file, record, search) => {
 
-    const FILE_ID = 1291697;
+    const PENDING_FOLDER_ID = 459588;
+    const PROCESSED_FOLDER_ID = 459909;
+    const STATUS_PREFIX = '__FILE_STATUS__|';
 
     // PO line custom column / standard fields used for matching
     const FLD_LINE_ITEM      = 'item';
@@ -28,7 +30,18 @@ define(['N/file', 'N/record', 'N/search'],
 
         let raw;
         try {
-            raw = file.load({ id: FILE_ID }).getContents();
+            const pendingFiles = findPendingFiles();
+
+if (!pendingFiles.length) {
+    log.audit('No pending files', 'folder=' + PENDING_FOLDER_ID);
+    return [];
+}
+
+const pendingFile = pendingFiles[0];
+const sourceFileId = pendingFile.id;
+const sourceFileName = pendingFile.name;
+
+            raw = file.load({ id: sourceFileId }).getContents();
             log.audit('STAGE-1 file loaded', 'length=' + raw.length);
         } catch (e) {
             log.error('STAGE-1 file.load FAILED', e);
@@ -105,6 +118,8 @@ define(['N/file', 'N/record', 'N/search'],
 
             if (!groups[key]) {
                 groups[key] = {
+                    sourceFileId  : sourceFileId,
+                    sourceFileName: sourceFileName,
                     shipment : curShip,
                     vendorRef: curVRef,
                     itemId   : r.itemId,
@@ -529,12 +544,26 @@ rec.selectLine({
 
             log.debug('STAGE-3 about to save PO', poNumber);
 
-            const savedId = rec.save({
-                ignoreMandatoryFields: true
-            });
+            // const savedId = rec.save({
+            //     ignoreMandatoryFields: true
+            // });
+            
 
             log.audit('STAGE-3 ◀◀◀ PO SAVED',
                 'po=' + poNumber + ' id=' + savedId);
+
+            ctx.values.forEach((v) => {
+    const p = JSON.parse(v);
+
+    ctx.write({
+        key: STATUS_PREFIX + p.sourceFileId,
+        value: JSON.stringify({
+            sourceFileId: p.sourceFileId,
+            sourceFileName: p.sourceFileName,
+            status: 'OK'
+        })
+    });
+});
 
         } catch (e) {
             log.error('STAGE-3 reduce EXCEPTION', e.message + ' stack=' + e.stack);
@@ -565,6 +594,24 @@ rec.selectLine({
             log.error('STAGE-4 REDUCE ERR key=' + k, e);
             return true;
         });
+
+      s.output.iterator().each((key, value) => {
+    const st = JSON.parse(value);
+
+    if (st.status === 'OK') {
+        const f = file.load({ id: st.sourceFileId });
+        f.folder = PROCESSED_FOLDER_ID;
+        f.save();
+
+        log.audit('FILE MOVED TO PROCESSED',
+            'fileId=' + st.sourceFileId +
+            ' name=' + st.sourceFileName +
+            ' folder=' + PROCESSED_FOLDER_ID);
+    }
+
+    return true;
+});
+
 
         log.audit('STAGE-4 ◀◀◀', 'summarize END');
     };
@@ -625,6 +672,28 @@ rec.selectLine({
         const n = parseFloat(String(s || '').replace(/,/g, '').trim());
         return isNaN(n) ? 0 : n;
     };
+
+  const findPendingFiles = () => {
+    const pendingFiles = [];
+
+    search.create({
+        type: 'file',
+        filters: [
+            ['folder', 'anyof', PENDING_FOLDER_ID]
+        ],
+        columns: ['internalid', 'name']
+    }).run().each((result) => {
+        pendingFiles.push({
+            id: result.getValue('internalid') || result.id,
+            name: result.getValue('name') || ''
+        });
+
+        return true;
+    });
+
+    return pendingFiles;
+};
+
 
     const parseExpiryDate = (s) => {
         s = clean(s);
