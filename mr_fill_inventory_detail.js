@@ -553,8 +553,8 @@ rec.selectLine({
             // });
             
 
-            log.audit('STAGE-3 ◀◀◀ PO SAVED',
-                'po=' + poNumber + ' id=' + savedId);
+            // log.audit('STAGE-3 ◀◀◀ PO SAVED',
+            //     'po=' + poNumber + ' id=' + savedId);
 
             ctx.values.forEach((v) => {
     const p = JSON.parse(v);
