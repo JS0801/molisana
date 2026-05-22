@@ -29,6 +29,8 @@ define(['N/file', 'N/record', 'N/search'],
         log.audit('STAGE-1 ▶▶▶', 'getInputData START');
 
         let raw;
+        let sourceFileId = '';
+        let sourceFileName = '';
         try {
             const pendingFiles = findPendingFiles();
 
@@ -38,8 +40,8 @@ if (!pendingFiles.length) {
 }
 
 const pendingFile = pendingFiles[0];
-const sourceFileId = pendingFile.id;
-const sourceFileName = pendingFile.name;
+sourceFileId = pendingFile.id;
+sourceFileName = pendingFile.name;
 
             raw = file.load({ id: sourceFileId }).getContents();
             log.audit('STAGE-1 file loaded', 'length=' + raw.length);
@@ -279,6 +281,8 @@ const sourceFileName = pendingFile.name;
                 }
 
                 const payload = {
+                    sourceFileId  : g.sourceFileId,
+                    sourceFileName: g.sourceFileName,
                     shipment : g.shipment,
                     vendorRef: g.vendorRef,
                     itemId   : g.itemId,
