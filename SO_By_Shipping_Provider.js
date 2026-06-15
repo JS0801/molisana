@@ -419,7 +419,7 @@ define([
                 var zone = normalizeZone(zoneValue, zoneText);
 
                 rows.push({
-                    soId: parseInt(internalid),
+                    soId: internalid,
                     tranid: String(getResultValue(r, 'tranid', 'GROUP') || ''),
                     customer: String(getResultText(r, 'entity', 'GROUP') || getResultValue(r, 'entity', 'GROUP') || ''),
                     volume: numVal(getResultValue(r, 'formulanumericv', 'SUM')),
@@ -461,7 +461,7 @@ define([
             try {
                 var vals = search.lookupFields({
                     type: search.Type.SALES_ORDER,
-                    id: row.soId,
+                    id: parseInt(row.soId),
                     columns: [VOLUME_FIELD, CASES_FIELD]
                 });
 
