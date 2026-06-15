@@ -338,10 +338,6 @@ define([
 
         var columns = [
             search.createColumn({
-                name: 'internalid',
-                summary: "GROUP"
-            }),
-            search.createColumn({
                 name: 'tranid',
                 summary: "GROUP"
             }),
@@ -363,6 +359,10 @@ define([
                 summary: "SUM",
                 formula: "{quantity}"
             }),
+            search.createColumn({
+                name: 'internalid',
+                summary: "GROUP"
+            })
         ];
 
         if (includeZone) {
