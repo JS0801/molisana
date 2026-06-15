@@ -338,32 +338,44 @@ define([
 
         var columns = [
             search.createColumn({
-                name: 'tranid'
+                name: 'tranid',
+                summary: "GROUP"
             }),
             search.createColumn({
-                name: 'entity'
+                name: 'entity',
+                summary: "GROUP"
             }),
             search.createColumn({
-                name: DATE_FIELD
+                name: DATE_FIELD,
+                summary: "MAX"
             }),
             search.createColumn({
-                name: VOLUME_FIELD
+                name: 'formulanumericv',
+                summary: "SUM",
+                formula: "NVL({item.custitem_item_volume},0)*{quantity}"
             }),
             search.createColumn({
-                name: CASES_FIELD
-            })
+                name: 'formulanumericc',
+                summary: "SUM",
+                formula: "{quantity}"
+            }),
         ];
 
         if (includeZone) {
             columns.push(search.createColumn({
-                name: ZONE_FIELD
+                name: ZONE_FIELD,
+                summary: "GROUP"
             }));
         }
 
         var soSearch = search.create({
             type: search.Type.SALES_ORDER,
             filters: [
-                ['mainline', 'is', 'T'],
+                ["mainline","is","F"], 
+                "AND", 
+                ["taxline","is","F"], 
+                "AND", 
+                ["shipping","is","F"], 
                 'AND',
                 [PROVIDER_FIELD, 'anyof', providerId],
                  'AND',
@@ -382,7 +394,7 @@ define([
                 index: pr.index
             }).data.forEach(function (r) {
 
-                var rawDate = getResultValue(r, DATE_FIELD);
+                var rawDate = getResultValue(r, DATE_FIELD, "MAX");
                 var shipDate = parseNetSuiteDate(rawDate);
 
                 if (!shipDate) {
@@ -398,16 +410,16 @@ define([
 
                 var weekInfo = isoWeekInfo(shipDate);
 
-                var zoneValue = includeZone ? getResultValue(r, ZONE_FIELD) : '';
-                var zoneText = includeZone ? getResultText(r, ZONE_FIELD) : '';
+                var zoneValue = includeZone ? getResultValue(r, ZONE_FIELD, 'GROUP') : '';
+                var zoneText = includeZone ? getResultText(r, ZONE_FIELD, 'GROUP') : '';
                 var zone = normalizeZone(zoneValue, zoneText);
 
                 rows.push({
                     soId: String(r.id),
-                    tranid: String(getResultValue(r, 'tranid') || ''),
-                    customer: String(getResultText(r, 'entity') || getResultValue(r, 'entity') || ''),
-                    volume: numVal(getResultValue(r, VOLUME_FIELD)),
-                    cases: numVal(getResultValue(r, CASES_FIELD)),
+                    tranid: String(getResultValue(r, 'tranid', 'GROUP') || ''),
+                    customer: String(getResultText(r, 'entity', 'GROUP') || getResultValue(r, 'entity', 'GROUP') || ''),
+                    volume: numVal(getResultValue(r, VOLUME_FIELD, 'SUM')),
+                    cases: numVal(getResultValue(r, CASES_FIELD, 'SUM')),
                     ymd: toYMD(shipDate),
                     week: weekInfo.week,
                     weekYear: weekInfo.year,
@@ -458,28 +470,30 @@ define([
         });
     }
 
-    function getResultValue(result, fieldId) {
+    function getResultValue(result, fieldId, summary) {
         try {
             return result.getValue({
-                name: fieldId
+                name: fieldId,
+                summary: summary
             });
         } catch (e1) {
             try {
-                return result.getValue(fieldId);
+                return result.getValue({name: fieldId, summary: summary });
             } catch (e2) {
                 return '';
             }
         }
     }
 
-    function getResultText(result, fieldId) {
+    function getResultText(result, fieldId, summary) {
         try {
             return result.getText({
-                name: fieldId
+                name: fieldId,
+                summary: summary
             });
         } catch (e1) {
             try {
-                return result.getText(fieldId);
+                return result.getText({name: fieldId, summary: summary });
             } catch (e2) {
                 return '';
             }
