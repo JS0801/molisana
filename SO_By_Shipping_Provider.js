@@ -413,7 +413,7 @@ define([
                 }
 
                 var weekInfo = isoWeekInfo(shipDate);
-                var internalid = getResultValue(r, 'internalid', 'GROUP') : '';
+                var internalid = getResultValue(r, 'internalid', 'GROUP');
                 var zoneValue = includeZone ? getResultValue(r, ZONE_FIELD, 'GROUP') : '';
                 var zoneText = includeZone ? getResultText(r, ZONE_FIELD, 'GROUP') : '';
                 var zone = normalizeZone(zoneValue, zoneText);
