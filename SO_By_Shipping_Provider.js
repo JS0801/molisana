@@ -358,10 +358,6 @@ define([
                 name: 'formulanumericc',
                 summary: "SUM",
                 formula: "{quantity}"
-            }),
-            search.createColumn({
-                name: 'internalid',
-                summary: "GROUP"
             })
         ];
 
@@ -413,13 +409,13 @@ define([
                 }
 
                 var weekInfo = isoWeekInfo(shipDate);
-                var internalid = getResultValue(r, 'internalid', 'GROUP');
+            //    var internalid = getResultValue(r, 'internalid', 'GROUP');
                 var zoneValue = includeZone ? getResultValue(r, ZONE_FIELD, 'GROUP') : '';
                 var zoneText = includeZone ? getResultText(r, ZONE_FIELD, 'GROUP') : '';
                 var zone = normalizeZone(zoneValue, zoneText);
 
                 rows.push({
-                    soId: String(internalid),
+                    soId: String(r.id),
                     tranid: String(getResultValue(r, 'tranid', 'GROUP') || ''),
                     customer: String(getResultText(r, 'entity', 'GROUP') || getResultValue(r, 'entity', 'GROUP') || ''),
                     volume: numVal(getResultValue(r, 'formulanumericv', 'SUM')),
