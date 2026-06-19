@@ -327,7 +327,48 @@ define(['N/ui/serverWidget', 'N/search', 'N/runtime', 'N/record', 'N/crypto'], f
         button:hover{ background-color:#0056b3; }
   
         .filter-row{ display:flex; flex-wrap:wrap; gap:20px; margin:10px 0 20px; }
+
+        #submission-lock-overlay{
+          position:fixed;
+          inset:0;
+          z-index:999999;
+          display:none;
+          align-items:center;
+          justify-content:center;
+          background:rgba(255,255,255,.72);
+          backdrop-filter:blur(1px);
+          -webkit-backdrop-filter:blur(1px);
+          cursor:wait;
+        }
+        #submission-lock-overlay.active{ display:flex; }
+        #submission-lock-overlay .submission-lock-message{
+          display:flex;
+          align-items:center;
+          gap:12px;
+          padding:16px 22px;
+          border-radius:8px;
+          background:rgba(255,255,255,.96);
+          box-shadow:0 4px 18px rgba(0,0,0,.18);
+          color:#222;
+          font-size:15px;
+          font-weight:600;
+        }
+        #submission-lock-overlay .submission-lock-spinner{
+          width:22px;
+          height:22px;
+          border:3px solid #cfe2ff;
+          border-top-color:#007bff;
+          border-radius:50%;
+          animation:submission-lock-spin .8s linear infinite;
+        }
+        @keyframes submission-lock-spin{ to{ transform:rotate(360deg); } }
       </style>
+      <div id="submission-lock-overlay" role="status" aria-live="assertive" aria-hidden="true">
+        <div class="submission-lock-message">
+          <span class="submission-lock-spinner" aria-hidden="true"></span>
+          <span>Processing your request. Please wait...</span>
+        </div>
+      </div>
       <div class="tab-header">
         <div id="tab-approval" class="active" onclick="showTab('approval')">Approval Action</div>
         <div id="tab-createpo" onclick="showTab('createpo')">Create Purchase Order</div>
@@ -344,6 +385,51 @@ define(['N/ui/serverWidget', 'N/search', 'N/runtime', 'N/record', 'N/crypto'], f
           document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
           document.getElementById('tab-'+tab).classList.add('active');
           document.getElementById('content-'+tab).classList.add('active');
+        }
+
+        // Lock the page only after a submission passes the button validation.
+        // The document-level listener also covers NetSuite's outer generated form.
+        if (!window.__plannedPoSubmitLockInstalled) {
+          window.__plannedPoSubmitLockInstalled = true;
+          window.__plannedPoSubmitting = false;
+
+          document.addEventListener('submit', function(event){
+            if (window.__plannedPoSubmitting) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              return false;
+            }
+
+            window.__plannedPoSubmitting = true;
+
+            var overlay = document.getElementById('submission-lock-overlay');
+            if (overlay) {
+              overlay.classList.add('active');
+              overlay.setAttribute('aria-hidden', 'false');
+            }
+
+            document.body.setAttribute('aria-busy', 'true');
+            document.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(function(button){
+              button.disabled = true;
+            });
+          }, true);
+
+          window.addEventListener('pageshow', function(event){
+            if (!event.persisted) return;
+
+            window.__plannedPoSubmitting = false;
+            document.body.removeAttribute('aria-busy');
+
+            var overlay = document.getElementById('submission-lock-overlay');
+            if (overlay) {
+              overlay.classList.remove('active');
+              overlay.setAttribute('aria-hidden', 'true');
+            }
+
+            document.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(function(button){
+              button.disabled = false;
+            });
+          });
         }
       </script>
     `;
