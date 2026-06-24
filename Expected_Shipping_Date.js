@@ -46,7 +46,7 @@ define(['N/record', 'N/log'], function (record, log) {
 
     function afterSubmit(context) {
         try {
-            if (context.type !== context.UserEventType.EDIT) {
+            if (context.type !== context.UserEventType.EDIT && context.type !== context.UserEventType.CREATE) {
                 return;
             }
 
