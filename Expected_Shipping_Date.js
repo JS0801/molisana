@@ -51,16 +51,11 @@ define(['N/record', 'N/log'], function (record, log) {
             }
 
             var rec = context.newRecord;
-
-            // --- Read values (snapshot first, load as fallback) ------------
-            var deliveryNote = rec.getValue({ fieldId: DELIVERY_NOTE_FIELD });
+          
             var tranDate = rec.getValue({ fieldId: TRANDATE_FIELD });
-
-            if (!deliveryNote && !tranDate) {
-                var loaded = record.load({ type: rec.type, id: rec.id, isDynamic: false });
-                deliveryNote = loaded.getValue({ fieldId: DELIVERY_NOTE_FIELD });
-                tranDate = loaded.getValue({ fieldId: TRANDATE_FIELD });
-            }
+            var custID = rec.getValue({ fieldId: 'entity' });
+            var Cust_loaded = record.load({ type: 'customer', id: custID, isDynamic: false });
+            var deliveryNote = Cust_loaded.getValue({ fieldId: 'custentity2' });
 
             var baseDate = toDate(tranDate);
             if (!baseDate) {
@@ -71,7 +66,7 @@ define(['N/record', 'N/log'], function (record, log) {
                 return;
             }
 
-            // --- Decide which rule applies ---------------------------------
+            // --- Decide which rule applies -----------------
             var days = extractDays(deliveryNote);
             var expectedDate;
 
