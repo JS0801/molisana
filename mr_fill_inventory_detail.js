@@ -617,7 +617,7 @@ define(['N/file', 'N/record', 'N/search'],
                 line: i
             });
 
-            const lineItem = safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_ITEM);
+            const lineItem = safeCurrentText(rec, SUBLIST_ITEMS, FLD_IB_ITEM);
             const linePoValue = safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER);
             const linePoText = safeCurrentText(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER)?.replace('PO#', '');
 
