@@ -548,13 +548,13 @@ rec.selectLine({
 
             log.debug('STAGE-3 about to save PO', poNumber);
 
-            // const savedId = rec.save({
-            //     ignoreMandatoryFields: true
-            // });
+            const savedId = rec.save({
+                ignoreMandatoryFields: true
+            });
             
 
-            // log.audit('STAGE-3 ◀◀◀ PO SAVED',
-            //     'po=' + poNumber + ' id=' + savedId);
+            log.audit('STAGE-3 ◀◀◀ PO SAVED',
+                'po=' + poNumber + ' id=' + savedId);
 
             ctx.values.forEach((v) => {
     const p = JSON.parse(v);
