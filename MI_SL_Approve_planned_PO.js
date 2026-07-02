@@ -151,9 +151,10 @@ define(['N/ui/serverWidget', 'N/search', 'N/runtime', 'N/record', 'N/crypto'], f
                             const itemId = rec.getValue('custrecord_mi_item');
                             const qty = rec.getValue('custrecord_mi_order_qty');
                             const memo = rec.getValue('custrecord_mi_purchase_memo');
+                            const rate = rec.getValue('custrecord_vendor_rate');
 
                             if (!vendorMap[vendorId]) vendorMap[vendorId] = [];
-                            vendorMap[vendorId].push({ itemId, qty, memo });
+                            vendorMap[vendorId].push({ itemId, qty, memo, rate });
 
                             if (!recordVendorMap[vendorId]) recordVendorMap[vendorId] = [];
                             recordVendorMap[vendorId].push(id); // Save the planned PO record ID for later linking
@@ -173,14 +174,15 @@ define(['N/ui/serverWidget', 'N/search', 'N/runtime', 'N/record', 'N/crypto'], f
                                 po.selectNewLine({ sublistId: 'item' });
                                 po.setCurrentSublistValue({ sublistId: 'item', fieldId: 'item', value: line.itemId });
                                 po.setCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity', value: line.qty });
+                                po.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: line.rate });
                                 po.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_purchase_note', value: line.memo });
                                 po.commitLine({ sublistId: 'item' });
                             });
 
                             const poId = po.save({
-    enableSourcing: true,
-    ignoreMandatoryFields: true
-});
+                                  enableSourcing: true,
+                                  ignoreMandatoryFields: true
+                            });
                             log.audit('PO Created', `PO ID ${poId} for Vendor ${vendorId}`);
 
                             // Link PO back to all related planned PO records
