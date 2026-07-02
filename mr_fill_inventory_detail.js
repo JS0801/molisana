@@ -29,8 +29,6 @@ define(['N/file', 'N/record', 'N/search'],
 
     const FLD_IB_ITEM = 'shipmentitem';
     const FLD_IB_PURCHASE_ORDER = 'purchaseorder';
-    const FLD_IB_VENDOR_REF = 'custcol_mi_vendor_ref_number';
-
     const CLEAR_EXISTING_ASSIGNMENTS = true;
 
     // =========================================================
@@ -602,14 +600,12 @@ define(['N/file', 'N/record', 'N/search'],
             log.debug('STAGE-3 existing IB line ' + i,
                 'item=' + safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_ITEM) +
                 ' poValue=' + safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER) +
-                ' poText=' + safeCurrentText(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER) +
-                ' vendorRef=' + safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_VENDOR_REF));
+                ' poText=' + safeCurrentText(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER));
         }
     };
 
     const findInboundShipmentLine = (rec, lineCount, payload, usedLines) => {
-        const exactMatches = [];
-        const itemOnlyMatches = [];
+        const matches = [];
 
         for (let i = 0; i < lineCount; i++) {
             if (usedLines[i]) {
@@ -624,59 +620,38 @@ define(['N/file', 'N/record', 'N/search'],
             const lineItem = safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_ITEM);
             const linePoValue = safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER);
             const linePoText = safeCurrentText(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER);
-            const lineVendorRef = safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_VENDOR_REF);
 
-            if (String(lineItem) !== String(payload.itemId)) {
-                continue;
-            }
-
-            itemOnlyMatches.push({
-                line: i,
-                poValue: linePoValue,
-                poText: linePoText,
-                vendorRef: lineVendorRef
-            });
-
-            const poMatches = !payload.po || textMatches(linePoText, payload.po) || textMatches(linePoValue, payload.po);
-            const vendorRefMatches = !payload.vendorRef ||
-                !lineVendorRef ||
-                String(lineVendorRef) === String(payload.vendorRef);
+            const itemMatches = String(lineItem) === String(payload.itemId);
+            const poMatches = !!payload.po &&
+                (textMatches(linePoText, payload.po) || textMatches(linePoValue, payload.po));
 
             log.debug('STAGE-3 compare IB line ' + i,
                 'item=' + lineItem + '/' + payload.itemId +
                 ' poText=' + linePoText + '/' + payload.po +
                 ' poValue=' + linePoValue + '/' + payload.po +
-                ' vendorRef=' + lineVendorRef + '/' + payload.vendorRef +
-                ' poMatches=' + poMatches +
-                ' vendorRefMatches=' + vendorRefMatches);
+                ' itemMatches=' + itemMatches +
+                ' poMatches=' + poMatches);
 
-            if (poMatches && vendorRefMatches) {
-                exactMatches.push(i);
+            if (itemMatches && poMatches) {
+                matches.push(i);
             }
         }
 
-        if (exactMatches.length === 1) {
-            return exactMatches[0];
+        if (matches.length === 1) {
+            return matches[0];
         }
 
-        if (exactMatches.length > 1) {
-            log.audit('STAGE-3 multiple exact IB matches',
+        if (matches.length > 1) {
+            log.audit('STAGE-3 multiple PO/item IB matches',
                 'payload=' + JSON.stringify(payload) +
-                ' matches=' + exactMatches.join(',') +
+                ' matches=' + matches.join(',') +
                 ' using first match');
-            return exactMatches[0];
+            return matches[0];
         }
 
-        if (itemOnlyMatches.length === 1) {
-            log.audit('STAGE-3 item-only fallback match',
-                'payload=' + JSON.stringify(payload) +
-                ' line=' + itemOnlyMatches[0].line);
-            return itemOnlyMatches[0].line;
-        }
-
-        log.error('STAGE-3 ambiguous/no IB line match',
+        log.error('STAGE-3 no PO/item IB line match',
             'payload=' + JSON.stringify(payload) +
-            ' itemOnlyMatches=' + JSON.stringify(itemOnlyMatches));
+            ' matches=' + matches.join(','));
 
         return -1;
     };
