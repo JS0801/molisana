@@ -619,7 +619,7 @@ define(['N/file', 'N/record', 'N/search'],
 
             const lineItem = safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_ITEM);
             const linePoValue = safeCurrentValue(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER);
-            const linePoText = safeCurrentText(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER);
+            const linePoText = safeCurrentText(rec, SUBLIST_ITEMS, FLD_IB_PURCHASE_ORDER)?.replace('PO#', '');
 
             const itemMatches = String(lineItem) === String(payload.itemId);
             const poMatches = !!payload.po &&
