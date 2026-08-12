@@ -358,6 +358,7 @@ function createLclTransaction(lclSubject, lclFile, fileName) {
     setBodyField(record, 'trandate', getCurrentNetSuiteDate());
     setBodyField(record, 'tranid', documentNumber);
     setBodyField(record, 'memo', memo);
+    setBodyField(record, 'custbody_created_from_email_capture', true);
     setBodyField(record, 'currency', LCL_CURRENCY_ID);
     setBodyField(record, 'location', LCL_LOCATION_ID);
     setBodyField(record, 'account', config.accountId);
