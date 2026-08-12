@@ -13,6 +13,10 @@
  * Expected LCL subject examples:
  *   LCL Deductions_2026-08-10 17:25:38Z_1326.33
  *   LCL Remittances_2026-08-10 17:25:38Z_1326.33
+ *
+ * Expected LCL attachment filename examples:
+ *   Deduction_2002161177.csv
+ *   Remittance_2002161177.csv
  */
 
 // ------------------------------------------------------------------
@@ -39,6 +43,7 @@ LCL_TRANSACTION_CONFIG[LCL_DEDUCTION_TYPE] = {
     entityId: '11437',
     accountId: '2059',
     itemId: '6733',
+    fileType: 'Deduction',
     referenceFieldId: 'custbody_note_to_vendor',
     setLineLocation: true,
     setLineDescription: false
@@ -50,6 +55,7 @@ LCL_TRANSACTION_CONFIG[LCL_REMITTANCE_TYPE] = {
     entityId: '30',
     accountId: '119',
     itemId: '6808',
+    fileType: 'Remittance',
     referenceFieldId: 'custbody_2663_reference_num',
     setLineLocation: false,
     setLineDescription: true
@@ -230,6 +236,19 @@ function parseLclSubject(subject) {
     };
 }
 
+function parseLclCsvFileName(fileName) {
+    var match = /^(Deduction|Remittance)_([0-9]+)\.csv$/i.exec(trim(fileName));
+    if (!match) {
+        return { error: 'Invalid LCL CSV filename. Expected Deduction_number.csv or Remittance_number.csv, received: ' + fileName };
+    }
+
+    return {
+        transactionType: /^Deduction$/i.test(match[1]) ? LCL_DEDUCTION_TYPE : LCL_REMITTANCE_TYPE,
+        fileType: match[1],
+        documentNumber: match[2]
+    };
+}
+
 function getCurrentNetSuiteDate() {
     return nlapiDateToString(new Date(), 'date');
 }
@@ -318,7 +337,19 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return null;
     }
 
-    return createLclTransaction(lclSubject, csvFile.getName());
+    var csvFileName = csvFile.getName();
+    var lclFile = parseLclCsvFileName(csvFileName);
+    if (lclFile.error) {
+        nlapiLogExecution('ERROR', 'Invalid LCL CSV filename', lclFile.error + ' subject=' + subject);
+        return null;
+    }
+
+    if (lclFile.transactionType !== lclSubject.transactionType) {
+        nlapiLogExecution('ERROR', 'LCL subject/file type mismatch', 'subject=' + subject + ' fileName=' + csvFileName);
+        return null;
+    }
+
+    return createLclTransaction(lclSubject, csvFileName);
 }
 
 // ------------------------------------------------------------------
