@@ -23,7 +23,7 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
     var APPROVED_STATUS_ID = '2';
 
     function afterSubmit(context) {
-        if (context.type !== context.UserEventType.CREATE) {
+        if (context.type !== context.UserEventType.CREATE || context.type !== context.UserEventType.EDIT) {
             return;
         }
 
@@ -103,7 +103,9 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
             filters: [
                 ['internalid', 'anyof', billId],
                 'AND',
-                ['mainline', 'is', 'T']
+                ['mainline', 'is', 'T'],
+                'AND',
+                ['custbody_created_from_email_capture', 'is', 'T']
             ],
             columns: [
                 BILL_NOTE_FIELD_ID,
@@ -133,7 +135,9 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
             filters: [
                 ['tranid', 'is', tranId],
                 'AND',
-                ['mainline', 'is', 'T']
+                ['mainline', 'is', 'T'],
+                'AND',
+                ['custbody_created_from_email_capture', 'is', 'T']
             ],
             columns: [
                 search.createColumn({ name: 'internalid', sort: search.Sort.DESC })
