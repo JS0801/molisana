@@ -303,7 +303,7 @@ function createLclTransaction(lclSubject, fileName) {
     var record = nlapiCreateRecord(config.recordType, { recordmode: 'dynamic' });
     var memo = 'Auto-created from LCL email attachment ' + fileName;
 
-    setBodyField(record, 'subsidiary', LCL_SUBSIDIARY_ID);
+  //  setBodyField(record, 'subsidiary', LCL_SUBSIDIARY_ID);
     setBodyField(record, 'entity', config.entityId);
     setBodyField(record, 'trandate', getCurrentNetSuiteDate());
     setBodyField(record, 'tranid', fileName);
