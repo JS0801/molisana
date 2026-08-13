@@ -211,14 +211,14 @@ function parseLclSubject(subject) {
         return null;
     }
 
-    var parts = String(subject).split('_');
-    if (parts.length !== 3) {
-        return { error: 'Expected exactly 3 underscore-delimited parts: type_timestamp_amount' };
+    var match = /^\s*(LCL\s+(Deductions|Remittances))\s*(?:_|-\s*)([^_]+)_([^_]+)\s*$/i.exec(String(subject));
+    if (!match) {
+        return { error: 'Expected subject like LCL Deductions - timestamp_amount or LCL Deductions_timestamp_amount' };
     }
 
-    var typeText = trim(parts[0]);
-    var timestampText = trim(parts[1]);
-    var amountText = trim(parts[2]);
+    var typeText = trim(match[1]);
+    var timestampText = trim(match[3]);
+    var amountText = trim(match[4]);
     var transactionType = null;
 
     if (/^LCL\s+Deductions$/i.test(typeText)) {
@@ -248,7 +248,7 @@ function parseLclSubject(subject) {
 }
 
 function isLclTransactionSubject(subject) {
-    return /^\s*LCL\s+(Deductions|Remittances)_/i.test(subject || '');
+    return /^\s*LCL\s+(Deductions|Remittances)\s*(?:_|-\s*)/i.test(subject || '');
 }
 
 function parseLclCsvFileName(fileName) {
