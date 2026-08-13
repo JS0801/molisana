@@ -37,6 +37,7 @@ var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
 
 var LCL_DEDUCTION_TYPE = 'deduction';
 var LCL_REMITTANCE_TYPE = 'remittance';
+var ALLOWED_SENDER_DOMAIN = 'molisana.com';
 
 var LCL_TRANSACTION_CONFIG = {};
 
@@ -411,6 +412,47 @@ function maybeCreateLclTransaction(subject, csvFile) {
     return createLclTransaction(lclSubject, lclFile, csvFileName);
 }
 
+function getMessageValue(message, methodName) {
+    try {
+        if (message && typeof message[methodName] === 'function') {
+            return message[methodName]() || '';
+        }
+    } catch (e) {
+        debugLog('Unable to read email sender method', methodName + ' error=' + getErrorDetails(e));
+    }
+
+    return '';
+}
+
+function getSenderEmail(message) {
+    var rawSender = getMessageValue(message, 'getFrom') ||
+            getMessageValue(message, 'getFromEmail') ||
+            getMessageValue(message, 'getSender');
+    var senderText = trim(rawSender);
+    var emailMatch = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.exec(senderText);
+
+    return {
+        raw: senderText,
+        email: emailMatch ? emailMatch[0].toLowerCase() : senderText.toLowerCase()
+    };
+}
+
+function isAllowedSender(message) {
+    var sender = getSenderEmail(message);
+    var emailParts = sender.email.split('@');
+    var domain = emailParts.length === 2 ? emailParts[1] : '';
+    var allowed = domain === ALLOWED_SENDER_DOMAIN;
+
+    debugLog('Sender validation', 'rawSender=' + sender.raw + ' parsedEmail=' + sender.email + ' domain=' + domain + ' allowed=' + allowed);
+
+    return {
+        allowed: allowed,
+        raw: sender.raw,
+        email: sender.email,
+        domain: domain
+    };
+}
+
 // ------------------------------------------------------------------
 // EMAIL CAPTURE ENTRY POINT
 // ------------------------------------------------------------------
@@ -425,6 +467,12 @@ function process(message, newRecord) {
     try {
         var subject = message.getSubject();
         nlapiLogExecution('DEBUG', 'Email Capture triggered', 'subject=' + subject + ' targetFolderId=' + TARGET_FOLDER_ID);
+
+      var senderValidation = isAllowedSender(message);
+if (!senderValidation.allowed) {
+    nlapiLogExecution('AUDIT', 'Email sender blocked', 'subject=' + subject + ' rawSender=' + senderValidation.raw + ' parsedEmail=' + senderValidation.email + ' parsedDomain=' + senderValidation.domain + ' allowedDomain=' + ALLOWED_SENDER_DOMAIN);
+    return;
+}
 
         var importConfig = resolveImportConfig(subject);
         if (!importConfig) {
