@@ -169,6 +169,16 @@ function parseAmount(amountText) {
     return amount.toFixed(2);
 }
 
+function isZeroOrEmptyAmount(amountText) {
+    var normalized = trim(amountText).replace(/,/g, '');
+
+    if (normalized === '') {
+        return true;
+    }
+
+    return parseFloat(normalized) === 0;
+}
+
 function parseUtcTimestamp(timestampText) {
     var match = /^(\d{4})-(\d{2})-(\d{2}) ([0-2]\d):([0-5]\d):([0-5]\d)Z$/.exec(trim(timestampText));
     if (!match) {
@@ -211,14 +221,14 @@ function parseLclSubject(subject) {
         return null;
     }
 
-    var match = /^\s*(LCL\s+(Deductions|Remittances))\s*(?:_|-\s*)([^_]+)_([^_]+)\s*$/i.exec(String(subject));
+    var match = /^\s*(LCL\s+(Deductions|Remittances))\s*(?:_|-\s*)([^_]+?)(?:_([^_]*))?\s*\.?\s*$/i.exec(String(subject));
     if (!match) {
         return { error: 'Expected subject like LCL Deductions - timestamp_amount or LCL Deductions_timestamp_amount' };
     }
 
     var typeText = trim(match[1]);
-    var timestampText = trim(match[3]);
-    var amountText = trim(match[4]);
+    var timestampText = trim(match[3]).replace(/\.$/, '');
+    var amountText = trim(match[4] || '');
     var transactionType = null;
 
     if (/^LCL\s+Deductions$/i.test(typeText)) {
@@ -234,17 +244,29 @@ function parseLclSubject(subject) {
         return { error: 'Invalid timestamp. Expected YYYY-MM-DD HH:MM:SSZ, received: ' + timestampText };
     }
 
-    var amount = parseAmount(amountText);
-    if (!amount) {
-        return { error: 'Invalid amount. Expected a positive decimal amount, received: ' + amountText };
-    }
-
+if (isZeroOrEmptyAmount(amountText)) {
     return {
         transactionType: transactionType,
         timestampText: timestampText,
         timestampDate: timestampDate,
-        amount: amount
+        amount: '0.00',
+        skipTransaction: true,
+        skipReason: 'Amount is zero or blank'
     };
+}
+
+var amount = parseAmount(amountText);
+if (!amount) {
+    return { error: 'Invalid amount. Expected a positive decimal amount, received: ' + amountText };
+}
+
+return {
+    transactionType: transactionType,
+    timestampText: timestampText,
+    timestampDate: timestampDate,
+    amount: amount,
+    skipTransaction: false
+};
 }
 
 function isLclTransactionSubject(subject) {
@@ -395,6 +417,11 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return { isLcl: true, created: false };
     }
 
+  if (lclSubject.skipTransaction) {
+    nlapiLogExecution('AUDIT', 'LCL transaction skipped', lclSubject.skipReason + ' subject=' + subject);
+    return { isLcl: true, created: false, skipTransaction: true };
+}
+
     debugLog('LCL subject parsed', 'transactionType=' + lclSubject.transactionType + ' timestamp=' + lclSubject.timestampText + ' amount=' + lclSubject.amount);
     var csvFileName = csvFile.getName();
     var lclFile = parseLclCsvFileName(csvFileName);
@@ -501,10 +528,10 @@ if (!senderValidation.allowed) {
             }
         }
 
-        if (lclResult && lclResult.isLcl && !lclResult.created) {
-            nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL transaction was not created successfully. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
-            return;
-        }
+        if (lclResult && lclResult.isLcl && !lclResult.created && !lclResult.skipTransaction) {
+    nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL transaction was not created successfully. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+    return;
+}
 
         triggerCsvImport(fileId, importConfig.mappingId);
 
