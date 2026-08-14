@@ -60,6 +60,7 @@ define([
 
     // UI Label = Pallet
     var VOLUME_FIELD = 'custbody_total_so_volume';
+    var TRIP_LINE_CUSTOM_QTY_FIELD = 'custcol_mi_quantity';
 
     // UI Label = Cases
     var CASES_FIELD = 'custbody_total_cases_to_ship';
@@ -2194,8 +2195,9 @@ define([
                         return;
                     }
 
-                    tripTrySetSublist(tripRec, 'quantity', numVal(li.quantity) || 1);
+                    tripTrySetSublist(tripRec, 'quantity', 0);
                     tripTrySetSublist(tripRec, 'rate', numVal(li.rate));
+                    tripTrySetSublist(tripRec, 'amount', numVal(li.amount));
                     // Line location comes from the SO line; fall back to the header
                     // location if the SO line had none.
                     tripTrySetSublist(tripRec, 'location', li.location || TRIP_LOCATION_ID);
@@ -2293,6 +2295,7 @@ define([
                         search.createColumn({ name: 'item' }),
                         search.createColumn({ name: 'quantity' }),
                         search.createColumn({ name: 'rate' }),
+                        search.createColumn({ name: 'amount' }),
                         search.createColumn({ name: 'location' }),
                         search.createColumn({ name: 'line' })
                     ]
@@ -2306,6 +2309,7 @@ define([
                         item: itemId,
                         quantity: numVal(r.getValue({ name: 'quantity' })),
                         rate: numVal(r.getValue({ name: 'rate' })),
+                        amount: numVal(r.getValue({ name: 'amount' })),
                         location: String(r.getValue({ name: 'location' }) || '')
                     });
                     return true;
