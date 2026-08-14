@@ -39,7 +39,7 @@ var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
 
 var LCL_DEDUCTION_TYPE = 'deduction';
 var LCL_REMITTANCE_TYPE = 'remittance';
-var ALLOWED_SENDER_DOMAIN = 'molisana.com';
+var ALLOWED_SENDER_DOMAIN = 'gmail.com';
 
 var LCL_TRANSACTION_CONFIG = {};
 
