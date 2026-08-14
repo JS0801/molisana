@@ -37,6 +37,7 @@ var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
 
 var LCL_DEDUCTION_TYPE = 'deduction';
 var LCL_REMITTANCE_TYPE = 'remittance';
+var ALLOWED_SENDER_DOMAIN = 'molisana.com';
 
 var LCL_TRANSACTION_CONFIG = {};
 
@@ -168,6 +169,16 @@ function parseAmount(amountText) {
     return amount.toFixed(2);
 }
 
+function isZeroOrEmptyAmount(amountText) {
+    var normalized = trim(amountText).replace(/,/g, '');
+
+    if (normalized === '') {
+        return true;
+    }
+
+    return parseFloat(normalized) === 0;
+}
+
 function parseUtcTimestamp(timestampText) {
     var match = /^(\d{4})-(\d{2})-(\d{2}) ([0-2]\d):([0-5]\d):([0-5]\d)Z$/.exec(trim(timestampText));
     if (!match) {
@@ -210,14 +221,14 @@ function parseLclSubject(subject) {
         return null;
     }
 
-    var parts = String(subject).split('_');
-    if (parts.length !== 3) {
-        return { error: 'Expected exactly 3 underscore-delimited parts: type_timestamp_amount' };
+    var match = /^\s*(LCL\s+(Deductions|Remittances))\s*(?:_|-\s*)([^_]+?)(?:_([^_]*))?\s*\.?\s*$/i.exec(String(subject));
+    if (!match) {
+        return { error: 'Expected subject like LCL Deductions - timestamp_amount or LCL Deductions_timestamp_amount' };
     }
 
-    var typeText = trim(parts[0]);
-    var timestampText = trim(parts[1]);
-    var amountText = trim(parts[2]);
+    var typeText = trim(match[1]);
+    var timestampText = trim(match[3]).replace(/\.$/, '');
+    var amountText = trim(match[4] || '');
     var transactionType = null;
 
     if (/^LCL\s+Deductions$/i.test(typeText)) {
@@ -233,21 +244,33 @@ function parseLclSubject(subject) {
         return { error: 'Invalid timestamp. Expected YYYY-MM-DD HH:MM:SSZ, received: ' + timestampText };
     }
 
-    var amount = parseAmount(amountText);
-    if (!amount) {
-        return { error: 'Invalid amount. Expected a positive decimal amount, received: ' + amountText };
-    }
-
+if (isZeroOrEmptyAmount(amountText)) {
     return {
         transactionType: transactionType,
         timestampText: timestampText,
         timestampDate: timestampDate,
-        amount: amount
+        amount: '0.00',
+        skipTransaction: true,
+        skipReason: 'Amount is zero or blank'
     };
 }
 
+var amount = parseAmount(amountText);
+if (!amount) {
+    return { error: 'Invalid amount. Expected a positive decimal amount, received: ' + amountText };
+}
+
+return {
+    transactionType: transactionType,
+    timestampText: timestampText,
+    timestampDate: timestampDate,
+    amount: amount,
+    skipTransaction: false
+};
+}
+
 function isLclTransactionSubject(subject) {
-    return /^\s*LCL\s+(Deductions|Remittances)_/i.test(subject || '');
+    return /^\s*LCL\s+(Deductions|Remittances)\s*(?:_|-\s*)/i.test(subject || '');
 }
 
 function parseLclCsvFileName(fileName) {
@@ -358,6 +381,7 @@ function createLclTransaction(lclSubject, lclFile, fileName) {
     setBodyField(record, 'trandate', getCurrentNetSuiteDate());
     setBodyField(record, 'tranid', documentNumber);
     setBodyField(record, 'memo', memo);
+    setBodyField(record, 'custbody_created_from_email_capture', 'T');
     setBodyField(record, 'currency', LCL_CURRENCY_ID);
     setBodyField(record, 'location', LCL_LOCATION_ID);
     setBodyField(record, 'account', config.accountId);
@@ -393,6 +417,11 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return { isLcl: true, created: false };
     }
 
+  if (lclSubject.skipTransaction) {
+    nlapiLogExecution('AUDIT', 'LCL transaction skipped', lclSubject.skipReason + ' subject=' + subject);
+    return { isLcl: true, created: false, skipTransaction: true };
+}
+
     debugLog('LCL subject parsed', 'transactionType=' + lclSubject.transactionType + ' timestamp=' + lclSubject.timestampText + ' amount=' + lclSubject.amount);
     var csvFileName = csvFile.getName();
     var lclFile = parseLclCsvFileName(csvFileName);
@@ -410,6 +439,47 @@ function maybeCreateLclTransaction(subject, csvFile) {
     return createLclTransaction(lclSubject, lclFile, csvFileName);
 }
 
+function getMessageValue(message, methodName) {
+    try {
+        if (message && typeof message[methodName] === 'function') {
+            return message[methodName]() || '';
+        }
+    } catch (e) {
+        debugLog('Unable to read email sender method', methodName + ' error=' + getErrorDetails(e));
+    }
+
+    return '';
+}
+
+function getSenderEmail(message) {
+    var rawSender = getMessageValue(message, 'getFrom') ||
+            getMessageValue(message, 'getFromEmail') ||
+            getMessageValue(message, 'getSender');
+    var senderText = trim(rawSender);
+    var emailMatch = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.exec(senderText);
+
+    return {
+        raw: senderText,
+        email: emailMatch ? emailMatch[0].toLowerCase() : senderText.toLowerCase()
+    };
+}
+
+function isAllowedSender(message) {
+    var sender = getSenderEmail(message);
+    var emailParts = sender.email.split('@');
+    var domain = emailParts.length === 2 ? emailParts[1] : '';
+    var allowed = domain === ALLOWED_SENDER_DOMAIN;
+
+    debugLog('Sender validation', 'rawSender=' + sender.raw + ' parsedEmail=' + sender.email + ' domain=' + domain + ' allowed=' + allowed);
+
+    return {
+        allowed: allowed,
+        raw: sender.raw,
+        email: sender.email,
+        domain: domain
+    };
+}
+
 // ------------------------------------------------------------------
 // EMAIL CAPTURE ENTRY POINT
 // ------------------------------------------------------------------
@@ -424,6 +494,12 @@ function process(message, newRecord) {
     try {
         var subject = message.getSubject();
         nlapiLogExecution('DEBUG', 'Email Capture triggered', 'subject=' + subject + ' targetFolderId=' + TARGET_FOLDER_ID);
+
+      var senderValidation = isAllowedSender(message);
+if (!senderValidation.allowed) {
+    nlapiLogExecution('AUDIT', 'Email sender blocked', 'subject=' + subject + ' rawSender=' + senderValidation.raw + ' parsedEmail=' + senderValidation.email + ' parsedDomain=' + senderValidation.domain + ' allowedDomain=' + ALLOWED_SENDER_DOMAIN);
+    return;
+}
 
         var importConfig = resolveImportConfig(subject);
         if (!importConfig) {
@@ -452,10 +528,10 @@ function process(message, newRecord) {
             }
         }
 
-        if (lclResult && lclResult.isLcl && !lclResult.created) {
-            nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL transaction was not created successfully. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
-            return;
-        }
+        if (lclResult && lclResult.isLcl && !lclResult.created && !lclResult.skipTransaction) {
+    nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL transaction was not created successfully. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+    return;
+}
 
         triggerCsvImport(fileId, importConfig.mappingId);
 
