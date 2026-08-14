@@ -23,7 +23,7 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
     var APPROVED_STATUS_ID = '2';
 
     function afterSubmit(context) {
-        if (context.type !== context.UserEventType.CREATE || context.type !== context.UserEventType.EDIT) {
+        if (context.type !== context.UserEventType.CREATE && context.type !== context.UserEventType.EDIT) {
             return;
         }
 
