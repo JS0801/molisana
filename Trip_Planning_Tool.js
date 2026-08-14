@@ -126,7 +126,7 @@ define([
     // Sales-type transaction requires an entity (customer). A trip spans many
     // customers, so we use one fixed placeholder customer on the header. The real
     // per-order customer is available via the SO reference (custcol_trip_so).
-    var TRIP_CUSTOMER_ID = '12164';
+    var TRIP_CUSTOMER_ID = '7122';
     // Header-level location for the trip transaction.
     var TRIP_LOCATION_ID = '311';
 
@@ -2111,25 +2111,9 @@ define([
         try {
             var tripRec = record.create({ type: TRIP_TRANTYPE, isDynamic: true });
 
-            // Set the customer FIRST — a sales transaction validates line items
-            // against the entity, so the entity must exist before any item line.
-            try {
-                tripRec.setValue({ fieldId: 'entity', value: TRIP_CUSTOMER_ID });
-            } catch (entErr) {
-                log.error('Set trip entity (customer) failed', {
-                    customer: TRIP_CUSTOMER_ID, error: (entErr && entErr.message) || entErr
-                });
-                return { success: false, message: 'Could not set trip customer ' + TRIP_CUSTOMER_ID + ': ' + ((entErr && entErr.message) || entErr) };
-            }
 
-            // Header-level location, set after the customer and before any item line.
-            try {
-                tripRec.setValue({ fieldId: 'location', value: TRIP_LOCATION_ID });
-            } catch (locErr) {
-                log.error('Set trip location failed', {
-                    location: TRIP_LOCATION_ID, error: (locErr && locErr.message) || locErr
-                });
-            }
+            tripRec.setValue({ fieldId: 'entity', value: TRIP_CUSTOMER_ID });
+            tripRec.setValue({ fieldId: 'location', value: TRIP_LOCATION_ID });
 
             tripTrySetValue(tripRec, TRIP_PROVIDER_FIELD, providerId);
             if (trip.truckId) { tripTrySetValue(tripRec, TRIP_TRUCK_FIELD, trip.truckId); }
