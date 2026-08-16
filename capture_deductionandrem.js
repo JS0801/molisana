@@ -703,6 +703,9 @@ if (!senderValidation.allowed) {
         var fileId = saveAttachment(csvFile);
         debugLog('CSV attachment saved result', 'fileId=' + fileId + ' name=' + csvFile.getName());
 
+        var savedCsvFile = nlapiLoadFile(fileId);
+        debugLog('CSV file loaded for LCL parsing', 'fileId=' + fileId + ' name=' + savedCsvFile.getName());
+
         var lclResult = { isLcl: false, created: false };
         try {
             lclResult = maybeCreateLclTransaction(subject, csvFile);
