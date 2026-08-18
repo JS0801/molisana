@@ -708,7 +708,7 @@ if (!senderValidation.allowed) {
 
         var lclResult = { isLcl: false, created: false };
         try {
-            lclResult = maybeCreateLclTransaction(subject, csvFile);
+            lclResult = maybeCreateLclTransaction(subject, savedCsvFile);
         } catch (lclError) {
             nlapiLogExecution('ERROR', 'LCL transaction creation failed', getErrorDetails(lclError));
             if (isLclTransactionSubject(subject)) {
