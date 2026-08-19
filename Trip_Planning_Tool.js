@@ -158,6 +158,7 @@ define([
     var SO_TRIP_FIELD = 'custbody_trip';
     var SO_RESERVED_BY_FIELD = 'custbody_ttrip_reserved_by';
     var SO_RESERVED_AT_FIELD = 'custbody_trip_reserved_at';
+    var SO_LINE_RELATED_TRIP_FIELD = 'custcol_mi_related_trip_record';
 
     // Trucks are a plain custom LIST (id + name only). A list cannot carry
     // capability fields, so temp-control validation against the truck is not
@@ -2235,16 +2236,11 @@ define([
             var tripId = tripRec.save({ enableSourcing: true, ignoreMandatoryFields: true });
 
             var stamped = 0;
+            var stampedLines = 0;
             usable.forEach(function (o) {
                 try {
-                    var vals = {};
-                    vals[SO_TRIP_FIELD] = tripId;
-                    vals[SO_RESERVED_BY_FIELD] = '';
-                    vals[SO_RESERVED_AT_FIELD] = '';
-                    record.submitFields({
-                        type: record.Type.SALES_ORDER, id: o.soId, values: vals,
-                        options: { enableSourcing: false, ignoreMandatoryFields: true }
-                    });
+                    var stampResult = stampTripOnSalesOrder(o.soId, tripId);
+                    stampedLines += stampResult.lines;
                     stamped++;
                 } catch (e) {
                     log.error('Failed to stamp trip on SO ' + o.soId, e);
@@ -2252,6 +2248,7 @@ define([
             });
 
             var msg = 'Trip created (id ' + tripId + ') with ' + stamped + ' order(s).';
+            if (stampedLines) { msg += ' ' + stampedLines + ' sales order line(s) linked.'; }
             if (dropped.length) { msg += ' ' + dropped.length + ' skipped.'; }
             if (droppedItems.length) {
                 msg += ' ' + droppedItems.length + ' item line(s) could not be added (invalid for this transaction) — see script logs.';
@@ -2264,6 +2261,49 @@ define([
             log.error('submitTrip failed', e);
             return { success: false, message: 'Could not create trip: ' + (e.message || e) };
         }
+    }
+
+    function stampTripOnSalesOrder(soId, tripId) {
+        var soRec = record.load({
+            type: record.Type.SALES_ORDER,
+            id: soId,
+            isDynamic: false
+        });
+
+        soRec.setValue({ fieldId: SO_TRIP_FIELD, value: tripId });
+        soRec.setValue({ fieldId: SO_RESERVED_BY_FIELD, value: '' });
+        soRec.setValue({ fieldId: SO_RESERVED_AT_FIELD, value: '' });
+
+        var lineCount = soRec.getLineCount({ sublistId: 'item' }) || 0;
+        var lines = 0;
+
+        for (var i = 0; i < lineCount; i++) {
+            var itemId = soRec.getSublistValue({
+                sublistId: 'item',
+                fieldId: 'item',
+                line: i
+            });
+
+            if (!itemId) {
+                continue;
+            }
+
+            soRec.setSublistValue({
+                sublistId: 'item',
+                fieldId: SO_LINE_RELATED_TRIP_FIELD,
+                line: i,
+                value: tripId
+            });
+
+            lines++;
+        }
+
+        soRec.save({
+            enableSourcing: false,
+            ignoreMandatoryFields: true
+        });
+
+        return { lines: lines };
     }
 
     // Returns { soId: [ { item, quantity, rate }, ... ] } for the given SOs.
