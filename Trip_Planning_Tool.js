@@ -1809,7 +1809,7 @@ define([
                     columns: [idCol, tempCol]
                 }).run().each(function (res) {
                     var soId = String(res.getValue(idCol) || '');
-                    var key = normalizeTemp(res.getValue(tempCol));
+                    var key = normalizeTemp(res.getText(tempCol));
                     if (soId && key) { setMap[soId] = setMap[soId] || {}; setMap[soId][key] = true; }
                     return true;
                 });
