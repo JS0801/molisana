@@ -13,7 +13,7 @@ define(['N/record', 'N/log'], (record, log) => {
     }
 
     const binId = context.newRecord.getValue({ fieldId: BIN_FIELD_ID });
-    log.debug('binId', binId)
+
     if (!binId) {
       return;
     }
@@ -23,7 +23,6 @@ define(['N/record', 'N/log'], (record, log) => {
       id: context.newRecord.id,
       isDynamic: false
     });
-    log.debug('triggered')
 
     const lineCount = itemRec.getLineCount({ sublistId: BIN_SUBLIST_ID });
     let foundLine = -1;
@@ -96,6 +95,7 @@ define(['N/record', 'N/log'], (record, log) => {
     }
 
     if (!changed) {
+      logBinNumberSublist(itemRec, context.newRecord.id, 'Bin number sublist already correct');
       return;
     }
 
@@ -105,6 +105,39 @@ define(['N/record', 'N/log'], (record, log) => {
     });
 
     log.audit('Preferred bin updated', `Item ${savedId}, bin ${binId}, location ${LOCATION_ID}`);
+    logBinNumberSublist(itemRec, savedId, 'Bin number sublist after update');
+  };
+
+  const logBinNumberSublist = (itemRec, itemId, title) => {
+    const lineCount = itemRec.getLineCount({ sublistId: BIN_SUBLIST_ID });
+    const lines = [];
+
+    for (let i = 0; i < lineCount; i++) {
+      lines.push({
+        line: i,
+        locationId: itemRec.getSublistValue({
+          sublistId: BIN_SUBLIST_ID,
+          fieldId: 'location',
+          line: i
+        }),
+        binId: itemRec.getSublistValue({
+          sublistId: BIN_SUBLIST_ID,
+          fieldId: 'binnumber',
+          line: i
+        }),
+        preferred: itemRec.getSublistValue({
+          sublistId: BIN_SUBLIST_ID,
+          fieldId: 'preferredbin',
+          line: i
+        })
+      });
+    }
+
+    log.audit(title, {
+      itemId,
+      lineCount,
+      lines
+    });
   };
 
   return { afterSubmit };
