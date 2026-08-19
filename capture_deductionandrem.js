@@ -39,11 +39,21 @@ var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
 
 var LCL_DEDUCTION_TYPE = 'deduction';
 var LCL_REMITTANCE_TYPE = 'remittance';
+var LCL_CUSTOMER_KEY = 'lcl';
+var METRO_CUSTOMER_KEY = 'metro';
 var ALLOWED_SENDER_DOMAIN = 'molisana.com';
 
 var LCL_TRANSACTION_CONFIG = {};
 
-LCL_TRANSACTION_CONFIG[LCL_DEDUCTION_TYPE] = {
+function getTransactionConfigKey(customerKey, transactionType) {
+    return customerKey + '_' + transactionType;
+}
+
+function getLclTransactionConfig(customerKey, transactionType) {
+    return LCL_TRANSACTION_CONFIG[getTransactionConfigKey(customerKey, transactionType)];
+}
+
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(LCL_CUSTOMER_KEY, LCL_DEDUCTION_TYPE)] = {
     label: 'LCL deduction vendor credit',
     recordType: 'vendorcredit',
     entityId: '11437',
@@ -56,12 +66,38 @@ LCL_TRANSACTION_CONFIG[LCL_DEDUCTION_TYPE] = {
     setLineDescription: false
 };
 
-LCL_TRANSACTION_CONFIG[LCL_REMITTANCE_TYPE] = {
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(LCL_CUSTOMER_KEY, LCL_REMITTANCE_TYPE)] = {
     label: 'LCL remittance credit memo',
     recordType: 'creditmemo',
     entityId: '30',
     accountId: '119',
     itemId: '6808',
+    fileType: 'Remittance',
+    dateColumnName: 'Payment Date',
+    referenceFieldId: 'custbody_2663_reference_num',
+    setLineLocation: false,
+    setLineDescription: true
+};
+
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(METRO_CUSTOMER_KEY, LCL_DEDUCTION_TYPE)] = {
+    label: 'Metro deduction vendor credit',
+    recordType: 'vendorcredit',
+    entityId: '442',
+    accountId: '2059',
+    itemId: '6733',
+    fileType: 'Deduction',
+    dateColumnName: 'Invoice Date',
+    referenceFieldId: 'custbody_note_to_vendor',
+    setLineLocation: true,
+    setLineDescription: false
+};
+
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(METRO_CUSTOMER_KEY, LCL_REMITTANCE_TYPE)] = {
+    label: 'Metro remittance credit memo',
+    recordType: 'creditmemo',
+    entityId: '6327',
+    accountId: '119',
+    itemId: '6113',
     fileType: 'Remittance',
     dateColumnName: 'Payment Date',
     referenceFieldId: 'custbody_2663_reference_num',
@@ -226,22 +262,36 @@ function parseLclSubject(subject) {
         return null;
     }
 
-    var match = /^\s*(LCL\s+(Deductions|Remittances))\s*(?:_|-\s*)([^_]+?)(?:_([^_]*))?\s*\.?\s*$/i.exec(String(subject));
+    var match = /^\s*((LCL|Metro)\s+(Deductions|Remittances))\s*(?:_|-\s*)([^_]+?)(?:_([^_]*))?(?:_([^_]*))?\s*\.?\s*$/i.exec(String(subject));
     if (!match) {
-        return { error: 'Expected subject like LCL Deductions - timestamp_amount or LCL Deductions_timestamp_amount' };
+        return { error: 'Expected subject like LCL Deductions - timestamp_amount or Metro Deductions - timestamp_amount' };
     }
 
-    var typeText = trim(match[1]);
-    var timestampText = trim(match[3]).replace(/\.$/, '');
-    var amountText = trim(match[4] || '');
+    var customerText = trim(match[2]);
+    var typeText = trim(match[3]);
+    var timestampText = trim(match[4]).replace(/\.$/, '');
+    var amountText = trim(match[5] || '');
+    var secondAmountText = trim(match[6] || '');
+    var customerKey = null;
+    var customerName = null;
     var transactionType = null;
 
-    if (/^LCL\s+Deductions$/i.test(typeText)) {
+    if (/^LCL$/i.test(customerText)) {
+        customerKey = LCL_CUSTOMER_KEY;
+        customerName = 'LCL';
+    } else if (/^Metro$/i.test(customerText)) {
+        customerKey = METRO_CUSTOMER_KEY;
+        customerName = 'Metro';
+    } else {
+        return { error: 'Unsupported customer in subject: ' + customerText };
+    }
+
+    if (/^Deductions$/i.test(typeText)) {
         transactionType = LCL_DEDUCTION_TYPE;
-    } else if (/^LCL\s+Remittances$/i.test(typeText)) {
+    } else if (/^Remittances$/i.test(typeText)) {
         transactionType = LCL_REMITTANCE_TYPE;
     } else {
-        return { error: 'Unsupported LCL subject type: ' + typeText };
+        return { error: 'Unsupported transaction type in subject: ' + typeText };
     }
 
     var timestampDate = parseUtcTimestamp(timestampText);
@@ -249,33 +299,80 @@ function parseLclSubject(subject) {
         return { error: 'Invalid timestamp. Expected YYYY-MM-DD HH:MM:SSZ, received: ' + timestampText };
     }
 
+var amount = '0.00';
+var skipTransaction = false;
+var skipReason = '';
+
 if (isZeroOrEmptyAmount(amountText)) {
-    return {
-        transactionType: transactionType,
-        timestampText: timestampText,
-        timestampDate: timestampDate,
-        amount: '0.00',
-        skipTransaction: true,
-        skipReason: 'Amount is zero or blank'
-    };
+    skipTransaction = true;
+    skipReason = 'First amount is zero or blank';
+} else {
+    amount = parseAmount(amountText);
+    if (!amount) {
+        return { error: 'Invalid amount. Expected a positive decimal amount, received: ' + amountText };
+    }
 }
 
-var amount = parseAmount(amountText);
-if (!amount) {
-    return { error: 'Invalid amount. Expected a positive decimal amount, received: ' + amountText };
+var secondAmount = '0.00';
+var skipSecondBillCredit = true;
+var secondSkipReason = 'Second amount is zero or blank';
+
+if (!isZeroOrEmptyAmount(secondAmountText)) {
+    secondAmount = parseAmount(secondAmountText);
+    if (!secondAmount) {
+        return { error: 'Invalid second amount. Expected a positive decimal amount, received: ' + secondAmountText };
+    }
+
+    skipSecondBillCredit = false;
+    secondSkipReason = '';
 }
 
 return {
+    customerKey: customerKey,
+    customerName: customerName,
     transactionType: transactionType,
     timestampText: timestampText,
     timestampDate: timestampDate,
     amount: amount,
-    skipTransaction: false
+    skipTransaction: skipTransaction,
+    skipReason: skipReason,
+    secondAmount: secondAmount,
+    skipSecondBillCredit: skipSecondBillCredit,
+    secondSkipReason: secondSkipReason
 };
 }
+function createPaybackVendorCredit(lclSubject, lclFile, fileName, transactionDate) {
+    var config = getLclTransactionConfig(lclSubject.customerKey, LCL_DEDUCTION_TYPE);
+    var documentNumber = lclFile.documentNumber;
+    var paybackDocumentNumber = documentNumber + '_payback';
 
+    var record = nlapiCreateRecord('vendorcredit', { recordmode: 'dynamic' });
+    var memo = 'EFT ' + paybackDocumentNumber;
+
+    setBodyField(record, 'entity', config.entityId);
+    setBodyField(record, 'trandate', transactionDate);
+    setBodyField(record, 'tranid', paybackDocumentNumber);
+    setBodyField(record, 'memo', memo);
+    setBodyField(record, 'custbody_created_from_email_capture', 'T');
+    setBodyField(record, 'currency', LCL_CURRENCY_ID);
+    setBodyField(record, 'location', LCL_LOCATION_ID);
+    setBodyField(record, 'account', config.accountId);
+    setBodyField(record, 'custbody_report_timestamp', getNetSuiteDateTimeValue(lclSubject.timestampDate));
+    setBodyField(record, config.referenceFieldId, paybackDocumentNumber);
+
+    addLclItemLine(record, config, lclSubject.secondAmount, paybackDocumentNumber, fileName);
+
+    var recordId = nlapiSubmitRecord(record, true, true);
+    nlapiLogExecution('AUDIT', 'Payback Vendor Credit created', 'id=' + recordId + ' tranid=' + paybackDocumentNumber + ' amount=' + lclSubject.secondAmount);
+
+    return {
+        id: recordId,
+        recordType: 'vendorcredit',
+        tranid: paybackDocumentNumber
+    };
+}
 function isLclTransactionSubject(subject) {
-    return /^\s*LCL\s+(Deductions|Remittances)\s*(?:_|-\s*)/i.test(subject || '');
+    return /^\s*(LCL|Metro)\s+(Deductions|Remittances)\s*(?:_|-\s*)/i.test(subject || '');
 }
 
 function parseLclCsvFileName(fileName) {
@@ -535,7 +632,7 @@ function createCustomerRefundForCreditMemo(creditMemoId, customerId, documentNum
 }
 
 function createLclTransaction(lclSubject, lclFile, fileName, transactionDate) {
-    var config = LCL_TRANSACTION_CONFIG[lclSubject.transactionType];
+    var config = getLclTransactionConfig(lclSubject.customerKey, lclSubject.transactionType);
     if (!config) {
         throw nlapiCreateError('LCL_CONFIG_MISSING', 'No LCL transaction config for type ' + lclSubject.transactionType, true);
     }
@@ -591,12 +688,9 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return { isLcl: true, created: false };
     }
 
-  if (lclSubject.skipTransaction) {
-    nlapiLogExecution('AUDIT', 'LCL transaction skipped', lclSubject.skipReason + ' subject=' + subject);
-    return { isLcl: true, created: false, skipTransaction: true };
-}
+    
 
-    debugLog('LCL subject parsed', 'transactionType=' + lclSubject.transactionType + ' timestamp=' + lclSubject.timestampText + ' amount=' + lclSubject.amount);
+    debugLog('LCL subject parsed', 'customer=' + lclSubject.customerName + ' transactionType=' + lclSubject.transactionType + ' timestamp=' + lclSubject.timestampText + ' amount=' + lclSubject.amount);
     var csvFileName = csvFile.getName();
     var lclFile = parseLclCsvFileName(csvFileName);
     if (lclFile.error) {
@@ -610,7 +704,7 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return { isLcl: true, created: false };
     }
 
-    var config = LCL_TRANSACTION_CONFIG[lclSubject.transactionType];
+    var config = getLclTransactionConfig(lclSubject.customerKey, lclSubject.transactionType);
     if (!config) {
         nlapiLogExecution('ERROR', 'Missing LCL transaction config', 'transactionType=' + lclSubject.transactionType + ' subject=' + subject);
         return { isLcl: true, created: false };
@@ -622,7 +716,33 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return { isLcl: true, created: false };
     }
 
-    return createLclTransaction(lclSubject, lclFile, csvFileName, transactionDateResult.value);
+    var result = {
+    isLcl: true,
+    created: false,
+    skipTransaction: false
+};
+
+if (lclSubject.skipTransaction) {
+    nlapiLogExecution('AUDIT', 'Main transaction skipped', lclSubject.skipReason + ' subject=' + subject);
+} else {
+    result = createLclTransaction(lclSubject, lclFile, csvFileName, transactionDateResult.value);
+}
+
+if (lclSubject.skipSecondBillCredit === false) {
+    var paybackResult = createPaybackVendorCredit(lclSubject, lclFile, csvFileName, transactionDateResult.value);
+    result.isLcl = true;
+    result.created = true;
+    result.paybackVendorCreditId = paybackResult.id;
+    result.paybackTranid = paybackResult.tranid;
+} else {
+    debugLog('Payback Vendor Credit skipped', lclSubject.secondSkipReason + ' subject=' + subject);
+}
+
+if (lclSubject.skipTransaction && lclSubject.skipSecondBillCredit) {
+    result.skipTransaction = true;
+}
+
+return result;
 }
 
 function getMessageValue(message, methodName) {
@@ -727,11 +847,16 @@ if (!senderValidation.allowed) {
         if (newRecord) {
             var messageText = 'Auto-processed CSV import: ' + importConfig.description;
             if (lclResult && lclResult.created) {
-                messageText += '; created ' + lclResult.recordType + ' ' + lclResult.id + ' tranid ' + lclResult.tranid;
-                if (lclResult.refundId) {
-                    messageText += '; created customerrefund ' + lclResult.refundId;
-                }
-            }
+    if (lclResult.id) {
+        messageText += '; created ' + lclResult.recordType + ' ' + lclResult.id + ' tranid ' + lclResult.tranid;
+    }
+    if (lclResult.refundId) {
+        messageText += '; created customerrefund ' + lclResult.refundId;
+    }
+    if (lclResult.paybackVendorCreditId) {
+        messageText += '; created payback vendorcredit ' + lclResult.paybackVendorCreditId + ' tranid ' + lclResult.paybackTranid;
+    }
+}
             newRecord.setFieldValue('incomingmessage', messageText);
         }
 
