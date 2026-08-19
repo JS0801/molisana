@@ -513,6 +513,7 @@ function createCustomerRefundForCreditMemo(creditMemoId, customerId, documentNum
     setBodyField(refund, 'account', CUSTOMER_REFUND_ACCOUNT_ID);
     setBodyField(refund, 'memo', memo);
     setBodyField(refund, 'custbody_created_from_email_capture', 'T');
+    setBodyField(refund, 'paymentmethod', 7); //EFT/ACH
 
     var line = refund.findLineItemValue('apply', 'doc', String(creditMemoId));
     debugLog('Customer Refund apply line lookup', 'creditMemoId=' + creditMemoId + ' line=' + line);
