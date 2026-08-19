@@ -60,7 +60,6 @@ define([
 
     // UI Label = Pallet
     var VOLUME_FIELD = 'custbody_total_so_volume';
-    var TRIP_LINE_CUSTOM_QTY_FIELD = 'custcol_mi_quantity';
 
     // UI Label = Cases
     var CASES_FIELD = 'custbody_total_cases_to_ship';
@@ -127,7 +126,7 @@ define([
     // Sales-type transaction requires an entity (customer). A trip spans many
     // customers, so we use one fixed placeholder customer on the header. The real
     // per-order customer is available via the SO reference (custcol_trip_so).
-    var TRIP_CUSTOMER_ID = '7122';
+    var TRIP_CUSTOMER_ID = '12164';
     // Header-level location for the trip transaction.
     var TRIP_LOCATION_ID = '311';
 
@@ -158,7 +157,6 @@ define([
     var SO_TRIP_FIELD = 'custbody_trip';
     var SO_RESERVED_BY_FIELD = 'custbody_ttrip_reserved_by';
     var SO_RESERVED_AT_FIELD = 'custbody_trip_reserved_at';
-    var SO_LINE_RELATED_TRIP_FIELD = 'custcol_mi_related_trip_record';
 
     // Trucks are a plain custom LIST (id + name only). A list cannot carry
     // capability fields, so temp-control validation against the truck is not
@@ -2113,9 +2111,25 @@ define([
         try {
             var tripRec = record.create({ type: TRIP_TRANTYPE, isDynamic: true });
 
+            // Set the customer FIRST — a sales transaction validates line items
+            // against the entity, so the entity must exist before any item line.
+            try {
+                tripRec.setValue({ fieldId: 'entity', value: TRIP_CUSTOMER_ID });
+            } catch (entErr) {
+                log.error('Set trip entity (customer) failed', {
+                    customer: TRIP_CUSTOMER_ID, error: (entErr && entErr.message) || entErr
+                });
+                return { success: false, message: 'Could not set trip customer ' + TRIP_CUSTOMER_ID + ': ' + ((entErr && entErr.message) || entErr) };
+            }
 
-            tripRec.setValue({ fieldId: 'entity', value: TRIP_CUSTOMER_ID });
-            tripRec.setValue({ fieldId: 'location', value: TRIP_LOCATION_ID });
+            // Header-level location, set after the customer and before any item line.
+            try {
+                tripRec.setValue({ fieldId: 'location', value: TRIP_LOCATION_ID });
+            } catch (locErr) {
+                log.error('Set trip location failed', {
+                    location: TRIP_LOCATION_ID, error: (locErr && locErr.message) || locErr
+                });
+            }
 
             tripTrySetValue(tripRec, TRIP_PROVIDER_FIELD, providerId);
             if (trip.truckId) { tripTrySetValue(tripRec, TRIP_TRUCK_FIELD, trip.truckId); }
@@ -2196,10 +2210,8 @@ define([
                         return;
                     }
 
-                    tripTrySetSublist(tripRec, 'quantity', 0);
-                    tripTrySetSublist(tripRec, TRIP_LINE_CUSTOM_QTY_FIELD, numVal(li.quantity));
+                    tripTrySetSublist(tripRec, 'quantity', numVal(li.quantity) || 1);
                     tripTrySetSublist(tripRec, 'rate', numVal(li.rate));
-                    tripTrySetSublist(tripRec, 'amount', numVal(li.amount));
                     // Line location comes from the SO line; fall back to the header
                     // location if the SO line had none.
                     tripTrySetSublist(tripRec, 'location', li.location || TRIP_LOCATION_ID);
@@ -2236,11 +2248,16 @@ define([
             var tripId = tripRec.save({ enableSourcing: true, ignoreMandatoryFields: true });
 
             var stamped = 0;
-            var stampedLines = 0;
             usable.forEach(function (o) {
                 try {
-                    var stampResult = stampTripOnSalesOrder(o.soId, tripId);
-                    stampedLines += stampResult.lines;
+                    var vals = {};
+                    vals[SO_TRIP_FIELD] = tripId;
+                    vals[SO_RESERVED_BY_FIELD] = '';
+                    vals[SO_RESERVED_AT_FIELD] = '';
+                    record.submitFields({
+                        type: record.Type.SALES_ORDER, id: o.soId, values: vals,
+                        options: { enableSourcing: false, ignoreMandatoryFields: true }
+                    });
                     stamped++;
                 } catch (e) {
                     log.error('Failed to stamp trip on SO ' + o.soId, e);
@@ -2248,7 +2265,6 @@ define([
             });
 
             var msg = 'Trip created (id ' + tripId + ') with ' + stamped + ' order(s).';
-            if (stampedLines) { msg += ' ' + stampedLines + ' sales order line(s) linked.'; }
             if (dropped.length) { msg += ' ' + dropped.length + ' skipped.'; }
             if (droppedItems.length) {
                 msg += ' ' + droppedItems.length + ' item line(s) could not be added (invalid for this transaction) — see script logs.';
@@ -2261,49 +2277,6 @@ define([
             log.error('submitTrip failed', e);
             return { success: false, message: 'Could not create trip: ' + (e.message || e) };
         }
-    }
-
-    function stampTripOnSalesOrder(soId, tripId) {
-        var soRec = record.load({
-            type: record.Type.SALES_ORDER,
-            id: soId,
-            isDynamic: false
-        });
-
-        soRec.setValue({ fieldId: SO_TRIP_FIELD, value: tripId });
-        soRec.setValue({ fieldId: SO_RESERVED_BY_FIELD, value: '' });
-        soRec.setValue({ fieldId: SO_RESERVED_AT_FIELD, value: '' });
-
-        var lineCount = soRec.getLineCount({ sublistId: 'item' }) || 0;
-        var lines = 0;
-
-        for (var i = 0; i < lineCount; i++) {
-            var itemId = soRec.getSublistValue({
-                sublistId: 'item',
-                fieldId: 'item',
-                line: i
-            });
-
-            if (!itemId) {
-                continue;
-            }
-
-            soRec.setSublistValue({
-                sublistId: 'item',
-                fieldId: SO_LINE_RELATED_TRIP_FIELD,
-                line: i,
-                value: tripId
-            });
-
-            lines++;
-        }
-
-        soRec.save({
-            enableSourcing: false,
-            ignoreMandatoryFields: true
-        });
-
-        return { lines: lines };
     }
 
     // Returns { soId: [ { item, quantity, rate }, ... ] } for the given SOs.
@@ -2336,7 +2309,6 @@ define([
                         search.createColumn({ name: 'item' }),
                         search.createColumn({ name: 'quantity' }),
                         search.createColumn({ name: 'rate' }),
-                        search.createColumn({ name: 'amount' }),
                         search.createColumn({ name: 'location' }),
                         search.createColumn({ name: 'line' })
                     ]
@@ -2350,7 +2322,6 @@ define([
                         item: itemId,
                         quantity: numVal(r.getValue({ name: 'quantity' })),
                         rate: numVal(r.getValue({ name: 'rate' })),
-                        amount: numVal(r.getValue({ name: 'amount' })),
                         location: String(r.getValue({ name: 'location' }) || '')
                     });
                     return true;
