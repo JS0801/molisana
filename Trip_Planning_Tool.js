@@ -2196,6 +2196,7 @@ define([
                     }
 
                     tripTrySetSublist(tripRec, 'quantity', 0);
+                    tripTrySetSublist(tripRec, TRIP_LINE_CUSTOM_QTY_FIELD, numVal(li.quantity));
                     tripTrySetSublist(tripRec, 'rate', numVal(li.rate));
                     tripTrySetSublist(tripRec, 'amount', numVal(li.amount));
                     // Line location comes from the SO line; fall back to the header
