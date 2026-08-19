@@ -13,7 +13,7 @@ define(['N/record', 'N/log'], (record, log) => {
     }
 
     const binId = context.newRecord.getValue({ fieldId: BIN_FIELD_ID });
-
+    log.debug('binId', binId)
     if (!binId) {
       return;
     }
@@ -23,6 +23,7 @@ define(['N/record', 'N/log'], (record, log) => {
       id: context.newRecord.id,
       isDynamic: false
     });
+    log.debug('triggered')
 
     const lineCount = itemRec.getLineCount({ sublistId: BIN_SUBLIST_ID });
     let foundLine = -1;
