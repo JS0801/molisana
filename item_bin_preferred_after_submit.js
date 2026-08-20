@@ -18,12 +18,12 @@ define(['N/record', 'N/log'], (record, log) => {
     });
 
     const lineCount = itemRec.getLineCount({ sublistId: BIN_SUBLIST_ID });
-    const removedLines = [];
+    const preferredLines = [];
     let changed = false;
 
-    logBinNumberSublist(itemRec, context.newRecord.id, 'Bin number sublist before cleanup');
+    logBinNumberSublist(itemRec, context.newRecord.id, 'Bin number sublist before preferred update');
 
-    for (let i = lineCount - 1; i >= 0; i--) {
+    for (let i = 0; i < lineCount; i++) {
       const lineLocation = itemRec.getSublistValue({
         sublistId: BIN_SUBLIST_ID,
         fieldId: 'location',
@@ -47,28 +47,31 @@ define(['N/record', 'N/log'], (record, log) => {
 
       if (
         String(lineLocation) === String(LOCATION_ID) &&
-        isZero(onHand) &&
+        isPositive(onHand) &&
         !isChecked(isPreferred)
       ) {
-        removedLines.push({
+        itemRec.setSublistValue({
+          sublistId: BIN_SUBLIST_ID,
+          fieldId: 'preferredbin',
+          line: i,
+          value: true
+        });
+
+        preferredLines.push({
           line: i,
           locationId: lineLocation,
           binId: lineBin,
           onHand,
-          preferred: isPreferred
+          oldPreferred: isPreferred,
+          newPreferred: true
         });
 
-        itemRec.removeLine({
-          sublistId: BIN_SUBLIST_ID,
-          line: i,
-          ignoreRecalc: true
-        });
         changed = true;
       }
     }
 
     if (!changed) {
-      log.audit('No bin number lines removed', `Item ${context.newRecord.id}`);
+      log.audit('No preferred bin changes needed', `Item ${context.newRecord.id}`);
       return;
     }
 
@@ -77,16 +80,16 @@ define(['N/record', 'N/log'], (record, log) => {
       ignoreMandatoryFields: true
     });
 
-    log.audit('Removed bin number lines', JSON.stringify({
+    log.audit('Preferred bin lines checked', JSON.stringify({
       itemId: savedId,
       locationId: LOCATION_ID,
-      removedLines
+      preferredLines
     }));
-    logBinNumberSublist(itemRec, savedId, 'Bin number sublist after cleanup');
+    logBinNumberSublist(itemRec, savedId, 'Bin number sublist after preferred update');
   };
 
-  const isZero = (value) => {
-    return Number(value || 0) === 0;
+  const isPositive = (value) => {
+    return Number(value || 0) > 0;
   };
 
   const isChecked = (value) => {
