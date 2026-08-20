@@ -3,18 +3,11 @@
  * @NScriptType UserEventScript
  */
 define(['N/record', 'N/log'], (record, log) => {
-  const BIN_FIELD_ID = 'custitem_bin';
   const LOCATION_ID = 315;
   const BIN_SUBLIST_ID = 'binnumber';
 
   const afterSubmit = (context) => {
     if (context.type === context.UserEventType.DELETE) {
-      return;
-    }
-
-    const binId = context.newRecord.getValue({ fieldId: BIN_FIELD_ID });
-
-    if (!binId) {
       return;
     }
 
@@ -25,10 +18,12 @@ define(['N/record', 'N/log'], (record, log) => {
     });
 
     const lineCount = itemRec.getLineCount({ sublistId: BIN_SUBLIST_ID });
-    let foundLine = -1;
+    const removedLines = [];
     let changed = false;
 
-    for (let i = 0; i < lineCount; i++) {
+    logBinNumberSublist(itemRec, context.newRecord.id, 'Bin number sublist before cleanup');
+
+    for (let i = lineCount - 1; i >= 0; i--) {
       const lineLocation = itemRec.getSublistValue({
         sublistId: BIN_SUBLIST_ID,
         fieldId: 'location',
@@ -39,63 +34,41 @@ define(['N/record', 'N/log'], (record, log) => {
         fieldId: 'binnumber',
         line: i
       });
+      const onHand = itemRec.getSublistValue({
+        sublistId: BIN_SUBLIST_ID,
+        fieldId: 'onhand',
+        line: i
+      });
       const isPreferred = itemRec.getSublistValue({
         sublistId: BIN_SUBLIST_ID,
         fieldId: 'preferredbin',
         line: i
       });
 
-      if (String(lineLocation) !== String(LOCATION_ID)) {
-        continue;
-      }
-
-      if (String(lineBin) === String(binId)) {
-        foundLine = i;
-
-        if (!isPreferred) {
-          itemRec.setSublistValue({
-            sublistId: BIN_SUBLIST_ID,
-            fieldId: 'preferredbin',
-            line: i,
-            value: true
-          });
-          changed = true;
-        }
-      } else if (isPreferred) {
-        itemRec.setSublistValue({
-          sublistId: BIN_SUBLIST_ID,
-          fieldId: 'preferredbin',
+      if (
+        String(lineLocation) === String(LOCATION_ID) &&
+        isZero(onHand) &&
+        !isChecked(isPreferred)
+      ) {
+        removedLines.push({
           line: i,
-          value: false
+          locationId: lineLocation,
+          binId: lineBin,
+          onHand,
+          preferred: isPreferred
+        });
+
+        itemRec.removeLine({
+          sublistId: BIN_SUBLIST_ID,
+          line: i,
+          ignoreRecalc: true
         });
         changed = true;
       }
     }
 
-    if (foundLine === -1) {
-      itemRec.setSublistValue({
-        sublistId: BIN_SUBLIST_ID,
-        fieldId: 'location',
-        line: lineCount,
-        value: LOCATION_ID
-      });
-      itemRec.setSublistValue({
-        sublistId: BIN_SUBLIST_ID,
-        fieldId: 'binnumber',
-        line: lineCount,
-        value: binId
-      });
-      itemRec.setSublistValue({
-        sublistId: BIN_SUBLIST_ID,
-        fieldId: 'preferredbin',
-        line: lineCount,
-        value: true
-      });
-      changed = true;
-    }
-
     if (!changed) {
-      logBinNumberSublist(itemRec, context.newRecord.id, 'Bin number sublist already correct');
+      log.audit('No bin number lines removed', `Item ${context.newRecord.id}`);
       return;
     }
 
@@ -104,8 +77,20 @@ define(['N/record', 'N/log'], (record, log) => {
       ignoreMandatoryFields: true
     });
 
-    log.audit('Preferred bin updated', `Item ${savedId}, bin ${binId}, location ${LOCATION_ID}`);
-    logBinNumberSublist(itemRec, savedId, 'Bin number sublist after update');
+    log.audit('Removed bin number lines', JSON.stringify({
+      itemId: savedId,
+      locationId: LOCATION_ID,
+      removedLines
+    }));
+    logBinNumberSublist(itemRec, savedId, 'Bin number sublist after cleanup');
+  };
+
+  const isZero = (value) => {
+    return Number(value || 0) === 0;
+  };
+
+  const isChecked = (value) => {
+    return value === true || value === 'T';
   };
 
   const logBinNumberSublist = (itemRec, itemId, title) => {
@@ -125,6 +110,11 @@ define(['N/record', 'N/log'], (record, log) => {
           fieldId: 'binnumber',
           line: i
         }),
+        onHand: itemRec.getSublistValue({
+          sublistId: BIN_SUBLIST_ID,
+          fieldId: 'onhand',
+          line: i
+        }),
         preferred: itemRec.getSublistValue({
           sublistId: BIN_SUBLIST_ID,
           fieldId: 'preferredbin',
@@ -133,11 +123,11 @@ define(['N/record', 'N/log'], (record, log) => {
       });
     }
 
-    log.audit(title, {
+    log.audit(title, JSON.stringify({
       itemId,
       lineCount,
       lines
-    });
+    }));
   };
 
   return { afterSubmit };
