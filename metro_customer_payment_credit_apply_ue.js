@@ -1,7 +1,7 @@
 /**
  * Metro Customer Payment Credit Apply - User Event
  *
- * @NApiVersion 2.1
+ * @NApiVersion 2.x
  * @NScriptType UserEventScript
  */
 define(['N/search', 'N/log'], function(search, log) {
@@ -16,7 +16,20 @@ define(['N/search', 'N/log'], function(search, log) {
         var payment = context.newRecord;
         var paymentId = payment.id || '(new customer payment)';
         var jsonText = payment.getValue({ fieldId: CREDIT_JSON_FIELD_ID });
+
+        log.debug({
+            title: 'Payment credit apply beforeSubmit',
+            details: 'type=' + context.type +
+                ' paymentId=' + paymentId +
+                ' jsonPresent=' + (!!jsonText) +
+                ' jsonLength=' + (jsonText ? String(jsonText).length : 0)
+        });
+
         if (!jsonText) {
+            log.debug({
+                title: 'No credit apply JSON found',
+                details: 'paymentId=' + paymentId + ' fieldId=' + CREDIT_JSON_FIELD_ID
+            });
             return;
         }
 
@@ -26,10 +39,20 @@ define(['N/search', 'N/log'], function(search, log) {
         } catch (e) {
             log.error({
                 title: 'Invalid credit apply JSON',
-                details: 'paymentId=' + paymentId + ' error=' + getErrorDetails(e) + ' value=' + jsonText
+                details: 'paymentId=' + paymentId +
+                    ' error=' + getErrorDetails(e) +
+                    ' value=' + jsonText
             });
             return;
         }
+
+        log.debug({
+            title: 'Credit apply JSON parsed',
+            details: 'paymentId=' + paymentId +
+                ' sourceFile=' + ((payload && payload.fileName) || '') +
+                ' paymentNumber=' + ((payload && payload.paymentNumber) || '') +
+                ' creditCount=' + ((payload && payload.credits && payload.credits.length) || 0)
+        });
 
         if (!payload || !payload.credits || !payload.credits.length) {
             log.audit({
@@ -51,13 +74,33 @@ define(['N/search', 'N/log'], function(search, log) {
 
     function applyCreditsToPayment(payment, paymentId, payload) {
         var customerId = getBodyValue(payment, ['customer', 'entity']);
+        var creditLineCount = payment.getLineCount({ sublistId: 'credit' }) || 0;
         var operations = [];
         var errors = [];
+
+        log.debug({
+            title: 'Credit apply setup',
+            details: 'paymentId=' + paymentId +
+                ' customerId=' + customerId +
+                ' creditSublistLineCount=' + creditLineCount +
+                ' payloadCreditCount=' + payload.credits.length
+        });
 
         for (var i = 0; i < payload.credits.length; i++) {
             var credit = payload.credits[i] || {};
             var amount = parsePositiveAmount(credit.amount);
             var creditId = resolveCreditInternalId(credit, customerId);
+
+            log.debug({
+                title: 'Credit apply row check',
+                details: 'paymentId=' + paymentId +
+                    ' rowNumber=' + (credit.rowNumber || '') +
+                    ' creditTranId=' + (credit.creditTranId || '') +
+                    ' creditInternalIdFromJson=' + (credit.creditInternalId || '') +
+                    ' resolvedCreditId=' + creditId +
+                    ' rawAmount=' + credit.amount +
+                    ' parsedAmount=' + amount
+            });
 
             if (!creditId) {
                 errors.push('Credit row ' + credit.rowNumber + ' has no credit internal id or searchable credit tranid.');
@@ -70,6 +113,14 @@ define(['N/search', 'N/log'], function(search, log) {
             }
 
             var line = findSublistLineByValue(payment, 'credit', 'doc', String(creditId));
+            log.debug({
+                title: 'Credit sublist line search',
+                details: 'paymentId=' + paymentId +
+                    ' creditId=' + creditId +
+                    ' foundLine=' + line +
+                    ' creditSublistLineCount=' + creditLineCount
+            });
+
             if (line < 0) {
                 errors.push('Credit ' + creditId + ' was not found on payment credit sublist.');
                 continue;
@@ -92,6 +143,15 @@ define(['N/search', 'N/log'], function(search, log) {
 
         for (var opIndex = 0; opIndex < operations.length; opIndex++) {
             var operation = operations[opIndex];
+
+            log.debug({
+                title: 'Applying credit line',
+                details: 'paymentId=' + paymentId +
+                    ' creditId=' + operation.creditId +
+                    ' line=' + operation.line +
+                    ' amount=' + operation.amount
+            });
+
             payment.setSublistValue({
                 sublistId: 'credit',
                 fieldId: 'apply',
@@ -111,6 +171,11 @@ define(['N/search', 'N/log'], function(search, log) {
             value: ''
         });
 
+        log.debug({
+            title: 'Credit apply JSON cleared',
+            details: 'paymentId=' + paymentId + ' fieldId=' + CREDIT_JSON_FIELD_ID
+        });
+
         log.audit({
             title: 'Credits applied to customer payment',
             details: 'paymentId=' + paymentId + ' creditCount=' + operations.length + ' sourceFile=' + (payload.fileName || '')
@@ -119,10 +184,19 @@ define(['N/search', 'N/log'], function(search, log) {
 
     function resolveCreditInternalId(credit, customerId) {
         if (credit.creditInternalId) {
+            log.debug({
+                title: 'Credit internal id provided',
+                details: 'creditInternalId=' + credit.creditInternalId +
+                    ' creditTranId=' + (credit.creditTranId || '')
+            });
             return String(credit.creditInternalId);
         }
 
         if (!credit.creditTranId) {
+            log.debug({
+                title: 'Credit lookup skipped',
+                details: 'No creditTranId found on payload row ' + (credit.rowNumber || '')
+            });
             return '';
         }
 
@@ -135,6 +209,11 @@ define(['N/search', 'N/log'], function(search, log) {
             filters.push(['entity', 'anyof', customerId]);
         }
 
+        log.debug({
+            title: 'Searching credit memo',
+            details: 'creditTranId=' + credit.creditTranId + ' customerId=' + (customerId || '')
+        });
+
         var resultSet = search.create({
             type: search.Type.CREDIT_MEMO,
             filters: filters,
@@ -144,24 +223,32 @@ define(['N/search', 'N/log'], function(search, log) {
             end: 1
         });
 
-        return resultSet && resultSet.length ? String(resultSet[0].getValue({ name: 'internalid' })) : '';
+        var creditId = resultSet && resultSet.length ? String(resultSet[0].getValue({ name: 'internalid' })) : '';
+
+        log.debug({
+            title: 'Credit memo search result',
+            details: 'creditTranId=' + credit.creditTranId + ' resolvedCreditId=' + creditId
+        });
+
+        return creditId;
     }
 
     function findSublistLineByValue(rec, sublistId, fieldId, expectedValue) {
-        var lineCount = rec.getLineCount({ sublistId: sublistId }) || 0;
-        for (var i = 0; i < lineCount; i++) {
-            var value = rec.getSublistValue({
+        var line = rec.findSublistLineWithValue({
+            sublistId: sublistId,
+            fieldId: fieldId,
+            value: expectedValue
+        });
+
+        if (line < 0 && /^\d+$/.test(String(expectedValue))) {
+            line = rec.findSublistLineWithValue({
                 sublistId: sublistId,
                 fieldId: fieldId,
-                line: i
+                value: parseInt(expectedValue, 10)
             });
-
-            if (String(value) === String(expectedValue)) {
-                return i;
-            }
         }
 
-        return -1;
+        return line;
     }
 
     function getBodyValue(rec, fieldIds) {
