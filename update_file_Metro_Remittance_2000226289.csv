@@ -1,0 +1,4 @@
+Customer,Payment External ID,Remittance Date,Remittance Number,Invoice Date,Invoice Number,Invoice Reference,Invoice Internal ID,Gross,Discount,Net,Status,Memo,Parent ID,Notes
+Metro,ID_2000226289_Remittance,08/10/2026,2000226289,07/31/2026,INV83296,INV83296,2950791,583.45,13.13,570.322375,Open,EFT 2000226289,6327,"{""source"":""metro_remittance_credit_apply"",""fileName"":""Metro Remittance_2000226289.csv"",""documentNumber"":""2000226289"",""paymentExternalId"":""ID_2000226289_Remittance"",""paymentNumber"":""2000226289"",""paymentDate"":""08/10/2026"",""parentId"":""6327"",""credits"":[{""rowNumber"":2,""amount"":""217.17775"",""creditInternalId"":""2950794"",""creditTranId"":""CM14115""}]}"
+Metro,ID_2000226289_Remittance,08/10/2026,2000226289,07/31/2026,INV83297,INV83297,2950793,413.96,9.31,404.6459,Open,EFT 2000226289,6327,
+Metro,ID_2000226289_Remittance,08/10/2026,2000226289,07/31/2026,INV83302,INV83302,2951022,221.59,4.99,217.17775,Open,EFT 2000226289,6327,
