@@ -1,293 +1,1173 @@
 /**
- * Metro Customer Payment Credit Apply - User Event
+ * Email Capture Plug-in (SuiteScript 1.0)
  *
- * @NApiVersion 2.x
- * @NScriptType UserEventScript
+ * Existing behavior:
+ *   1. Matches the subject line against SUBJECT_IMPORT_MAP
+ *   2. Saves the CSV attachment to the File Cabinet
+ *   3. Creates the LCL Vendor Credit/Credit Memo first when applicable
+ *   4. Schedules the 2.x CSV import trigger script
+ *
+ * Add-on behavior:
+ *   - LCL Deductions_timestamp_amount creates a Vendor Credit
+ *   - LCL Remittances_timestamp_amount creates a Credit Memo
+ *
+ * Expected LCL subject examples:
+ *   LCL Deductions_2026-08-10 17:25:38Z_1326.33
+ *   LCL Remittances_2026-08-10 17:25:38Z_1326.33
+ *
+ * Expected LCL attachment filename examples:
+ *   Deduction_2002161177.csv
+ *   Remittance_2002161177.csv
+ *   Deduction_2002161177 (2).csv
+ *   Remittance_2003851933 (1).csv
+ *
+ * The transaction number is the numeric filename portion, e.g. 2002161177.
  */
-define(['N/search', 'N/log'], function(search, log) {
-    var CREDIT_JSON_FIELD_ID = 'custbody_metro_credit_apply_json'; // TODO: replace with the Payment custom field mapped from CSV column "Notes".
 
-    function beforeSubmit(context) {
-        if (context.type !== context.UserEventType.CREATE &&
-                context.type !== context.UserEventType.EDIT) {
-            return;
+// ------------------------------------------------------------------
+// CONFIG
+// ------------------------------------------------------------------
+var SUBJECT_IMPORT_MAP = [
+    { keyword: 'Deduction',  mappingId: '157', description: 'Deduction CSV import' },
+    { keyword: 'Remittance', mappingId: '156', description: 'Remittance CSV import' }
+];
+
+var TARGET_FOLDER_ID = 475348;
+
+var SCHEDULED_SCRIPT_ID = 'customscript_mi_import_bills_and_payment';
+var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
+
+var LCL_DEDUCTION_TYPE = 'deduction';
+var LCL_REMITTANCE_TYPE = 'remittance';
+var LCL_CUSTOMER_KEY = 'lcl';
+var METRO_CUSTOMER_KEY = 'metro';
+var ALLOWED_SENDER_DOMAIN = 'gmail.com';
+
+var LCL_TRANSACTION_CONFIG = {};
+
+function getTransactionConfigKey(customerKey, transactionType) {
+    return customerKey + '_' + transactionType;
+}
+
+function getLclTransactionConfig(customerKey, transactionType) {
+    return LCL_TRANSACTION_CONFIG[getTransactionConfigKey(customerKey, transactionType)];
+}
+
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(LCL_CUSTOMER_KEY, LCL_DEDUCTION_TYPE)] = {
+    label: 'LCL deduction vendor credit',
+    recordType: 'vendorcredit',
+    entityId: '11437',
+    accountId: '2059',
+    itemId: '6733',
+    fileType: 'Deduction',
+    dateColumnName: 'Invoice Date',
+    referenceFieldId: 'custbody_note_to_vendor',
+    setLineLocation: true,
+    setLineDescription: false
+};
+
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(LCL_CUSTOMER_KEY, LCL_REMITTANCE_TYPE)] = {
+    label: 'LCL remittance credit memo',
+    recordType: 'creditmemo',
+    entityId: '30',
+    accountId: '119',
+    itemId: '6808',
+    fileType: 'Remittance',
+    dateColumnName: 'Payment Date',
+    referenceFieldId: 'custbody_2663_reference_num',
+    setLineLocation: false,
+    setLineDescription: true
+};
+
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(METRO_CUSTOMER_KEY, LCL_DEDUCTION_TYPE)] = {
+    label: 'Metro deduction vendor credit',
+    recordType: 'vendorcredit',
+    entityId: '442',
+    accountId: '2059',
+    itemId: '6733',
+    fileType: 'Deduction',
+    dateColumnName: 'Invoice Date',
+    referenceFieldId: 'custbody_note_to_vendor',
+    setLineLocation: true,
+    setLineDescription: false
+};
+
+LCL_TRANSACTION_CONFIG[getTransactionConfigKey(METRO_CUSTOMER_KEY, LCL_REMITTANCE_TYPE)] = {
+    label: 'Metro remittance credit memo',
+    recordType: 'creditmemo',
+    entityId: '6327',
+    accountId: '119',
+    itemId: '6113',
+    fileType: 'Remittance',
+    dateColumnName: 'Remittance Date',
+    referenceFieldId: 'custbody_2663_reference_num',
+    setLineLocation: false,
+    setLineDescription: true
+};
+
+var LCL_CURRENCY_ID = '1';
+var LCL_LOCATION_ID = '315';
+var LCL_CLASS_ID = '319';
+var LCL_BRAND_ID = '227';
+var LCL_TAX_CODE_ID = '16';
+var LCL_UNITS_ID = '35';
+var CUSTOMER_REFUND_ACCOUNT_ID = '2058';
+var METRO_CREDIT_NOTES_COLUMN_NAME = 'Notes';
+var METRO_UPDATED_FILE_PREFIX = 'update_file_';
+
+// Keep DEBUG on while testing; change to false after deployment is stable.
+var LCL_DEBUG_LOGS = true;
+
+// ------------------------------------------------------------------
+// EXISTING CSV IMPORT HANDOFF
+// ------------------------------------------------------------------
+
+/**
+ * Finds the first matching import config for a subject line.
+ * @param {string} subject
+ * @returns {Object|null}
+ */
+function resolveImportConfig(subject) {
+    if (!subject) return null;
+    var subjectLower = subject.toLowerCase();
+
+    for (var i = 0; i < SUBJECT_IMPORT_MAP.length; i++) {
+        if (subjectLower.indexOf(SUBJECT_IMPORT_MAP[i].keyword.toLowerCase()) !== -1) {
+            return SUBJECT_IMPORT_MAP[i];
         }
+    }
+    return null;
+}
 
-        var payment = context.newRecord;
-        var paymentId = payment.id || '(new customer payment)';
-        var jsonText = payment.getValue({ fieldId: CREDIT_JSON_FIELD_ID });
+/**
+ * Pulls the first .csv attachment off the inbound email.
+ * @param {nlobjEmail} message
+ * @returns {nlobjFile|null}
+ */
+function getCsvAttachment(message) {
+    var attachments = message.getAttachments() || [];
+    debugLog('Attachment scan started', 'attachmentCount=' + attachments.length);
 
-        log.debug({
-            title: 'Payment credit apply beforeSubmit',
-            details: 'type=' + context.type +
-                ' paymentId=' + paymentId +
-                ' jsonPresent=' + (!!jsonText) +
-                ' jsonLength=' + (jsonText ? String(jsonText).length : 0)
-        });
-
-        if (!jsonText) {
-            log.debug({
-                title: 'No credit apply JSON found',
-                details: 'paymentId=' + paymentId + ' fieldId=' + CREDIT_JSON_FIELD_ID
-            });
-            return;
+    for (var i = 0; i < attachments.length; i++) {
+        var name = attachments[i].getName() || '';
+        debugLog('Attachment found', 'index=' + i + ' name=' + name);
+        if (name.toLowerCase().indexOf('.csv') !== -1) {
+            debugLog('CSV attachment selected', 'index=' + i + ' name=' + name);
+            return attachments[i];
         }
+    }
+    return null;
+}
 
-        var payload;
-        try {
-            payload = JSON.parse(jsonText);
-        } catch (e) {
-            log.error({
-                title: 'Invalid credit apply JSON',
-                details: 'paymentId=' + paymentId +
-                    ' error=' + getErrorDetails(e) +
-                    ' value=' + jsonText
-            });
-            return;
-        }
+/**
+ * Saves the attachment to the File Cabinet, keeping its original name.
+ * @param {nlobjFile} csvFile
+ * @returns {string} file internal id
+ */
+function saveAttachment(csvFile) {
+    debugLog('Saving CSV attachment', 'targetFolderId=' + TARGET_FOLDER_ID + ' originalName=' + csvFile.getName());
+    csvFile.setFolder(TARGET_FOLDER_ID);
+    var fileId = nlapiSubmitFile(csvFile);
 
-        log.debug({
-            title: 'Credit apply JSON parsed',
-            details: 'paymentId=' + paymentId +
-                ' sourceFile=' + ((payload && payload.fileName) || '') +
-                ' paymentNumber=' + ((payload && payload.paymentNumber) || '') +
-                ' creditCount=' + ((payload && payload.credits && payload.credits.length) || 0)
-        });
+    nlapiLogExecution('AUDIT', 'CSV attachment saved', 'fileId=' + fileId + ' name=' + csvFile.getName());
+    return fileId;
+}
 
-        if (!payload || !payload.credits || !payload.credits.length) {
-            log.audit({
-                title: 'No credits in JSON payload',
-                details: 'paymentId=' + paymentId
-            });
-            return;
-        }
+/**
+ * Hands off to the 2.x scheduled script that will actually run
+ * N/task CSV_IMPORT.
+ * @param {string} fileId
+ * @param {string} mappingId
+ */
+function triggerCsvImport(fileId, mappingId) {
+    debugLog('Scheduling CSV import trigger', 'scriptId=' + SCHEDULED_SCRIPT_ID + ' deploymentId=' + SCHEDULED_DEPLOYMENT_ID + ' fileId=' + fileId + ' mappingId=' + mappingId);
+    var status = nlapiScheduleScript(SCHEDULED_SCRIPT_ID, SCHEDULED_DEPLOYMENT_ID, {
+        custscript_import_file_id: fileId,
+        custscript_import_mapping_id: mappingId
+    });
 
-        try {
-            applyCreditsToPayment(payment, paymentId, payload);
-        } catch (e) {
-            log.error({
-                title: 'Credit apply failed',
-                details: 'paymentId=' + paymentId + ' error=' + getErrorDetails(e)
-            });
+    nlapiLogExecution('AUDIT', 'CSV import scheduled', 'fileId=' + fileId + ' mappingId=' + mappingId + ' status=' + status);
+}
+
+// ------------------------------------------------------------------
+// LCL SUBJECT PARSING
+// ------------------------------------------------------------------
+
+function trim(value) {
+    return String(value || '').replace(/^\s+|\s+$/g, '');
+}
+
+function parseAmount(amountText) {
+    var normalized = trim(amountText).replace(/,/g, '');
+
+    if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+        return null;
+    }
+
+    var amount = parseFloat(normalized);
+    if (!(amount > 0)) {
+        return null;
+    }
+
+    return amount.toFixed(2);
+}
+
+function isZeroOrEmptyAmount(amountText) {
+    var normalized = trim(amountText).replace(/,/g, '');
+
+    if (normalized === '') {
+        return true;
+    }
+
+    return parseFloat(normalized) === 0;
+}
+
+function parseUtcTimestamp(timestampText) {
+    var match = /^(\d{4})-(\d{2})-(\d{2}) ([0-2]\d):([0-5]\d):([0-5]\d)Z$/.exec(trim(timestampText));
+    if (!match) {
+        return null;
+    }
+
+    var year = parseInt(match[1], 10);
+    var month = parseInt(match[2], 10);
+    var day = parseInt(match[3], 10);
+    var hour = parseInt(match[4], 10);
+    var minute = parseInt(match[5], 10);
+    var second = parseInt(match[6], 10);
+
+    if (month < 1 || month > 12 || hour > 23) {
+        return null;
+    }
+
+    var date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+
+    if (date.getUTCFullYear() !== year ||
+            date.getUTCMonth() !== month - 1 ||
+            date.getUTCDate() !== day ||
+            date.getUTCHours() !== hour ||
+            date.getUTCMinutes() !== minute ||
+            date.getUTCSeconds() !== second) {
+        return null;
+    }
+
+    return date;
+}
+
+/**
+ * Parses only the new LCL subject patterns. Other Deduction/Remittance
+ * subjects still run through the existing CSV import path only.
+ * @param {string} subject
+ * @returns {Object|null}
+ */
+function parseLclSubject(subject) {
+    if (!isLclTransactionSubject(subject)) {
+        return null;
+    }
+
+    var match = /^\s*((LCL|Metro)\s+(Deductions|Remittances))\s*(?:_|-\s*)([^_]+?)(?:_([^_]*))?(?:_([^_]*))?\s*\.?\s*$/i.exec(String(subject));
+    if (!match) {
+        return { error: 'Expected subject like LCL Deductions - timestamp_amount or Metro Deductions - timestamp_amount' };
+    }
+
+    var customerText = trim(match[2]);
+    var typeText = trim(match[3]);
+    var timestampText = trim(match[4]).replace(/\.$/, '');
+    var amountText = trim(match[5] || '');
+    var secondAmountText = trim(match[6] || '');
+    var customerKey = null;
+    var customerName = null;
+    var transactionType = null;
+
+    if (/^LCL$/i.test(customerText)) {
+        customerKey = LCL_CUSTOMER_KEY;
+        customerName = 'LCL';
+    } else if (/^Metro$/i.test(customerText)) {
+        customerKey = METRO_CUSTOMER_KEY;
+        customerName = 'Metro';
+    } else {
+        return { error: 'Unsupported customer in subject: ' + customerText };
+    }
+
+    if (/^Deductions$/i.test(typeText)) {
+        transactionType = LCL_DEDUCTION_TYPE;
+    } else if (/^Remittances$/i.test(typeText)) {
+        transactionType = LCL_REMITTANCE_TYPE;
+    } else {
+        return { error: 'Unsupported transaction type in subject: ' + typeText };
+    }
+
+    var timestampDate = parseUtcTimestamp(timestampText);
+    if (!timestampDate) {
+        return { error: 'Invalid timestamp. Expected YYYY-MM-DD HH:MM:SSZ, received: ' + timestampText };
+    }
+
+var amount = '0.00';
+var skipTransaction = false;
+var skipReason = '';
+
+if (isZeroOrEmptyAmount(amountText)) {
+    skipTransaction = true;
+    skipReason = 'First amount is zero or blank';
+} else {
+    amount = parseAmount(amountText);
+    if (!amount) {
+        return { error: 'Invalid amount. Expected a positive decimal amount, received: ' + amountText };
+    }
+}
+
+var secondAmount = '0.00';
+var skipSecondBillCredit = true;
+var secondSkipReason = 'Second amount is zero or blank';
+
+if (!isZeroOrEmptyAmount(secondAmountText)) {
+    secondAmount = parseAmount(secondAmountText);
+    if (!secondAmount) {
+        return { error: 'Invalid second amount. Expected a positive decimal amount, received: ' + secondAmountText };
+    }
+
+    skipSecondBillCredit = false;
+    secondSkipReason = '';
+}
+
+return {
+    customerKey: customerKey,
+    customerName: customerName,
+    transactionType: transactionType,
+    timestampText: timestampText,
+    timestampDate: timestampDate,
+    amount: amount,
+    skipTransaction: skipTransaction,
+    skipReason: skipReason,
+    secondAmount: secondAmount,
+    skipSecondBillCredit: skipSecondBillCredit,
+    secondSkipReason: secondSkipReason
+};
+}
+function createPaybackVendorCredit(lclSubject, lclFile, fileName, transactionDate) {
+    var config = getLclTransactionConfig(lclSubject.customerKey, LCL_DEDUCTION_TYPE);
+    var documentNumber = lclFile.documentNumber;
+    var paybackDocumentNumber = documentNumber + '_payback';
+
+    var record = nlapiCreateRecord('vendorcredit', { recordmode: 'dynamic' });
+    var memo = 'EFT ' + paybackDocumentNumber;
+
+    setBodyField(record, 'entity', config.entityId);
+    setBodyField(record, 'trandate', transactionDate);
+    setBodyField(record, 'tranid', paybackDocumentNumber);
+    setBodyField(record, 'memo', memo);
+    setBodyField(record, 'custbody_created_from_email_capture', 'T');
+    setBodyField(record, 'currency', LCL_CURRENCY_ID);
+    setBodyField(record, 'location', LCL_LOCATION_ID);
+    setBodyField(record, 'account', config.accountId);
+    setBodyField(record, 'custbody_report_timestamp', getNetSuiteDateTimeValue(lclSubject.timestampDate));
+    setBodyField(record, config.referenceFieldId, paybackDocumentNumber);
+
+    addLclItemLine(record, config, lclSubject.secondAmount, paybackDocumentNumber, fileName);
+
+    var recordId = nlapiSubmitRecord(record, true, true);
+    nlapiLogExecution('AUDIT', 'Payback Vendor Credit created', 'id=' + recordId + ' tranid=' + paybackDocumentNumber + ' amount=' + lclSubject.secondAmount);
+
+    return {
+        id: recordId,
+        recordType: 'vendorcredit',
+        tranid: paybackDocumentNumber
+    };
+}
+function isLclTransactionSubject(subject) {
+    return /^\s*(LCL|Metro)\s+(Deductions|Remittances)\s*(?:_|-\s*)/i.test(subject || '');
+}
+
+function parseLclCsvFileName(fileName) {
+    var match = /^(?:(LCL|Metro)\s+)?(Deduction|Remittance)_([0-9]+)(?:\s+\([0-9]+\))?\.csv$/i.exec(trim(fileName));
+    if (!match) {
+        return { error: 'Invalid CSV filename. Expected optional customer prefix plus Deduction_number.csv or Remittance_number.csv, received: ' + fileName };
+    }
+
+    var customerText = trim(match[1] || '');
+    var fileType = match[2];
+
+    return {
+        customerKey: /^LCL$/i.test(customerText) ? LCL_CUSTOMER_KEY : /^Metro$/i.test(customerText) ? METRO_CUSTOMER_KEY : '',
+        customerName: customerText,
+        transactionType: /^Deduction$/i.test(fileType) ? LCL_DEDUCTION_TYPE : LCL_REMITTANCE_TYPE,
+        fileType: fileType,
+        documentNumber: match[3]
+    };
+}
+
+function normalizeHeaderName(value) {
+    return trim(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findCsvColumnIndex(headers, possibleNames) {
+    for (var i = 0; i < possibleNames.length; i++) {
+        var expected = normalizeHeaderName(possibleNames[i]);
+        for (var j = 0; j < headers.length; j++) {
+            if (normalizeHeaderName(headers[j]) === expected) {
+                return j;
+            }
         }
     }
 
-    function applyCreditsToPayment(payment, paymentId, payload) {
-        var customerId = getBodyValue(payment, ['customer', 'entity']);
-        var creditLineCount = payment.getLineCount({ sublistId: 'credit' }) || 0;
-        var operations = [];
-        var errors = [];
+    return -1;
+}
 
-        log.debug({
-            title: 'Credit apply setup',
-            details: 'paymentId=' + paymentId +
-                ' customerId=' + customerId +
-                ' creditSublistLineCount=' + creditLineCount +
-                ' payloadCreditCount=' + payload.credits.length
-        });
-
-        for (var i = 0; i < payload.credits.length; i++) {
-            var credit = payload.credits[i] || {};
-            var amount = parsePositiveAmount(credit.amount);
-            var creditId = resolveCreditInternalId(credit, customerId);
-
-            log.debug({
-                title: 'Credit apply row check',
-                details: 'paymentId=' + paymentId +
-                    ' rowNumber=' + (credit.rowNumber || '') +
-                    ' creditTranId=' + (credit.creditTranId || '') +
-                    ' creditInternalIdFromJson=' + (credit.creditInternalId || '') +
-                    ' resolvedCreditId=' + creditId +
-                    ' rawAmount=' + credit.amount +
-                    ' parsedAmount=' + amount
-            });
-
-            if (!creditId) {
-                errors.push('Credit row ' + credit.rowNumber + ' has no credit internal id or searchable credit tranid.');
-                continue;
-            }
-
-            if (!(amount > 0)) {
-                errors.push('Credit ' + creditId + ' has invalid amount: ' + credit.amount);
-                continue;
-            }
-
-            var line = findSublistLineByValue(payment, 'credit', 'doc', String(creditId));
-            log.debug({
-                title: 'Credit sublist line search',
-                details: 'paymentId=' + paymentId +
-                    ' creditId=' + creditId +
-                    ' foundLine=' + line +
-                    ' creditSublistLineCount=' + creditLineCount
-            });
-
-            if (line < 0) {
-                errors.push('Credit ' + creditId + ' was not found on payment credit sublist.');
-                continue;
-            }
-
-            operations.push({
-                line: line,
-                creditId: creditId,
-                amount: amount
-            });
-        }
-
-        if (errors.length) {
-            log.error({
-                title: 'Credit apply validation failed',
-                details: 'paymentId=' + paymentId + ' errors=' + errors.join(' | ')
-            });
-            return;
-        }
-
-        for (var opIndex = 0; opIndex < operations.length; opIndex++) {
-            var operation = operations[opIndex];
-
-            log.debug({
-                title: 'Applying credit line',
-                details: 'paymentId=' + paymentId +
-                    ' creditId=' + operation.creditId +
-                    ' line=' + operation.line +
-                    ' amount=' + operation.amount
-            });
-
-            payment.setSublistValue({
-                sublistId: 'credit',
-                fieldId: 'apply',
-                line: operation.line,
-                value: true
-            });
-            payment.setSublistValue({
-                sublistId: 'credit',
-                fieldId: 'amount',
-                line: operation.line,
-                value: operation.amount
-            });
-        }
-
-        payment.setValue({
-            fieldId: CREDIT_JSON_FIELD_ID,
-            value: ''
-        });
-
-        log.debug({
-            title: 'Credit apply JSON cleared',
-            details: 'paymentId=' + paymentId + ' fieldId=' + CREDIT_JSON_FIELD_ID
-        });
-
-        log.audit({
-            title: 'Credits applied to customer payment',
-            details: 'paymentId=' + paymentId + ' creditCount=' + operations.length + ' sourceFile=' + (payload.fileName || '')
-        });
+function parseCsvAmountValue(value) {
+    var text = trim(value);
+    if (!text) {
+        return 0;
     }
 
-    function resolveCreditInternalId(credit, customerId) {
-        if (credit.creditInternalId) {
-            log.debug({
-                title: 'Credit internal id provided',
-                details: 'creditInternalId=' + credit.creditInternalId +
-                    ' creditTranId=' + (credit.creditTranId || '')
-            });
-            return String(credit.creditInternalId);
-        }
-
-        if (!credit.creditTranId) {
-            log.debug({
-                title: 'Credit lookup skipped',
-                details: 'No creditTranId found on payload row ' + (credit.rowNumber || '')
-            });
-            return '';
-        }
-
-        var filters = [
-            ['tranid', 'is', String(credit.creditTranId)]
-        ];
-
-        if (customerId) {
-            filters.push('AND');
-            filters.push(['entity', 'anyof', customerId]);
-        }
-
-        log.debug({
-            title: 'Searching credit memo',
-            details: 'creditTranId=' + credit.creditTranId + ' customerId=' + (customerId || '')
-        });
-
-        var resultSet = search.create({
-            type: search.Type.CREDIT_MEMO,
-            filters: filters,
-            columns: ['internalid']
-        }).run().getRange({
-            start: 0,
-            end: 1
-        });
-
-        var creditId = resultSet && resultSet.length ? String(resultSet[0].getValue({ name: 'internalid' })) : '';
-
-        log.debug({
-            title: 'Credit memo search result',
-            details: 'creditTranId=' + credit.creditTranId + ' resolvedCreditId=' + creditId
-        });
-
-        return creditId;
+    var negative = /^\(.*\)$/.test(text) || text.charAt(0) === '-';
+    var normalized = text.replace(/[,$()\s]/g, '').replace(/^-/, '');
+    if (!/^\d+(\.\d+)?$/.test(normalized)) {
+        return 0;
     }
 
-    function findSublistLineByValue(rec, sublistId, fieldId, expectedValue) {
-        var line = rec.findSublistLineWithValue({
-            sublistId: sublistId,
-            fieldId: fieldId,
-            value: expectedValue
-        });
+    var amount = parseFloat(normalized);
+    return negative ? -amount : amount;
+}
 
-        if (line < 0 && /^\d+$/.test(String(expectedValue))) {
-            line = rec.findSublistLineWithValue({
-                sublistId: sublistId,
-                fieldId: fieldId,
-                value: parseInt(expectedValue, 10)
-            });
-        }
+function formatCsvAmount(value) {
+    var amount = Math.abs(parseFloat(value || 0));
+    return String(amount);
+}
 
-        return line;
-    }
-
-    function getBodyValue(rec, fieldIds) {
-        for (var i = 0; i < fieldIds.length; i++) {
-            try {
-                var value = rec.getValue({ fieldId: fieldIds[i] });
-                if (value) {
-                    return value;
-                }
-            } catch (e) {
-                // Try the next possible field id.
-            }
-        }
-
+function getCsvValue(values, index) {
+    if (index < 0 || index >= values.length) {
         return '';
     }
 
-    function parsePositiveAmount(value) {
-        var text = String(value || '').replace(/[,$\s]/g, '');
-        if (!/^\d+(\.\d+)?$/.test(text)) {
-            return 0;
-        }
+    return trim(values[index]);
+}
 
-        return parseFloat(text);
+function getFirstCsvValue(values, indexes) {
+    for (var i = 0; i < indexes.length; i++) {
+        var value = getCsvValue(values, indexes[i]);
+        if (value) {
+            return value;
+        }
     }
 
-    function getErrorDetails(error) {
-        if (!error) {
-            return '';
+    return '';
+}
+
+function getCreditInternalIdColumnIndexes(headers) {
+    var indexes = [];
+    var exactNames = [
+        'Credit Internal ID',
+        'Credit Memo Internal ID',
+        'Credit Memo ID',
+        'Credit ID',
+        'Credit Document Internal ID',
+        'Invoice Internal ID'
+    ];
+
+    for (var i = 0; i < exactNames.length; i++) {
+        var index = findCsvColumnIndex(headers, [exactNames[i]]);
+        if (index !== -1) {
+            indexes.push(index);
+        }
+    }
+
+    return indexes;
+}
+
+function getCreditTranIdColumnIndexes(headers) {
+    var indexes = [];
+    var exactNames = [
+        'Credit #',
+        'Credit Memo #',
+        'Credit Reference',
+        'Credit Memo Reference',
+        'Invoice Number',
+        'Invoice #',
+        'Invoice Reference'
+    ];
+
+    for (var i = 0; i < exactNames.length; i++) {
+        var index = findCsvColumnIndex(headers, [exactNames[i]]);
+        if (index !== -1) {
+            indexes.push(index);
+        }
+    }
+
+    return indexes;
+}
+
+function getPayloadHeaderIndexes(headers) {
+    return {
+        paymentExternalId: findCsvColumnIndex(headers, ['Payment External ID']),
+        paymentNumber: findCsvColumnIndex(headers, ['Payment #', 'Remittance Number']),
+        paymentDate: findCsvColumnIndex(headers, ['Payment Date', 'Remittance Date']),
+        parentId: findCsvColumnIndex(headers, ['Parent ID'])
+    };
+}
+
+function csvEscape(value) {
+    var text = value === null || value === undefined ? '' : String(value);
+    if (/[",\r\n]/.test(text)) {
+        return '"' + text.replace(/"/g, '""') + '"';
+    }
+
+    return text;
+}
+
+function buildCsvContent(headers, dataRows) {
+    var lines = [];
+    lines.push(headers.map(csvEscape).join(','));
+
+    for (var i = 0; i < dataRows.length; i++) {
+        var row = dataRows[i];
+        var output = [];
+        for (var col = 0; col < headers.length; col++) {
+            output.push(csvEscape(row[col] || ''));
+        }
+        lines.push(output.join(','));
+    }
+
+    return lines.join('\r\n');
+}
+
+function buildUpdatedFileName(fileName) {
+    return METRO_UPDATED_FILE_PREFIX + trim(fileName);
+}
+
+function analyzeMetroRemittanceCredits(csvFile, lclFile) {
+    var contents = getCsvFileContents(csvFile);
+    if (!contents) {
+        return { error: 'CSV attachment contents are empty or unavailable' };
+    }
+
+    var rows = contents.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    if (!rows.length || !trim(rows[0])) {
+        return { error: 'CSV header row is empty' };
+    }
+
+    var headers = parseCsvLine(rows[0]);
+    var netIndex = findCsvColumnIndex(headers, ['Net']);
+    if (netIndex === -1) {
+        debugLog('Metro credit filter skipped', 'No Net column found. fileName=' + csvFile.getName());
+        return { hasCredits: false };
+    }
+
+    var notesIndex = findCsvColumnIndex(headers, [METRO_CREDIT_NOTES_COLUMN_NAME]);
+    if (notesIndex === -1) {
+        notesIndex = headers.length;
+        headers.push(METRO_CREDIT_NOTES_COLUMN_NAME);
+    }
+
+    var creditInternalIdIndexes = getCreditInternalIdColumnIndexes(headers);
+    var creditTranIdIndexes = getCreditTranIdColumnIndexes(headers);
+    var payloadIndexes = getPayloadHeaderIndexes(headers);
+    var keptRows = [];
+    var credits = [];
+    var firstDataRow = null;
+
+    for (var rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+        if (!trim(rows[rowIndex])) {
+            continue;
         }
 
-        return [
-            error.name || '',
-            error.message || '',
-            error.stack || ''
-        ].join(' | ');
+        var values = parseCsvLine(rows[rowIndex]);
+        var netAmount = parseCsvAmountValue(getCsvValue(values, netIndex));
+
+        if (netAmount < 0) {
+            credits.push({
+                rowNumber: rowIndex + 1,
+                amount: formatCsvAmount(netAmount),
+                creditInternalId: getFirstCsvValue(values, creditInternalIdIndexes),
+                creditTranId: getFirstCsvValue(values, creditTranIdIndexes)
+            });
+        } else {
+            while (values.length < headers.length) {
+                values.push('');
+            }
+            keptRows.push(values);
+            if (!firstDataRow) {
+                firstDataRow = values;
+            }
+        }
+    }
+
+    if (!credits.length) {
+        debugLog('Metro credit filter skipped', 'Net column found but no negative Net rows. fileName=' + csvFile.getName());
+        return { hasCredits: false };
+    }
+
+    if (!keptRows.length) {
+        return { error: 'All rows have negative Net values. Cannot create payment import file with no payment rows.' };
+    }
+
+    var payload = {
+        source: 'metro_remittance_credit_apply',
+        fileName: csvFile.getName(),
+        documentNumber: lclFile.documentNumber,
+        paymentExternalId: getCsvValue(firstDataRow, payloadIndexes.paymentExternalId),
+        paymentNumber: getCsvValue(firstDataRow, payloadIndexes.paymentNumber),
+        paymentDate: getCsvValue(firstDataRow, payloadIndexes.paymentDate),
+        parentId: getCsvValue(firstDataRow, payloadIndexes.parentId),
+        credits: credits
+    };
+
+    keptRows[0][notesIndex] = JSON.stringify(payload);
+
+    return {
+        hasCredits: true,
+        creditCount: credits.length,
+        updatedContents: buildCsvContent(headers, keptRows),
+        updatedFileName: buildUpdatedFileName(csvFile.getName())
+    };
+}
+
+function maybeCreateMetroRemittanceUpdatedFile(subject, csvFile) {
+    var lclSubject = parseLclSubject(subject);
+    if (!lclSubject || lclSubject.error ||
+            lclSubject.customerKey !== METRO_CUSTOMER_KEY ||
+            lclSubject.transactionType !== LCL_REMITTANCE_TYPE) {
+        return { updated: false };
+    }
+
+    var lclFile = parseLclCsvFileName(csvFile.getName());
+    if (lclFile.error) {
+        return { error: lclFile.error };
+    }
+
+    if (lclFile.transactionType !== lclSubject.transactionType) {
+        return { error: 'Subject/file type mismatch for Metro credit filter. subject=' + subject + ' fileName=' + csvFile.getName() };
+    }
+
+    if (lclFile.customerKey && lclFile.customerKey !== lclSubject.customerKey) {
+        return { error: 'Subject/file customer mismatch for Metro credit filter. subject=' + subject + ' fileName=' + csvFile.getName() };
+    }
+
+    var analysis = analyzeMetroRemittanceCredits(csvFile, lclFile);
+    if (analysis.error) {
+        return analysis;
+    }
+
+    if (!analysis.hasCredits) {
+        return { updated: false };
+    }
+
+    var updatedFile = nlapiCreateFile(analysis.updatedFileName, 'CSV', analysis.updatedContents);
+    updatedFile.setFolder(TARGET_FOLDER_ID);
+    var updatedFileId = nlapiSubmitFile(updatedFile);
+
+    nlapiLogExecution('AUDIT', 'Metro remittance updated CSV created',
+            'originalFile=' + csvFile.getName() +
+            ' updatedFile=' + analysis.updatedFileName +
+            ' updatedFileId=' + updatedFileId +
+            ' creditCount=' + analysis.creditCount);
+
+    return {
+        updated: true,
+        fileId: updatedFileId,
+        fileName: analysis.updatedFileName,
+        creditCount: analysis.creditCount
+    };
+}
+
+function getCsvFileContents(csvFile) {
+    var methodNames = ['getValue', 'getContents', 'getContent'];
+
+    for (var i = 0; i < methodNames.length; i++) {
+        try {
+            if (csvFile && typeof csvFile[methodNames[i]] === 'function') {
+                var value = csvFile[methodNames[i]]();
+                if (value !== null && value !== undefined && value !== '') {
+                    return String(value);
+                }
+            }
+        } catch (e) {
+            debugLog('Unable to read CSV contents', 'method=' + methodNames[i] + ' error=' + getErrorDetails(e));
+        }
+    }
+
+    return '';
+}
+
+function parseCsvLine(line) {
+    var values = [];
+    var current = '';
+    var inQuotes = false;
+
+    for (var i = 0; i < line.length; i++) {
+        var character = line.charAt(i);
+        var nextCharacter = line.charAt(i + 1);
+
+        if (character === '"') {
+            if (inQuotes && nextCharacter === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (character === ',' && !inQuotes) {
+            values.push(current);
+            current = '';
+        } else {
+            current += character;
+        }
+    }
+
+    values.push(current);
+    return values;
+}
+
+function getCsvColumnValue(csvFile, columnName) {
+    var contents = getCsvFileContents(csvFile);
+    if (!contents) {
+        return { error: 'CSV attachment contents are empty or unavailable' };
+    }
+
+    var rows = contents.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    if (!rows.length || !trim(rows[0])) {
+        return { error: 'CSV header row is empty' };
+    }
+
+    var headers = parseCsvLine(rows[0]);
+    var columnIndex = -1;
+
+    for (var i = 0; i < headers.length; i++) {
+        if (trim(headers[i]).toLowerCase() === columnName.toLowerCase()) {
+            columnIndex = i;
+            break;
+        }
+    }
+
+    if (columnIndex === -1) {
+        return { error: 'CSV date column not found: ' + columnName };
+    }
+
+    for (var rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+        if (!trim(rows[rowIndex])) {
+            continue;
+        }
+
+        var values = parseCsvLine(rows[rowIndex]);
+        var columnValue = trim(values[columnIndex] || '');
+        if (columnValue) {
+            return {
+                value: columnValue,
+                rowNumber: rowIndex + 1,
+                columnName: columnName
+            };
+        }
+    }
+
+    return { error: 'CSV date column has no value: ' + columnName };
+}
+
+function normalizeCsvDateForNetSuite(dateText) {
+    var value = trim(dateText);
+    var match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(value);
+    if (match) {
+        return parseInt(match[1], 10) + '/' + parseInt(match[2], 10) + '/' + match[3];
+    }
+
+    match = /^(\d{4})-(\d{2})-(\d{2})(?:\s+\d{2}:\d{2}(?::\d{2})?)?$/.exec(value);
+    if (match) {
+        return parseInt(match[2], 10) + '/' + parseInt(match[3], 10) + '/' + match[1];
+    }
+
+    return null;
+}
+
+function getCsvTransactionDate(csvFile, config) {
+    var dateResult = getCsvColumnValue(csvFile, config.dateColumnName);
+    if (dateResult.error) {
+        return dateResult;
+    }
+
+    var transactionDate = normalizeCsvDateForNetSuite(dateResult.value);
+    if (!transactionDate) {
+        return { error: 'Invalid CSV transaction date: column=' + config.dateColumnName + ' value=' + dateResult.value };
+    }
+
+    debugLog('CSV transaction date resolved', 'column=' + dateResult.columnName + ' row=' + dateResult.rowNumber + ' rawValue=' + dateResult.value + ' transactionDate=' + transactionDate);
+
+    return {
+        value: transactionDate,
+        rawValue: dateResult.value,
+        rowNumber: dateResult.rowNumber,
+        columnName: dateResult.columnName
+    };
+}
+
+function getCurrentNetSuiteDate() {
+    return nlapiDateToString(new Date(), 'date');
+}
+
+function getNetSuiteDateTimeValue(dateValue) {
+    return nlapiDateToString(dateValue, 'datetimetz');
+}
+
+function debugLog(title, details) {
+    if (LCL_DEBUG_LOGS) {
+        nlapiLogExecution('DEBUG', title, details);
+    }
+}
+
+function getErrorDetails(error) {
+    if (!error) {
+        return '';
+    }
+
+    var details = [];
+    if (error.name) {
+        details.push('name=' + error.name);
+    }
+    if (error.code) {
+        details.push('code=' + error.code);
+    }
+    if (error.message) {
+        details.push('message=' + error.message);
+    }
+    if (error.stack) {
+        details.push('stack=' + error.stack);
+    }
+
+    if (details.length) {
+        return details.join(' | ');
+    }
+
+    return String(error);
+}
+
+// ------------------------------------------------------------------
+// LCL TRANSACTION CREATION
+// ------------------------------------------------------------------
+
+function setBodyField(record, fieldId, value) {
+    if (value !== null && value !== undefined && value !== '') {
+        debugLog('Setting body field', fieldId + '=' + value);
+        record.setFieldValue(fieldId, String(value));
+    }
+}
+
+function addLclItemLine(record, config, amount, documentNumber, fileName) {
+    debugLog('Adding LCL item line', 'recordType=' + config.recordType + ' item=' + config.itemId + ' amount=' + amount + ' taxcode=' + LCL_TAX_CODE_ID + ' class=' + LCL_CLASS_ID + ' brand=' + LCL_BRAND_ID + ' documentNumber=' + documentNumber + ' fileName=' + fileName);
+    record.selectNewLineItem('item');
+    record.setCurrentLineItemValue('item', 'item', config.itemId);
+
+    if (config.recordType === 'creditmemo') {
+        record.setCurrentLineItemValue('item', 'price', '-1');
+    }
+
+    record.setCurrentLineItemValue('item', 'quantity', '1');
+    record.setCurrentLineItemValue('item', 'units', LCL_UNITS_ID);
+    record.setCurrentLineItemValue('item', 'rate', amount);
+    record.setCurrentLineItemValue('item', 'amount', amount);
+    record.setCurrentLineItemValue('item', 'taxcode', LCL_TAX_CODE_ID);
+    record.setCurrentLineItemValue('item', 'class', LCL_CLASS_ID);
+    record.setCurrentLineItemValue('item', 'cseg_mi_brand', LCL_BRAND_ID);
+
+    if (config.setLineLocation) {
+        record.setCurrentLineItemValue('item', 'location', LCL_LOCATION_ID);
+    }
+
+    if (config.setLineDescription) {
+        record.setCurrentLineItemValue('item', 'description', documentNumber);
+    }
+
+    record.commitLineItem('item');
+    debugLog('LCL item line committed', 'recordType=' + config.recordType + ' item=' + config.itemId + ' amount=' + amount);
+}
+
+function createCustomerRefundForCreditMemo(creditMemoId, customerId, documentNumber, transactionDate, amount) {
+    if (!CUSTOMER_REFUND_ACCOUNT_ID) {
+        throw nlapiCreateError('MISSING_REFUND_ACCOUNT', 'CUSTOMER_REFUND_ACCOUNT_ID is required to create Customer Refund', true);
+    }
+
+    debugLog('Creating Customer Refund', 'creditMemoId=' + creditMemoId + ' customerId=' + customerId + ' documentNumber=' + documentNumber + ' transactionDate=' + transactionDate + ' account=' + CUSTOMER_REFUND_ACCOUNT_ID + ' amount=' + amount);
+
+    var refund = nlapiCreateRecord('customerrefund', { recordmode: 'dynamic' });
+    var memo = 'EFT ' + documentNumber;
+
+    setBodyField(refund, 'customer', customerId);
+    setBodyField(refund, 'trandate', transactionDate);
+    setBodyField(refund, 'tranid', documentNumber);
+    setBodyField(refund, 'account', CUSTOMER_REFUND_ACCOUNT_ID);
+    setBodyField(refund, 'memo', memo);
+    setBodyField(refund, 'custbody_created_from_email_capture', 'T');
+    setBodyField(refund, 'paymentmethod', 7); //EFT/ACH
+
+    var line = refund.findLineItemValue('apply', 'doc', String(creditMemoId));
+    debugLog('Customer Refund apply line lookup', 'creditMemoId=' + creditMemoId + ' line=' + line);
+
+    if (line < 1) {
+        throw nlapiCreateError('CREDIT_MEMO_NOT_ON_REFUND', 'Credit Memo ' + creditMemoId + ' was not found on Customer Refund apply sublist', true);
+    }
+
+    refund.selectLineItem('apply', line);
+    refund.setCurrentLineItemValue('apply', 'apply', 'T');
+    refund.setCurrentLineItemValue('apply', 'amount', amount);
+    refund.commitLineItem('apply');
+
+    debugLog('Submitting Customer Refund', 'creditMemoId=' + creditMemoId + ' documentNumber=' + documentNumber + ' amount=' + amount);
+    var refundId = nlapiSubmitRecord(refund, true, true);
+    nlapiLogExecution('AUDIT', 'Customer Refund created', 'refundId=' + refundId + ' creditMemoId=' + creditMemoId + ' documentNumber=' + documentNumber + ' amount=' + amount);
+
+    return refundId;
+}
+
+function createLclTransaction(lclSubject, lclFile, fileName, transactionDate) {
+    var config = getLclTransactionConfig(lclSubject.customerKey, lclSubject.transactionType);
+    if (!config) {
+        throw nlapiCreateError('LCL_CONFIG_MISSING', 'No LCL transaction config for type ' + lclSubject.transactionType, true);
+    }
+
+    var documentNumber = lclFile.documentNumber;
+    debugLog('Creating LCL transaction', 'type=' + lclSubject.transactionType + ' recordType=' + config.recordType + ' documentNumber=' + documentNumber + ' fileName=' + fileName + ' amount=' + lclSubject.amount + ' timestamp=' + lclSubject.timestampText + ' transactionDate=' + transactionDate);
+    var record = nlapiCreateRecord(config.recordType, { recordmode: 'dynamic' });
+    var memo = 'EFT ' + documentNumber;
+
+    setBodyField(record, 'entity', config.entityId);
+    setBodyField(record, 'trandate', transactionDate);
+    setBodyField(record, 'tranid', documentNumber);
+    setBodyField(record, 'memo', memo);
+    setBodyField(record, 'custbody_created_from_email_capture', 'T');
+    setBodyField(record, 'currency', LCL_CURRENCY_ID);
+    setBodyField(record, 'location', LCL_LOCATION_ID);
+    setBodyField(record, 'account', config.accountId);
+    setBodyField(record, 'custbody_report_timestamp', getNetSuiteDateTimeValue(lclSubject.timestampDate));
+    setBodyField(record, config.referenceFieldId, documentNumber);
+
+    addLclItemLine(record, config, lclSubject.amount, documentNumber, fileName);
+
+    debugLog('Submitting LCL transaction', 'recordType=' + config.recordType + ' tranid=' + documentNumber + ' sourceFile=' + fileName + ' transactionDate=' + transactionDate);
+    var recordId = nlapiSubmitRecord(record, true, true);
+    nlapiLogExecution('AUDIT', 'LCL transaction created', config.label + ' id=' + recordId + ' tranid=' + documentNumber + ' sourceFile=' + fileName + ' amount=' + lclSubject.amount);
+    var refundId = null;
+
+    if (config.recordType === 'creditmemo') {
+        refundId = createCustomerRefundForCreditMemo(recordId, config.entityId, documentNumber, transactionDate, lclSubject.amount);
     }
 
     return {
-        beforeSubmit: beforeSubmit
+        isLcl: true,
+        created: true,
+        id: recordId,
+        refundId: refundId,
+        recordType: config.recordType,
+        label: config.label,
+        tranid: documentNumber
     };
-});
+}
+
+function maybeCreateLclTransaction(subject, csvFile) {
+    debugLog('Checking LCL transaction add-on', 'subject=' + subject + ' csvFile=' + csvFile.getName());
+    var lclSubject = parseLclSubject(subject);
+    if (!lclSubject) {
+        debugLog('Not an LCL transaction subject', 'subject=' + subject);
+        return { isLcl: false, created: false };
+    }
+
+    if (lclSubject.error) {
+        nlapiLogExecution('ERROR', 'Invalid LCL transaction subject', lclSubject.error + ' subject=' + subject);
+        return { isLcl: true, created: false };
+    }
+
+    if (lclSubject.skipTransaction && lclSubject.skipSecondBillCredit) {
+        nlapiLogExecution('AUDIT', 'All transactions skipped', 'First and second amounts are zero or blank. subject=' + subject);
+        return { isLcl: true, created: false, skipTransaction: true };
+    }
+
+
+    debugLog('LCL subject parsed', 'customer=' + lclSubject.customerName + ' transactionType=' + lclSubject.transactionType + ' timestamp=' + lclSubject.timestampText + ' amount=' + lclSubject.amount);
+    var csvFileName = csvFile.getName();
+    var lclFile = parseLclCsvFileName(csvFileName);
+    if (lclFile.error) {
+        nlapiLogExecution('ERROR', 'Invalid LCL CSV filename', lclFile.error + ' subject=' + subject);
+        return { isLcl: true, created: false };
+    }
+
+    debugLog('LCL CSV filename parsed', 'transactionType=' + lclFile.transactionType + ' fileType=' + lclFile.fileType + ' documentNumber=' + lclFile.documentNumber + ' fileName=' + csvFileName);
+    if (lclFile.transactionType !== lclSubject.transactionType) {
+        nlapiLogExecution('ERROR', 'LCL subject/file type mismatch', 'subject=' + subject + ' fileName=' + csvFileName);
+        return { isLcl: true, created: false };
+    }
+
+  if (lclFile.customerKey && lclFile.customerKey !== lclSubject.customerKey) {
+    nlapiLogExecution('ERROR', 'Subject/file customer mismatch', 'subject=' + subject + ' fileName=' + csvFileName + ' subjectCustomer=' + lclSubject.customerName + ' fileCustomer=' + lclFile.customerName);
+    return { isLcl: true, created: false };
+}
+
+    var config = getLclTransactionConfig(lclSubject.customerKey, lclSubject.transactionType);
+    if (!config) {
+        nlapiLogExecution('ERROR', 'Missing LCL transaction config', 'transactionType=' + lclSubject.transactionType + ' subject=' + subject);
+        return { isLcl: true, created: false };
+    }
+
+    var transactionDateResult = getCsvTransactionDate(csvFile, config);
+    if (transactionDateResult.error) {
+        nlapiLogExecution('ERROR', 'CSV transaction date not resolved', transactionDateResult.error + ' subject=' + subject + ' fileName=' + csvFileName);
+        return { isLcl: true, created: false };
+    }
+
+    var result = {
+    isLcl: true,
+    created: false,
+    skipTransaction: false
+};
+
+if (lclSubject.skipTransaction) {
+    nlapiLogExecution('AUDIT', 'Main transaction skipped', lclSubject.skipReason + ' subject=' + subject);
+} else {
+    result = createLclTransaction(lclSubject, lclFile, csvFileName, transactionDateResult.value);
+}
+
+if (lclSubject.skipSecondBillCredit === false) {
+    var paybackResult = createPaybackVendorCredit(lclSubject, lclFile, csvFileName, transactionDateResult.value);
+    result.isLcl = true;
+    result.created = true;
+    result.paybackVendorCreditId = paybackResult.id;
+    result.paybackTranid = paybackResult.tranid;
+} else {
+    debugLog('Payback Vendor Credit skipped', lclSubject.secondSkipReason + ' subject=' + subject);
+}
+
+if (lclSubject.skipTransaction && lclSubject.skipSecondBillCredit) {
+    result.skipTransaction = true;
+}
+
+return result;
+}
+
+function getMessageValue(message, methodName) {
+    try {
+        if (message && typeof message[methodName] === 'function') {
+            return message[methodName]() || '';
+        }
+    } catch (e) {
+        debugLog('Unable to read email sender method', methodName + ' error=' + getErrorDetails(e));
+    }
+
+    return '';
+}
+
+function getSenderEmail(message) {
+    var rawSender = getMessageValue(message, 'getFrom') ||
+            getMessageValue(message, 'getFromEmail') ||
+            getMessageValue(message, 'getSender');
+    var senderText = trim(rawSender);
+    var emailMatch = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.exec(senderText);
+
+    return {
+        raw: senderText,
+        email: emailMatch ? emailMatch[0].toLowerCase() : senderText.toLowerCase()
+    };
+}
+
+function isAllowedSender(message) {
+    var sender = getSenderEmail(message);
+    var emailParts = sender.email.split('@');
+    var domain = emailParts.length === 2 ? emailParts[1] : '';
+    var allowed = domain === ALLOWED_SENDER_DOMAIN;
+
+    debugLog('Sender validation', 'rawSender=' + sender.raw + ' parsedEmail=' + sender.email + ' domain=' + domain + ' allowed=' + allowed);
+
+    return {
+        allowed: allowed,
+        raw: sender.raw,
+        email: sender.email,
+        domain: domain
+    };
+}
+
+// ------------------------------------------------------------------
+// EMAIL CAPTURE ENTRY POINT
+// ------------------------------------------------------------------
+
+/**
+ * Email Capture Plug-in entry point.
+ * @param {nlobjEmail} message the received email
+ * @param {nlobjRecord} newRecord stub record (e.g. Case) NetSuite would
+ *                                otherwise create by default
+ */
+function process(message, newRecord) {
+    try {
+        var subject = message.getSubject();
+        nlapiLogExecution('DEBUG', 'Email Capture triggered', 'subject=' + subject + ' targetFolderId=' + TARGET_FOLDER_ID);
+
+      var senderValidation = isAllowedSender(message);
+if (!senderValidation.allowed) {
+    nlapiLogExecution('AUDIT', 'Email sender blocked', 'subject=' + subject + ' rawSender=' + senderValidation.raw + ' parsedEmail=' + senderValidation.email + ' parsedDomain=' + senderValidation.domain + ' allowedDomain=' + ALLOWED_SENDER_DOMAIN);
+    return;
+}
+
+        var importConfig = resolveImportConfig(subject);
+        if (!importConfig) {
+            nlapiLogExecution('AUDIT', 'No matching import config for subject', subject);
+            return;
+        }
+        debugLog('Import config resolved', 'keyword=' + importConfig.keyword + ' mappingId=' + importConfig.mappingId + ' description=' + importConfig.description);
+
+        var csvFile = getCsvAttachment(message);
+        if (!csvFile) {
+            nlapiLogExecution('ERROR', 'Matched subject but no CSV attachment found', subject);
+            return;
+        }
+        debugLog('CSV attachment ready', 'name=' + csvFile.getName());
+
+        var fileId = saveAttachment(csvFile);
+        debugLog('CSV attachment saved result', 'fileId=' + fileId + ' name=' + csvFile.getName());
+
+        var savedCsvFile = nlapiLoadFile(fileId);
+        debugLog('CSV file loaded for LCL parsing', 'fileId=' + fileId + ' name=' + savedCsvFile.getName());
+
+        var lclResult = { isLcl: false, created: false };
+        try {
+            lclResult = maybeCreateLclTransaction(subject, savedCsvFile);
+        } catch (lclError) {
+            nlapiLogExecution('ERROR', 'LCL transaction creation failed', getErrorDetails(lclError));
+            if (isLclTransactionSubject(subject)) {
+                lclResult = { isLcl: true, created: false };
+            }
+        }
+
+        if (lclResult && lclResult.isLcl && !lclResult.created && !lclResult.skipTransaction) {
+    nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL transaction was not created successfully. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+    return;
+}
+
+        var importFileId = fileId;
+        var importFileName = savedCsvFile.getName();
+        var metroCreditImportResult = maybeCreateMetroRemittanceUpdatedFile(subject, savedCsvFile);
+
+        if (metroCreditImportResult.error) {
+            nlapiLogExecution('ERROR', 'CSV import not scheduled', 'Metro remittance credit filter failed. ' + metroCreditImportResult.error + ' subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+            return;
+        }
+
+        if (metroCreditImportResult.updated) {
+            importFileId = metroCreditImportResult.fileId;
+            importFileName = metroCreditImportResult.fileName;
+        }
+
+        triggerCsvImport(importFileId, importConfig.mappingId);
+
+        if (newRecord) {
+            var messageText = 'Auto-processed CSV import: ' + importConfig.description;
+            if (lclResult && lclResult.created) {
+    if (lclResult.id) {
+        messageText += '; created ' + lclResult.recordType + ' ' + lclResult.id + ' tranid ' + lclResult.tranid;
+    }
+    if (lclResult.refundId) {
+        messageText += '; created customerrefund ' + lclResult.refundId;
+    }
+    if (lclResult.paybackVendorCreditId) {
+        messageText += '; created payback vendorcredit ' + lclResult.paybackVendorCreditId + ' tranid ' + lclResult.paybackTranid;
+    }
+}
+            if (metroCreditImportResult.updated) {
+                messageText += '; created filtered import file ' + importFileName + ' creditCount ' + metroCreditImportResult.creditCount;
+            }
+            newRecord.setFieldValue('incomingmessage', messageText);
+        }
+
+    } catch (e) {
+        nlapiLogExecution('ERROR', 'Email Capture CSV import failed', getErrorDetails(e));
+    }
+}
