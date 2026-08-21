@@ -99,7 +99,7 @@ LCL_TRANSACTION_CONFIG[getTransactionConfigKey(METRO_CUSTOMER_KEY, LCL_REMITTANC
     accountId: '119',
     itemId: '6113',
     fileType: 'Remittance',
-    dateColumnName: 'Payment Date',
+    dateColumnName: 'Remittance Date',
     referenceFieldId: 'custbody_2663_reference_num',
     setLineLocation: false,
     setLineDescription: true
@@ -412,30 +412,6 @@ function findCsvColumnIndex(headers, possibleNames) {
     return -1;
 }
 
-function findCreditAmountColumnIndex(headers) {
-    var exactIndex = findCsvColumnIndex(headers, [
-        'Credit Amount',
-        'Credit Applied',
-        'Credit Apply',
-        'Applied Credit Amount',
-        'Credit Memo Amount',
-        'CM Amount'
-    ]);
-
-    if (exactIndex !== -1) {
-        return exactIndex;
-    }
-
-    for (var i = 0; i < headers.length; i++) {
-        var normalized = normalizeHeaderName(headers[i]);
-        if (normalized.indexOf('credit') !== -1 && normalized.indexOf('amount') !== -1) {
-            return i;
-        }
-    }
-
-    return -1;
-}
-
 function parseCsvAmountValue(value) {
     var text = trim(value);
     if (!text) {
@@ -454,7 +430,7 @@ function parseCsvAmountValue(value) {
 
 function formatCsvAmount(value) {
     var amount = Math.abs(parseFloat(value || 0));
-    return amount.toFixed(2);
+    return String(amount);
 }
 
 function getCsvValue(values, index) {
@@ -504,6 +480,7 @@ function getCreditTranIdColumnIndexes(headers) {
         'Credit Memo #',
         'Credit Reference',
         'Credit Memo Reference',
+        'Invoice Number',
         'Invoice #',
         'Invoice Reference'
     ];
@@ -521,8 +498,8 @@ function getCreditTranIdColumnIndexes(headers) {
 function getPayloadHeaderIndexes(headers) {
     return {
         paymentExternalId: findCsvColumnIndex(headers, ['Payment External ID']),
-        paymentNumber: findCsvColumnIndex(headers, ['Payment #']),
-        paymentDate: findCsvColumnIndex(headers, ['Payment Date']),
+        paymentNumber: findCsvColumnIndex(headers, ['Payment #', 'Remittance Number']),
+        paymentDate: findCsvColumnIndex(headers, ['Payment Date', 'Remittance Date']),
         parentId: findCsvColumnIndex(headers, ['Parent ID'])
     };
 }
@@ -568,9 +545,9 @@ function analyzeMetroRemittanceCredits(csvFile, lclFile) {
     }
 
     var headers = parseCsvLine(rows[0]);
-    var creditAmountIndex = findCreditAmountColumnIndex(headers);
-    if (creditAmountIndex === -1) {
-        debugLog('Metro credit filter skipped', 'No credit amount column found. fileName=' + csvFile.getName());
+    var netIndex = findCsvColumnIndex(headers, ['Net']);
+    if (netIndex === -1) {
+        debugLog('Metro credit filter skipped', 'No Net column found. fileName=' + csvFile.getName());
         return { hasCredits: false };
     }
 
@@ -593,12 +570,12 @@ function analyzeMetroRemittanceCredits(csvFile, lclFile) {
         }
 
         var values = parseCsvLine(rows[rowIndex]);
-        var creditAmount = parseCsvAmountValue(getCsvValue(values, creditAmountIndex));
+        var netAmount = parseCsvAmountValue(getCsvValue(values, netIndex));
 
-        if (creditAmount !== 0) {
+        if (netAmount < 0) {
             credits.push({
                 rowNumber: rowIndex + 1,
-                amount: formatCsvAmount(creditAmount),
+                amount: formatCsvAmount(netAmount),
                 creditInternalId: getFirstCsvValue(values, creditInternalIdIndexes),
                 creditTranId: getFirstCsvValue(values, creditTranIdIndexes)
             });
@@ -614,12 +591,12 @@ function analyzeMetroRemittanceCredits(csvFile, lclFile) {
     }
 
     if (!credits.length) {
-        debugLog('Metro credit filter skipped', 'Credit amount column found but no credit rows. fileName=' + csvFile.getName());
+        debugLog('Metro credit filter skipped', 'Net column found but no negative Net rows. fileName=' + csvFile.getName());
         return { hasCredits: false };
     }
 
     if (!keptRows.length) {
-        return { error: 'All rows contain credit amounts. Cannot create payment import file with no payment rows.' };
+        return { error: 'All rows have negative Net values. Cannot create payment import file with no payment rows.' };
     }
 
     var payload = {
