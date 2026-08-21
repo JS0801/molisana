@@ -376,15 +376,20 @@ function isLclTransactionSubject(subject) {
 }
 
 function parseLclCsvFileName(fileName) {
-    var match = /^(Deduction|Remittance)_([0-9]+)(?:\s+\([0-9]+\))?\.csv$/i.exec(trim(fileName));
+    var match = /^(?:(LCL|Metro)\s+)?(Deduction|Remittance)_([0-9]+)(?:\s+\([0-9]+\))?\.csv$/i.exec(trim(fileName));
     if (!match) {
-        return { error: 'Invalid LCL CSV filename. Expected Deduction_number.csv or Remittance_number.csv, received: ' + fileName };
+        return { error: 'Invalid CSV filename. Expected optional customer prefix plus Deduction_number.csv or Remittance_number.csv, received: ' + fileName };
     }
 
+    var customerText = trim(match[1] || '');
+    var fileType = match[2];
+
     return {
-        transactionType: /^Deduction$/i.test(match[1]) ? LCL_DEDUCTION_TYPE : LCL_REMITTANCE_TYPE,
-        fileType: match[1],
-        documentNumber: match[2]
+        customerKey: /^LCL$/i.test(customerText) ? LCL_CUSTOMER_KEY : /^Metro$/i.test(customerText) ? METRO_CUSTOMER_KEY : '',
+        customerName: customerText,
+        transactionType: /^Deduction$/i.test(fileType) ? LCL_DEDUCTION_TYPE : LCL_REMITTANCE_TYPE,
+        fileType: fileType,
+        documentNumber: match[3]
     };
 }
 
@@ -704,6 +709,11 @@ function maybeCreateLclTransaction(subject, csvFile) {
         nlapiLogExecution('ERROR', 'LCL subject/file type mismatch', 'subject=' + subject + ' fileName=' + csvFileName);
         return { isLcl: true, created: false };
     }
+
+  if (lclFile.customerKey && lclFile.customerKey !== lclSubject.customerKey) {
+    nlapiLogExecution('ERROR', 'Subject/file customer mismatch', 'subject=' + subject + ' fileName=' + csvFileName + ' subjectCustomer=' + lclSubject.customerName + ' fileCustomer=' + lclFile.customerName);
+    return { isLcl: true, created: false };
+}
 
     var config = getLclTransactionConfig(lclSubject.customerKey, lclSubject.transactionType);
     if (!config) {
