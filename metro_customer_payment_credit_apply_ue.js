@@ -1,20 +1,21 @@
 /**
  * Metro Customer Payment Credit Apply - User Event
  *
- * @NApiVersion 2.x
+ * @NApiVersion 2.1
  * @NScriptType UserEventScript
  */
-define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
+define(['N/search', 'N/log'], function(search, log) {
     var CREDIT_JSON_FIELD_ID = 'custbody_metro_credit_apply_json'; // TODO: replace with the Payment custom field mapped from CSV column "Notes".
 
-    function afterSubmit(context) {
+    function beforeSubmit(context) {
         if (context.type !== context.UserEventType.CREATE &&
                 context.type !== context.UserEventType.EDIT) {
             return;
         }
 
-        var paymentId = context.newRecord.id;
-        var jsonText = context.newRecord.getValue({ fieldId: CREDIT_JSON_FIELD_ID });
+        var payment = context.newRecord;
+        var paymentId = payment.id || '(new customer payment)';
+        var jsonText = payment.getValue({ fieldId: CREDIT_JSON_FIELD_ID });
         if (!jsonText) {
             return;
         }
@@ -39,7 +40,7 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
         }
 
         try {
-            applyCreditsToPayment(paymentId, payload);
+            applyCreditsToPayment(payment, paymentId, payload);
         } catch (e) {
             log.error({
                 title: 'Credit apply failed',
@@ -48,13 +49,7 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
         }
     }
 
-    function applyCreditsToPayment(paymentId, payload) {
-        var payment = record.load({
-            type: record.Type.CUSTOMER_PAYMENT,
-            id: paymentId,
-            isDynamic: false
-        });
-
+    function applyCreditsToPayment(payment, paymentId, payload) {
         var customerId = getBodyValue(payment, ['customer', 'entity']);
         var operations = [];
         var errors = [];
@@ -116,14 +111,9 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
             value: ''
         });
 
-        var savedId = payment.save({
-            enableSourcing: false,
-            ignoreMandatoryFields: true
-        });
-
         log.audit({
             title: 'Credits applied to customer payment',
-            details: 'paymentId=' + savedId + ' creditCount=' + operations.length + ' sourceFile=' + (payload.fileName || '')
+            details: 'paymentId=' + paymentId + ' creditCount=' + operations.length + ' sourceFile=' + (payload.fileName || '')
         });
     }
 
@@ -211,6 +201,6 @@ define(['N/record', 'N/search', 'N/log'], function(record, search, log) {
     }
 
     return {
-        afterSubmit: afterSubmit
+        beforeSubmit: beforeSubmit
     };
 });
