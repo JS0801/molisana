@@ -41,7 +41,7 @@ var LCL_DEDUCTION_TYPE = 'deduction';
 var LCL_REMITTANCE_TYPE = 'remittance';
 var LCL_CUSTOMER_KEY = 'lcl';
 var METRO_CUSTOMER_KEY = 'metro';
-var ALLOWED_SENDER_DOMAIN = 'gmail.com';
+var ALLOWED_SENDER_DOMAIN = 'molisana.com';
 
 var LCL_TRANSACTION_CONFIG = {};
 
@@ -1142,7 +1142,7 @@ function isAllowedSender(message) {
     var sender = getSenderEmail(message);
     var emailParts = sender.email.split('@');
     var domain = emailParts.length === 2 ? emailParts[1] : '';
-    var allowed = domain === ALLOWED_SENDER_DOMAIN;
+    var allowed = true; //domain === ALLOWED_SENDER_DOMAIN;
 
     debugLog('Sender validation', 'rawSender=' + sender.raw + ' parsedEmail=' + sender.email + ' domain=' + domain + ' allowed=' + allowed);
 
