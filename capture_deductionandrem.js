@@ -41,7 +41,7 @@ var LCL_DEDUCTION_TYPE = 'deduction';
 var LCL_REMITTANCE_TYPE = 'remittance';
 var LCL_CUSTOMER_KEY = 'lcl';
 var METRO_CUSTOMER_KEY = 'metro';
-var ALLOWED_SENDER_DOMAIN = 'gmail.com';
+var ALLOWED_SENDER_DOMAIN = 'molisana.com';
 
 var LCL_TRANSACTION_CONFIG = {};
 
@@ -99,7 +99,7 @@ LCL_TRANSACTION_CONFIG[getTransactionConfigKey(METRO_CUSTOMER_KEY, LCL_REMITTANC
     accountId: '119',
     itemId: '6113',
     fileType: 'Remittance',
-    dateColumnName: 'Remittance Date',
+    dateColumnName: 'Payment Date',
     referenceFieldId: 'custbody_2663_reference_num',
     setLineLocation: false,
     setLineDescription: true
@@ -112,8 +112,6 @@ var LCL_BRAND_ID = '227';
 var LCL_TAX_CODE_ID = '16';
 var LCL_UNITS_ID = '35';
 var CUSTOMER_REFUND_ACCOUNT_ID = '2058';
-var METRO_CREDIT_NOTES_COLUMN_NAME = 'Notes';
-var METRO_UPDATED_FILE_PREFIX = 'update_file_';
 
 // Keep DEBUG on while testing; change to false after deployment is stable.
 var LCL_DEBUG_LOGS = true;
@@ -392,279 +390,6 @@ function parseLclCsvFileName(fileName) {
         transactionType: /^Deduction$/i.test(fileType) ? LCL_DEDUCTION_TYPE : LCL_REMITTANCE_TYPE,
         fileType: fileType,
         documentNumber: match[3]
-    };
-}
-
-function normalizeHeaderName(value) {
-    return trim(value).toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function findCsvColumnIndex(headers, possibleNames) {
-    for (var i = 0; i < possibleNames.length; i++) {
-        var expected = normalizeHeaderName(possibleNames[i]);
-        for (var j = 0; j < headers.length; j++) {
-            if (normalizeHeaderName(headers[j]) === expected) {
-                return j;
-            }
-        }
-    }
-
-    return -1;
-}
-
-function parseCsvAmountValue(value) {
-    var text = trim(value);
-    if (!text) {
-        return 0;
-    }
-
-    var negative = /^\(.*\)$/.test(text) || text.charAt(0) === '-';
-    var normalized = text.replace(/[,$()\s]/g, '').replace(/^-/, '');
-    if (!/^\d+(\.\d+)?$/.test(normalized)) {
-        return 0;
-    }
-
-    var amount = parseFloat(normalized);
-    return negative ? -amount : amount;
-}
-
-function formatCsvAmount(value) {
-    var amount = Math.abs(parseFloat(value || 0));
-    return String(amount);
-}
-
-function getCsvValue(values, index) {
-    if (index < 0 || index >= values.length) {
-        return '';
-    }
-
-    return trim(values[index]);
-}
-
-function getFirstCsvValue(values, indexes) {
-    for (var i = 0; i < indexes.length; i++) {
-        var value = getCsvValue(values, indexes[i]);
-        if (value) {
-            return value;
-        }
-    }
-
-    return '';
-}
-
-function getCreditInternalIdColumnIndexes(headers) {
-    var indexes = [];
-    var exactNames = [
-        'Credit Internal ID',
-        'Credit Memo Internal ID',
-        'Credit Memo ID',
-        'Credit ID',
-        'Credit Document Internal ID',
-        'Invoice Internal ID'
-    ];
-
-    for (var i = 0; i < exactNames.length; i++) {
-        var index = findCsvColumnIndex(headers, [exactNames[i]]);
-        if (index !== -1) {
-            indexes.push(index);
-        }
-    }
-
-    return indexes;
-}
-
-function getCreditTranIdColumnIndexes(headers) {
-    var indexes = [];
-    var exactNames = [
-        'Credit #',
-        'Credit Memo #',
-        'Credit Reference',
-        'Credit Memo Reference',
-        'Invoice Number',
-        'Invoice #',
-        'Invoice Reference'
-    ];
-
-    for (var i = 0; i < exactNames.length; i++) {
-        var index = findCsvColumnIndex(headers, [exactNames[i]]);
-        if (index !== -1) {
-            indexes.push(index);
-        }
-    }
-
-    return indexes;
-}
-
-function getPayloadHeaderIndexes(headers) {
-    return {
-        paymentExternalId: findCsvColumnIndex(headers, ['Payment External ID']),
-        paymentNumber: findCsvColumnIndex(headers, ['Payment #', 'Remittance Number']),
-        paymentDate: findCsvColumnIndex(headers, ['Payment Date', 'Remittance Date']),
-        parentId: findCsvColumnIndex(headers, ['Parent ID'])
-    };
-}
-
-function csvEscape(value) {
-    var text = value === null || value === undefined ? '' : String(value);
-    if (/[",\r\n]/.test(text)) {
-        return '"' + text.replace(/"/g, '""') + '"';
-    }
-
-    return text;
-}
-
-function buildCsvContent(headers, dataRows) {
-    var lines = [];
-    lines.push(headers.map(csvEscape).join(','));
-
-    for (var i = 0; i < dataRows.length; i++) {
-        var row = dataRows[i];
-        var output = [];
-        for (var col = 0; col < headers.length; col++) {
-            output.push(csvEscape(row[col] || ''));
-        }
-        lines.push(output.join(','));
-    }
-
-    return lines.join('\r\n');
-}
-
-function buildUpdatedFileName(fileName) {
-    return METRO_UPDATED_FILE_PREFIX + trim(fileName);
-}
-
-function analyzeMetroRemittanceCredits(csvFile, lclFile) {
-    var contents = getCsvFileContents(csvFile);
-    if (!contents) {
-        return { error: 'CSV attachment contents are empty or unavailable' };
-    }
-
-    var rows = contents.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    if (!rows.length || !trim(rows[0])) {
-        return { error: 'CSV header row is empty' };
-    }
-
-    var headers = parseCsvLine(rows[0]);
-    var netIndex = findCsvColumnIndex(headers, ['Net']);
-    if (netIndex === -1) {
-        debugLog('Metro credit filter skipped', 'No Net column found. fileName=' + csvFile.getName());
-        return { hasCredits: false };
-    }
-
-    var notesIndex = findCsvColumnIndex(headers, [METRO_CREDIT_NOTES_COLUMN_NAME]);
-    if (notesIndex === -1) {
-        notesIndex = headers.length;
-        headers.push(METRO_CREDIT_NOTES_COLUMN_NAME);
-    }
-
-    var creditInternalIdIndexes = getCreditInternalIdColumnIndexes(headers);
-    var creditTranIdIndexes = getCreditTranIdColumnIndexes(headers);
-    var payloadIndexes = getPayloadHeaderIndexes(headers);
-    var keptRows = [];
-    var credits = [];
-    var firstDataRow = null;
-
-    for (var rowIndex = 1; rowIndex < rows.length; rowIndex++) {
-        if (!trim(rows[rowIndex])) {
-            continue;
-        }
-
-        var values = parseCsvLine(rows[rowIndex]);
-        var netAmount = parseCsvAmountValue(getCsvValue(values, netIndex));
-
-        if (netAmount < 0) {
-            credits.push({
-                rowNumber: rowIndex + 1,
-                amount: formatCsvAmount(netAmount),
-                creditInternalId: getFirstCsvValue(values, creditInternalIdIndexes),
-                creditTranId: getFirstCsvValue(values, creditTranIdIndexes)
-            });
-        } else {
-            while (values.length < headers.length) {
-                values.push('');
-            }
-            keptRows.push(values);
-            if (!firstDataRow) {
-                firstDataRow = values;
-            }
-        }
-    }
-
-    if (!credits.length) {
-        debugLog('Metro credit filter skipped', 'Net column found but no negative Net rows. fileName=' + csvFile.getName());
-        return { hasCredits: false };
-    }
-
-    if (!keptRows.length) {
-        return { error: 'All rows have negative Net values. Cannot create payment import file with no payment rows.' };
-    }
-
-    var payload = {
-        source: 'metro_remittance_credit_apply',
-        fileName: csvFile.getName(),
-        documentNumber: lclFile.documentNumber,
-        paymentExternalId: getCsvValue(firstDataRow, payloadIndexes.paymentExternalId),
-        paymentNumber: getCsvValue(firstDataRow, payloadIndexes.paymentNumber),
-        paymentDate: getCsvValue(firstDataRow, payloadIndexes.paymentDate),
-        parentId: getCsvValue(firstDataRow, payloadIndexes.parentId),
-        credits: credits
-    };
-
-    keptRows[0][notesIndex] = JSON.stringify(payload);
-
-    return {
-        hasCredits: true,
-        creditCount: credits.length,
-        updatedContents: buildCsvContent(headers, keptRows),
-        updatedFileName: buildUpdatedFileName(csvFile.getName())
-    };
-}
-
-function maybeCreateMetroRemittanceUpdatedFile(subject, csvFile) {
-    var lclSubject = parseLclSubject(subject);
-    if (!lclSubject || lclSubject.error ||
-            lclSubject.customerKey !== METRO_CUSTOMER_KEY ||
-            lclSubject.transactionType !== LCL_REMITTANCE_TYPE) {
-        return { updated: false };
-    }
-
-    var lclFile = parseLclCsvFileName(csvFile.getName());
-    if (lclFile.error) {
-        return { error: lclFile.error };
-    }
-
-    if (lclFile.transactionType !== lclSubject.transactionType) {
-        return { error: 'Subject/file type mismatch for Metro credit filter. subject=' + subject + ' fileName=' + csvFile.getName() };
-    }
-
-    if (lclFile.customerKey && lclFile.customerKey !== lclSubject.customerKey) {
-        return { error: 'Subject/file customer mismatch for Metro credit filter. subject=' + subject + ' fileName=' + csvFile.getName() };
-    }
-
-    var analysis = analyzeMetroRemittanceCredits(csvFile, lclFile);
-    if (analysis.error) {
-        return analysis;
-    }
-
-    if (!analysis.hasCredits) {
-        return { updated: false };
-    }
-
-    var updatedFile = nlapiCreateFile(analysis.updatedFileName, 'CSV', analysis.updatedContents);
-    updatedFile.setFolder(TARGET_FOLDER_ID);
-    var updatedFileId = nlapiSubmitFile(updatedFile);
-
-    nlapiLogExecution('AUDIT', 'Metro remittance updated CSV created',
-            'originalFile=' + csvFile.getName() +
-            ' updatedFile=' + analysis.updatedFileName +
-            ' updatedFileId=' + updatedFileId +
-            ' creditCount=' + analysis.creditCount);
-
-    return {
-        updated: true,
-        fileId: updatedFileId,
-        fileName: analysis.updatedFileName,
-        creditCount: analysis.creditCount
     };
 }
 
@@ -969,11 +694,7 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return { isLcl: true, created: false };
     }
 
-    if (lclSubject.skipTransaction && lclSubject.skipSecondBillCredit) {
-        nlapiLogExecution('AUDIT', 'All transactions skipped', 'First and second amounts are zero or blank. subject=' + subject);
-        return { isLcl: true, created: false, skipTransaction: true };
-    }
-
+    
 
     debugLog('LCL subject parsed', 'customer=' + lclSubject.customerName + ' transactionType=' + lclSubject.transactionType + ' timestamp=' + lclSubject.timestampText + ' amount=' + lclSubject.amount);
     var csvFileName = csvFile.getName();
@@ -1132,21 +853,7 @@ if (!senderValidation.allowed) {
     return;
 }
 
-        var importFileId = fileId;
-        var importFileName = savedCsvFile.getName();
-        var metroCreditImportResult = maybeCreateMetroRemittanceUpdatedFile(subject, savedCsvFile);
-
-        if (metroCreditImportResult.error) {
-            nlapiLogExecution('ERROR', 'CSV import not scheduled', 'Metro remittance credit filter failed. ' + metroCreditImportResult.error + ' subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
-            return;
-        }
-
-        if (metroCreditImportResult.updated) {
-            importFileId = metroCreditImportResult.fileId;
-            importFileName = metroCreditImportResult.fileName;
-        }
-
-        triggerCsvImport(importFileId, importConfig.mappingId);
+        triggerCsvImport(fileId, importConfig.mappingId);
 
         if (newRecord) {
             var messageText = 'Auto-processed CSV import: ' + importConfig.description;
@@ -1161,9 +868,6 @@ if (!senderValidation.allowed) {
         messageText += '; created payback vendorcredit ' + lclResult.paybackVendorCreditId + ' tranid ' + lclResult.paybackTranid;
     }
 }
-            if (metroCreditImportResult.updated) {
-                messageText += '; created filtered import file ' + importFileName + ' creditCount ' + metroCreditImportResult.creditCount;
-            }
             newRecord.setFieldValue('incomingmessage', messageText);
         }
 
