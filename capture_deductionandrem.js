@@ -49,6 +49,45 @@ function getTransactionConfigKey(customerKey, transactionType) {
     return customerKey + '_' + transactionType;
 }
 
+function normalizeExternalIdPart(value) {
+    return trim(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
+function buildEmailCaptureExternalId(transactionName, remittanceNumber) {
+    return normalizeExternalIdPart(transactionName) + '_' + normalizeExternalIdPart(remittanceNumber);
+}
+
+function getRefundCustomerKey(customerId) {
+    if (String(customerId) === '30') return 'lcl';
+    if (String(customerId) === '6327') return 'metro';
+    return 'customer_' + customerId;
+}
+
+function findExistingEmailCaptureTransaction(recordType, externalId) {
+    var fields = ['externalidstring', 'externalid'];
+
+    for (var i = 0; i < fields.length; i++) {
+        try {
+            var results = nlapiSearchRecord(recordType, null, [
+                new nlobjSearchFilter(fields[i], null, 'is', externalId)
+            ], [
+                new nlobjSearchColumn('internalid')
+            ]);
+
+            if (results && results.length) {
+                return results[0].getId();
+            }
+        } catch (e) {
+            debugLog('External ID lookup failed', 'recordType=' + recordType + ' externalId=' + externalId + ' field=' + fields[i] + ' error=' + getErrorDetails(e));
+        }
+    }
+
+    return '';
+}
+
 function getLclTransactionConfig(customerKey, transactionType) {
     return LCL_TRANSACTION_CONFIG[getTransactionConfigKey(customerKey, transactionType)];
 }
@@ -352,11 +391,27 @@ return {
 function createPaybackVendorCredit(lclSubject, lclFile, fileName, transactionDate) {
     var config = getLclTransactionConfig(lclSubject.customerKey, LCL_DEDUCTION_TYPE);
     var documentNumber = lclFile.documentNumber;
+
+
     var paybackDocumentNumber = documentNumber + '_payback';
+
+
+  var externalId = buildEmailCaptureExternalId(lclSubject.customerKey + '_payback', documentNumber);
+var existingRecordId = findExistingEmailCaptureTransaction('vendorcredit', externalId);
+
+if (existingRecordId) {
+    nlapiLogExecution('AUDIT', 'Payback Vendor Credit already exists', 'externalId=' + externalId + ' existingId=' + existingRecordId + ' tranid=' + paybackDocumentNumber);
+
+    return {
+        id: existingRecordId,
+        recordType: 'vendorcredit',
+        tranid: paybackDocumentNumber
+    };
+}
 
     var record = nlapiCreateRecord('vendorcredit', { recordmode: 'dynamic' });
     var memo = 'EFT ' + paybackDocumentNumber;
-
+    setBodyField(record, 'externalid', externalId);
     setBodyField(record, 'entity', config.entityId);
     setBodyField(record, 'trandate', transactionDate);
     setBodyField(record, 'tranid', paybackDocumentNumber);
@@ -1144,11 +1199,19 @@ function createCustomerRefundForCreditMemo(creditMemoId, customerId, documentNum
         throw nlapiCreateError('MISSING_REFUND_ACCOUNT', 'CUSTOMER_REFUND_ACCOUNT_ID is required to create Customer Refund', true);
     }
 
+    var refundExternalId = buildEmailCaptureExternalId(getRefundCustomerKey(customerId) + '_refund', documentNumber);
+var existingRefundId = findExistingEmailCaptureTransaction('customerrefund', refundExternalId);
+
+if (existingRefundId) {
+    nlapiLogExecution('AUDIT', 'Customer Refund already exists', 'externalId=' + refundExternalId + ' refundId=' + existingRefundId + ' documentNumber=' + documentNumber);
+    return existingRefundId;
+}
+
     debugLog('Creating Customer Refund', 'creditMemoId=' + creditMemoId + ' customerId=' + customerId + ' documentNumber=' + documentNumber + ' transactionDate=' + transactionDate + ' account=' + CUSTOMER_REFUND_ACCOUNT_ID + ' amount=' + amount);
 
     var refund = nlapiCreateRecord('customerrefund', { recordmode: 'dynamic' });
     var memo = 'EFT ' + documentNumber;
-
+    setBodyField(refund, 'externalid', refundExternalId);
     setBodyField(refund, 'customer', customerId);
     setBodyField(refund, 'trandate', transactionDate);
     setBodyField(refund, 'account', CUSTOMER_REFUND_ACCOUNT_ID);
@@ -1183,10 +1246,35 @@ function createLclTransaction(lclSubject, lclFile, fileName, transactionDate) {
     }
 
     var documentNumber = lclFile.documentNumber;
+
+
+      var externalId = buildEmailCaptureExternalId(lclSubject.customerKey + '_' + lclSubject.transactionType, documentNumber);
+var existingRecordId = findExistingEmailCaptureTransaction(config.recordType, externalId);
+
+if (existingRecordId) {
+    nlapiLogExecution('AUDIT', 'Email Capture transaction already exists', 'recordType=' + config.recordType + ' externalId=' + externalId + ' existingId=' + existingRecordId);
+
+    var existingRefundId = null;
+    if (config.recordType === 'creditmemo') {
+        existingRefundId = createCustomerRefundForCreditMemo(existingRecordId, config.entityId, documentNumber, transactionDate, lclSubject.amount);
+    }
+
+    return {
+        isLcl: true,
+        created: true,
+        id: existingRecordId,
+        refundId: existingRefundId,
+        recordType: config.recordType,
+        label: config.label,
+        tranid: documentNumber
+    };
+}
+
+  
     debugLog('Creating LCL transaction', 'type=' + lclSubject.transactionType + ' recordType=' + config.recordType + ' documentNumber=' + documentNumber + ' fileName=' + fileName + ' amount=' + lclSubject.amount + ' timestamp=' + lclSubject.timestampText + ' transactionDate=' + transactionDate);
     var record = nlapiCreateRecord(config.recordType, { recordmode: 'dynamic' });
     var memo = 'EFT ' + documentNumber;
-
+    setBodyField(record, 'externalid', externalId);
     setBodyField(record, 'entity', config.entityId);
     setBodyField(record, 'trandate', transactionDate);
     setBodyField(record, 'tranid', documentNumber);
@@ -1328,7 +1416,7 @@ function isAllowedSender(message) {
     var sender = getSenderEmail(message);
     var emailParts = sender.email.split('@');
     var domain = emailParts.length === 2 ? emailParts[1] : '';
-    var allowed = true; //domain === ALLOWED_SENDER_DOMAIN;
+    var allowed = domain === ALLOWED_SENDER_DOMAIN;
 
     debugLog('Sender validation', 'rawSender=' + sender.raw + ' parsedEmail=' + sender.email + ' domain=' + domain + ' allowed=' + allowed);
 
