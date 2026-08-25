@@ -621,6 +621,192 @@ function buildUpdatedFileName(fileName) {
     return METRO_UPDATED_FILE_PREFIX + trim(fileName);
 }
 
+function formatCsvSumAmount(value) {
+    var amount = Math.round(parseFloat(value || 0) * 100000000) / 100000000;
+    if (Math.abs(amount) < 0.000000001) {
+        amount = 0;
+    }
+
+    var text = String(amount);
+    if (text.indexOf('e') !== -1 || text.indexOf('E') !== -1) {
+        text = amount.toFixed(8).replace(/0+$/g, '').replace(/\.$/, '');
+    }
+
+    return text;
+}
+
+function analyzeLclRemittanceRows(csvFile) {
+    var contents = getCsvFileContents(csvFile);
+    if (!contents) {
+        return { error: 'CSV attachment contents are empty or unavailable' };
+    }
+
+    var rows = contents.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    if (!rows.length || !trim(rows[0])) {
+        return { error: 'CSV header row is empty' };
+    }
+
+    var headers = parseCsvLine(rows[0]);
+    var invoiceInternalIdIndex = findCsvColumnIndex(headers, ['Invoice Internal ID']);
+    var grossIndex = findCsvColumnIndex(headers, ['Gross']);
+    var discountIndex = findCsvColumnIndex(headers, ['Discount']);
+    var netIndex = findCsvColumnIndex(headers, ['Net']);
+    var missingColumns = [];
+
+    if (invoiceInternalIdIndex === -1) missingColumns.push('Invoice Internal ID');
+    if (grossIndex === -1) missingColumns.push('Gross');
+    if (discountIndex === -1) missingColumns.push('Discount');
+    if (netIndex === -1) missingColumns.push('Net');
+
+    if (missingColumns.length) {
+        return { error: 'LCL remittance combine required columns missing: ' + missingColumns.join(', ') };
+    }
+
+    var groupedByInvoiceInternalId = {};
+    var groups = [];
+    var sourceRowCount = 0;
+    var combinedSourceRowCount = 0;
+
+    for (var rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+        if (!trim(rows[rowIndex])) {
+            continue;
+        }
+
+        var values = parseCsvLine(rows[rowIndex]);
+        ensureCsvRowLength(values, headers.length);
+
+        var invoiceInternalId = getCsvValue(values, invoiceInternalIdIndex);
+        var groupKey = invoiceInternalId || ('__blank_invoice_internal_id_row_' + rowIndex);
+        var group = groupedByInvoiceInternalId[groupKey];
+        sourceRowCount++;
+
+        if (!group) {
+            group = {
+                row: values,
+                invoiceInternalId: invoiceInternalId,
+                rowCount: 0,
+                grossTotal: 0,
+                discountTotal: 0,
+                netTotal: 0
+            };
+            groupedByInvoiceInternalId[groupKey] = group;
+            groups.push(group);
+        } else {
+            combinedSourceRowCount++;
+        }
+
+        group.rowCount++;
+        group.grossTotal += parseCsvAmountValue(getCsvValue(values, grossIndex));
+        group.discountTotal += parseCsvAmountValue(getCsvValue(values, discountIndex));
+        group.netTotal += parseCsvAmountValue(getCsvValue(values, netIndex));
+    }
+
+    var outputRows = [];
+    var combinedGroupCount = 0;
+    var removedNegativeGroupCount = 0;
+    var removedNegativeSourceRowCount = 0;
+
+    for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+        var currentGroup = groups[groupIndex];
+        if (currentGroup.rowCount > 1) {
+            combinedGroupCount++;
+            currentGroup.row[grossIndex] = formatCsvSumAmount(currentGroup.grossTotal);
+            currentGroup.row[discountIndex] = formatCsvSumAmount(currentGroup.discountTotal);
+            currentGroup.row[netIndex] = formatCsvSumAmount(currentGroup.netTotal);
+        }
+
+        if (currentGroup.netTotal < -0.000000001) {
+            removedNegativeGroupCount++;
+            removedNegativeSourceRowCount += currentGroup.rowCount;
+            continue;
+        }
+
+        outputRows.push(currentGroup.row);
+    }
+
+    if (!outputRows.length && sourceRowCount) {
+        return { error: 'All LCL remittance rows have negative Net after combining. Cannot create payment import file with no payment rows.' };
+    }
+
+    if (!combinedSourceRowCount && !removedNegativeGroupCount) {
+        debugLog('LCL remittance combine skipped', 'No duplicate Invoice Internal ID rows or negative Net rows found. fileName=' + csvFile.getName());
+        return { updated: false };
+    }
+
+    debugLog('LCL remittance rows combined',
+            'fileName=' + csvFile.getName() +
+            ' sourceRowCount=' + sourceRowCount +
+            ' outputRowCount=' + outputRows.length +
+            ' combinedGroupCount=' + combinedGroupCount +
+            ' combinedSourceRowCount=' + combinedSourceRowCount +
+            ' removedNegativeGroupCount=' + removedNegativeGroupCount +
+            ' removedNegativeSourceRowCount=' + removedNegativeSourceRowCount);
+
+    return {
+        updated: true,
+        combinedGroupCount: combinedGroupCount,
+        combinedSourceRowCount: combinedSourceRowCount,
+        removedNegativeGroupCount: removedNegativeGroupCount,
+        removedNegativeSourceRowCount: removedNegativeSourceRowCount,
+        updatedContents: buildCsvContent(headers, outputRows),
+        updatedFileName: buildUpdatedFileName(csvFile.getName())
+    };
+}
+
+function maybeCreateLclRemittanceUpdatedFile(subject, csvFile) {
+    var lclSubject = parseLclSubject(subject);
+    if (!lclSubject || lclSubject.error ||
+            lclSubject.customerKey !== LCL_CUSTOMER_KEY ||
+            lclSubject.transactionType !== LCL_REMITTANCE_TYPE) {
+        return { updated: false };
+    }
+
+    var lclFile = parseLclCsvFileName(csvFile.getName());
+    if (lclFile.error) {
+        return { error: lclFile.error };
+    }
+
+    if (lclFile.transactionType !== lclSubject.transactionType) {
+        return { error: 'Subject/file type mismatch for LCL remittance combine. subject=' + subject + ' fileName=' + csvFile.getName() };
+    }
+
+    if (lclFile.customerKey && lclFile.customerKey !== lclSubject.customerKey) {
+        return { error: 'Subject/file customer mismatch for LCL remittance combine. subject=' + subject + ' fileName=' + csvFile.getName() };
+    }
+
+    var analysis = analyzeLclRemittanceRows(csvFile);
+    if (analysis.error) {
+        return analysis;
+    }
+
+    if (!analysis.updated) {
+        return { updated: false };
+    }
+
+    var updatedFile = nlapiCreateFile(analysis.updatedFileName, 'CSV', analysis.updatedContents);
+    updatedFile.setFolder(TARGET_FOLDER_ID);
+    var updatedFileId = nlapiSubmitFile(updatedFile);
+
+    nlapiLogExecution('AUDIT', 'LCL remittance updated CSV created',
+            'originalFile=' + csvFile.getName() +
+            ' updatedFile=' + analysis.updatedFileName +
+            ' updatedFileId=' + updatedFileId +
+            ' combinedGroupCount=' + analysis.combinedGroupCount +
+            ' combinedSourceRowCount=' + analysis.combinedSourceRowCount +
+            ' removedNegativeGroupCount=' + analysis.removedNegativeGroupCount +
+            ' removedNegativeSourceRowCount=' + analysis.removedNegativeSourceRowCount);
+
+    return {
+        updated: true,
+        fileId: updatedFileId,
+        fileName: analysis.updatedFileName,
+        combinedGroupCount: analysis.combinedGroupCount,
+        combinedSourceRowCount: analysis.combinedSourceRowCount,
+        removedNegativeGroupCount: analysis.removedNegativeGroupCount,
+        removedNegativeSourceRowCount: analysis.removedNegativeSourceRowCount
+    };
+}
+
 function analyzeMetroRemittanceCredits(csvFile, lclFile) {
     var contents = getCsvFileContents(csvFile);
     if (!contents) {
@@ -1212,7 +1398,20 @@ if (!senderValidation.allowed) {
 
         var importFileId = fileId;
         var importFileName = savedCsvFile.getName();
-        var metroCreditImportResult = maybeCreateMetroRemittanceUpdatedFile(subject, savedCsvFile);
+        var lclRemittanceImportResult = maybeCreateLclRemittanceUpdatedFile(subject, savedCsvFile);
+        var metroCreditImportResult = { updated: false };
+
+        if (lclRemittanceImportResult.error) {
+            nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL remittance combine failed. ' + lclRemittanceImportResult.error + ' subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+            return;
+        }
+
+        if (lclRemittanceImportResult.updated) {
+            importFileId = lclRemittanceImportResult.fileId;
+            importFileName = lclRemittanceImportResult.fileName;
+        } else {
+            metroCreditImportResult = maybeCreateMetroRemittanceUpdatedFile(subject, savedCsvFile);
+        }
 
         if (metroCreditImportResult.error) {
             nlapiLogExecution('ERROR', 'CSV import not scheduled', 'Metro remittance credit filter failed. ' + metroCreditImportResult.error + ' subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
@@ -1241,6 +1440,9 @@ if (!senderValidation.allowed) {
 }
             if (metroCreditImportResult.updated) {
                 messageText += '; created filtered import file ' + importFileName + ' creditCount ' + metroCreditImportResult.creditCount;
+            }
+            if (lclRemittanceImportResult.updated) {
+                messageText += '; created grouped import file ' + importFileName + ' combinedGroups ' + lclRemittanceImportResult.combinedGroupCount + ' removedNegativeRows ' + lclRemittanceImportResult.removedNegativeSourceRowCount;
             }
             newRecord.setFieldValue('incomingmessage', messageText);
         }
