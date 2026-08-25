@@ -36,6 +36,7 @@ var TARGET_FOLDER_ID = 475348;
 
 var SCHEDULED_SCRIPT_ID = 'customscript_mi_import_bills_and_payment';
 var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
+var CSV_IMPORT_ENABLED = false;
 
 var EMAIL_AUDIT_RECORD_TYPE = 'customrecord_email_capture_audit_log';
 var FIELD_RELATED_EMAIL_CAPTURE = 'custbody_related_email_capture';
@@ -115,6 +116,29 @@ function getAuditEmailTypeId(transactionType) {
     return '';
 }
 
+function getAuditCustomerKey(customerId) {
+    if (String(customerId) === '30') return LCL_CUSTOMER_KEY;
+    if (String(customerId) === '6327') return METRO_CUSTOMER_KEY;
+    return customerId ? ('customer_' + customerId) : '';
+}
+
+function getAuditEmailTypeKey(emailTypeId) {
+    if (String(emailTypeId) === AUDIT_EMAIL_TYPE_DEDUCTION) return LCL_DEDUCTION_TYPE;
+    if (String(emailTypeId) === AUDIT_EMAIL_TYPE_REMITTANCE) return LCL_REMITTANCE_TYPE;
+    return emailTypeId ? ('type_' + emailTypeId) : '';
+}
+
+function buildEmailAuditExternalId(documentNumber, customerId, emailTypeId) {
+    var customerKey = getAuditCustomerKey(customerId);
+    var emailTypeKey = getAuditEmailTypeKey(emailTypeId);
+
+    if (!documentNumber || !customerKey || !emailTypeKey) {
+        return '';
+    }
+
+    return buildEmailCaptureExternalId('audit_' + customerKey + '_' + emailTypeKey, documentNumber);
+}
+
 function getEmailBody(message) {
     return getMessageValue(message, 'getTextBody') ||
             getMessageValue(message, 'getHtmlBody') ||
@@ -129,6 +153,14 @@ function truncateAuditText(value, maxLength) {
 function findExistingEmailAuditLog(documentNumber, customerId, emailTypeId) {
     if (!documentNumber || !customerId || !emailTypeId) {
         return '';
+    }
+
+    var auditExternalId = buildEmailAuditExternalId(documentNumber, customerId, emailTypeId);
+    if (auditExternalId) {
+        var existingByExternalId = findExistingEmailCaptureTransaction(EMAIL_AUDIT_RECORD_TYPE, auditExternalId);
+        if (existingByExternalId) {
+            return existingByExternalId;
+        }
     }
 
     try {
@@ -150,10 +182,13 @@ function findExistingEmailAuditLog(documentNumber, customerId, emailTypeId) {
     return '';
 }
 
-function createEmailAuditLog(message, subject, senderValidation) {
+function createEmailAuditLog(message, subject, senderValidation, auditExternalId) {
     try {
         var record = nlapiCreateRecord(EMAIL_AUDIT_RECORD_TYPE);
         record.setFieldValue('name', 'Pending ' + new Date().getTime());
+        if (auditExternalId) {
+            record.setFieldValue('externalid', auditExternalId);
+        }
         record.setFieldValue('custrecord_mi_subject', truncateAuditText(subject, 300));
         record.setFieldValue('custrecord_mi_body', truncateAuditText(getEmailBody(message), 3900));
         record.setFieldValue('custrecord_mi_email_received_datetime', getNetSuiteDateTimeValue(new Date()));
@@ -207,12 +242,14 @@ function updateEmailAuditLog(auditId, values) {
 }
 
 function createOrLoadEmailAuditLog(message, subject, senderValidation, documentNumber, customerId, emailTypeId, firstAmount, secondAmount) {
+    var auditExternalId = buildEmailAuditExternalId(documentNumber, customerId, emailTypeId);
     var existingAuditId = findExistingEmailAuditLog(documentNumber, customerId, emailTypeId);
 
     if (existingAuditId) {
-        nlapiLogExecution('AUDIT', 'Existing Email Capture Audit Log found', 'auditId=' + existingAuditId + ' documentNumber=' + documentNumber);
+        nlapiLogExecution('AUDIT', 'Existing Email Capture Audit Log found', 'auditId=' + existingAuditId + ' documentNumber=' + documentNumber + ' externalId=' + auditExternalId);
 
         updateEmailAuditLog(existingAuditId, {
+            externalid: auditExternalId,
             name: documentNumber,
             custrecord_mi_subject: subject,
             custrecord_mi_body: getEmailBody(message),
@@ -231,7 +268,14 @@ function createOrLoadEmailAuditLog(message, subject, senderValidation, documentN
         };
     }
 
-    var auditId = createEmailAuditLog(message, subject, senderValidation);
+    var auditId = createEmailAuditLog(message, subject, senderValidation, auditExternalId);
+    if (!auditId && auditExternalId) {
+        auditId = findExistingEmailCaptureTransaction(EMAIL_AUDIT_RECORD_TYPE, auditExternalId);
+        if (auditId) {
+            nlapiLogExecution('AUDIT', 'Email Capture Audit Log loaded after create failure', 'auditId=' + auditId + ' documentNumber=' + documentNumber + ' externalId=' + auditExternalId);
+        }
+    }
+
     updateEmailAuditLog(auditId, {
         name: documentNumber,
         custrecord_mi_customer_name: customerId,
@@ -1740,6 +1784,12 @@ function process(message, newRecord) {
 
         if (parsedFileForAudit && !parsedFileForAudit.error) {
             auditDocumentNumber = parsedFileForAudit.documentNumber;
+            if (!auditCustomerId) {
+                auditCustomerId = getAuditCustomerId(parsedFileForAudit.customerKey);
+            }
+            if (!auditEmailTypeId) {
+                auditEmailTypeId = getAuditEmailTypeId(parsedFileForAudit.transactionType);
+            }
         }
 
         var auditInfo = createOrLoadEmailAuditLog(message, subject, senderValidation, auditDocumentNumber, auditCustomerId, auditEmailTypeId, auditFirstAmount, auditSecondAmount);
@@ -1917,12 +1967,25 @@ function process(message, newRecord) {
             }
         }
 
-        var csvImportStatus = triggerCsvImport(importFileId, importConfig.mappingId);
-        updateEmailAuditLog(auditId, {
-            custrecord_mi_csv_import_task_id: csvImportStatus,
-            custrecord_mi_status: AUDIT_STATUS_CSV_IMPORT_SUBMITTED,
-            custrecord_mi_status_msg_error_details: 'CSV import submitted. fileId=' + importFileId + ' fileName=' + importFileName + ' mappingId=' + importConfig.mappingId + ' scheduleStatus=' + csvImportStatus
-        });
+        if (CSV_IMPORT_ENABLED) {
+            var csvImportStatus = triggerCsvImport(importFileId, importConfig.mappingId);
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_csv_import_task_id: csvImportStatus,
+                custrecord_mi_status: AUDIT_STATUS_CSV_IMPORT_SUBMITTED,
+                custrecord_mi_status_msg_error_details: 'CSV import submitted. fileId=' + importFileId + ' fileName=' + importFileName + ' mappingId=' + importConfig.mappingId + ' scheduleStatus=' + csvImportStatus
+            });
+        } else {
+            nlapiLogExecution('AUDIT', 'CSV import not triggered',
+                    'CSV_IMPORT_ENABLED=false. subject=' + subject +
+                    ' auditId=' + auditId +
+                    ' fileId=' + importFileId +
+                    ' fileName=' + importFileName +
+                    ' mappingId=' + importConfig.mappingId);
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_COMPLETED,
+                custrecord_mi_status_msg_error_details: 'Audit/files saved. CSV import not triggered. fileId=' + importFileId + ' fileName=' + importFileName + ' mappingId=' + importConfig.mappingId
+            });
+        }
 
         if (newRecord) {
             var messageText = 'Auto-processed CSV import: ' + importConfig.description;
@@ -1948,6 +2011,9 @@ function process(message, newRecord) {
             }
             if (auditCsvImportResult.updated) {
                 messageText += '; created audit import file ' + importFileName;
+            }
+            if (!CSV_IMPORT_ENABLED) {
+                messageText += '; CSV import not triggered';
             }
             newRecord.setFieldValue('incomingmessage', messageText);
         }
