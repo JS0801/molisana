@@ -1151,8 +1151,8 @@ function createCustomerRefundForCreditMemo(creditMemoId, customerId, documentNum
 
     setBodyField(refund, 'customer', customerId);
     setBodyField(refund, 'trandate', transactionDate);
-    setBodyField(refund, 'tranid', documentNumber);
     setBodyField(refund, 'account', CUSTOMER_REFUND_ACCOUNT_ID);
+    setBodyField(refund, 'tranid', documentNumber);
     setBodyField(refund, 'memo', memo);
     setBodyField(refund, 'custbody_created_from_email_capture', 'T');
     setBodyField(refund, 'paymentmethod', 7); //EFT/ACH
