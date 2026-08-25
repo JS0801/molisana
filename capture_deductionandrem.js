@@ -37,6 +37,21 @@ var TARGET_FOLDER_ID = 475348;
 var SCHEDULED_SCRIPT_ID = 'customscript_mi_import_bills_and_payment';
 var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
 
+var EMAIL_AUDIT_RECORD_TYPE = 'customrecord_email_capture_audit_log';
+var FIELD_RELATED_EMAIL_CAPTURE = 'custbody_related_email_capture';
+var AUDIT_CSV_COLUMN_NAME = 'Email Capture Audit ID';
+
+var AUDIT_STATUS_RECEIVED = '1';
+var AUDIT_STATUS_SKIPPED = '2';
+var AUDIT_STATUS_PROCESSING = '3';
+var AUDIT_STATUS_TRANSACTIONS_CREATED = '4';
+var AUDIT_STATUS_CSV_IMPORT_SUBMITTED = '5';
+var AUDIT_STATUS_COMPLETED = '6';
+var AUDIT_STATUS_FAILED = '7';
+
+var AUDIT_EMAIL_TYPE_DEDUCTION = '1';
+var AUDIT_EMAIL_TYPE_REMITTANCE = '2';
+
 var LCL_DEDUCTION_TYPE = 'deduction';
 var LCL_REMITTANCE_TYPE = 'remittance';
 var LCL_CUSTOMER_KEY = 'lcl';
@@ -86,6 +101,163 @@ function findExistingEmailCaptureTransaction(recordType, externalId) {
     }
 
     return '';
+}
+
+function getAuditCustomerId(customerKey) {
+    if (customerKey === LCL_CUSTOMER_KEY) return '30';
+    if (customerKey === METRO_CUSTOMER_KEY) return '6327';
+    return '';
+}
+
+function getAuditEmailTypeId(transactionType) {
+    if (transactionType === LCL_DEDUCTION_TYPE) return AUDIT_EMAIL_TYPE_DEDUCTION;
+    if (transactionType === LCL_REMITTANCE_TYPE) return AUDIT_EMAIL_TYPE_REMITTANCE;
+    return '';
+}
+
+function getEmailBody(message) {
+    return getMessageValue(message, 'getTextBody') ||
+            getMessageValue(message, 'getHtmlBody') ||
+            getMessageValue(message, 'getBody');
+}
+
+function truncateAuditText(value, maxLength) {
+    var text = String(value || '');
+    return text.length > maxLength ? text.substring(0, maxLength) : text;
+}
+
+function findExistingEmailAuditLog(documentNumber, customerId, emailTypeId) {
+    if (!documentNumber || !customerId || !emailTypeId) {
+        return '';
+    }
+
+    try {
+        var results = nlapiSearchRecord(EMAIL_AUDIT_RECORD_TYPE, null, [
+            new nlobjSearchFilter('name', null, 'is', documentNumber),
+            new nlobjSearchFilter('custrecord_mi_customer_name', null, 'anyof', customerId),
+            new nlobjSearchFilter('custrecord_mi_email_type', null, 'anyof', emailTypeId)
+        ], [
+            new nlobjSearchColumn('internalid')
+        ]);
+
+        if (results && results.length) {
+            return results[0].getId();
+        }
+    } catch (e) {
+        nlapiLogExecution('ERROR', 'Existing audit lookup failed', 'documentNumber=' + documentNumber + ' customerId=' + customerId + ' emailTypeId=' + emailTypeId + ' error=' + getErrorDetails(e));
+    }
+
+    return '';
+}
+
+function createEmailAuditLog(message, subject, senderValidation) {
+    try {
+        var record = nlapiCreateRecord(EMAIL_AUDIT_RECORD_TYPE);
+        record.setFieldValue('name', 'Pending ' + new Date().getTime());
+        record.setFieldValue('custrecord_mi_subject', truncateAuditText(subject, 300));
+        record.setFieldValue('custrecord_mi_body', truncateAuditText(getEmailBody(message), 3900));
+        record.setFieldValue('custrecord_mi_email_received_datetime', getNetSuiteDateTimeValue(new Date()));
+        record.setFieldValue('custrecord_mi_status', AUDIT_STATUS_RECEIVED);
+
+        if (senderValidation && senderValidation.email) {
+            record.setFieldValue('custrecord_mi_sender_email', senderValidation.email);
+        }
+
+        var auditId = nlapiSubmitRecord(record, true, true);
+        nlapiLogExecution('AUDIT', 'Email Capture Audit Log created', 'auditId=' + auditId + ' subject=' + subject);
+        return auditId;
+    } catch (e) {
+        nlapiLogExecution('ERROR', 'Audit log create failed', getErrorDetails(e));
+        return '';
+    }
+}
+
+function updateEmailAuditLog(auditId, values) {
+    if (!auditId || !values) return;
+
+    var fields = [];
+    var fieldValues = [];
+
+    try {
+
+        for (var fieldId in values) {
+            if (values.hasOwnProperty(fieldId) &&
+                    values[fieldId] !== null &&
+                    values[fieldId] !== undefined &&
+                    values[fieldId] !== '') {
+                fields.push(fieldId);
+                fieldValues.push(truncateAuditText(values[fieldId], 3900));
+            }
+        }
+
+        if (fields.length) {
+            nlapiSubmitField(EMAIL_AUDIT_RECORD_TYPE, auditId, fields, fieldValues);
+        }
+    } catch (e) {
+        nlapiLogExecution('ERROR', 'Audit log update failed', 'auditId=' + auditId + ' error=' + getErrorDetails(e));
+
+        for (var i = 0; i < fields.length; i++) {
+            try {
+                nlapiSubmitField(EMAIL_AUDIT_RECORD_TYPE, auditId, fields[i], fieldValues[i]);
+            } catch (fieldError) {
+                nlapiLogExecution('ERROR', 'Audit log single field update failed', 'auditId=' + auditId + ' fieldId=' + fields[i] + ' error=' + getErrorDetails(fieldError));
+            }
+        }
+    }
+}
+
+function createOrLoadEmailAuditLog(message, subject, senderValidation, documentNumber, customerId, emailTypeId, firstAmount, secondAmount) {
+    var existingAuditId = findExistingEmailAuditLog(documentNumber, customerId, emailTypeId);
+
+    if (existingAuditId) {
+        nlapiLogExecution('AUDIT', 'Existing Email Capture Audit Log found', 'auditId=' + existingAuditId + ' documentNumber=' + documentNumber);
+
+        updateEmailAuditLog(existingAuditId, {
+            name: documentNumber,
+            custrecord_mi_subject: subject,
+            custrecord_mi_body: getEmailBody(message),
+            custrecord_mi_customer_name: customerId,
+            custrecord_mi_email_type: emailTypeId,
+            custrecord_mi_first_amount: firstAmount,
+            custrecord_mi_second_amount: secondAmount,
+            custrecord_mi_sender_email: senderValidation ? senderValidation.email : '',
+            custrecord_mi_status: AUDIT_STATUS_RECEIVED,
+            custrecord_mi_status_msg_error_details: 'Duplicate email received. Existing audit log reused.'
+        });
+
+        return {
+            id: existingAuditId,
+            existing: true
+        };
+    }
+
+    var auditId = createEmailAuditLog(message, subject, senderValidation);
+    updateEmailAuditLog(auditId, {
+        name: documentNumber,
+        custrecord_mi_customer_name: customerId,
+        custrecord_mi_email_type: emailTypeId,
+        custrecord_mi_first_amount: firstAmount,
+        custrecord_mi_second_amount: secondAmount
+    });
+
+    return {
+        id: auditId,
+        existing: false
+    };
+}
+
+function setTransactionAuditLinkIfBlank(recordType, recordId, auditId) {
+    if (!recordType || !recordId || !auditId) return;
+
+    try {
+        var existingAuditId = nlapiLookupField(recordType, recordId, FIELD_RELATED_EMAIL_CAPTURE);
+        if (!existingAuditId) {
+            nlapiSubmitField(recordType, recordId, FIELD_RELATED_EMAIL_CAPTURE, auditId);
+            nlapiLogExecution('AUDIT', 'Existing transaction linked to audit', 'recordType=' + recordType + ' recordId=' + recordId + ' auditId=' + auditId);
+        }
+    } catch (e) {
+        nlapiLogExecution('ERROR', 'Existing transaction audit link update failed', 'recordType=' + recordType + ' recordId=' + recordId + ' auditId=' + auditId + ' error=' + getErrorDetails(e));
+    }
 }
 
 function getLclTransactionConfig(customerKey, transactionType) {
@@ -232,6 +404,7 @@ function triggerCsvImport(fileId, mappingId) {
     });
 
     nlapiLogExecution('AUDIT', 'CSV import scheduled', 'fileId=' + fileId + ' mappingId=' + mappingId + ' status=' + status);
+    return status;
 }
 
 // ------------------------------------------------------------------
@@ -388,7 +561,7 @@ return {
     secondSkipReason: secondSkipReason
 };
 }
-function createPaybackVendorCredit(lclSubject, lclFile, fileName, transactionDate) {
+function createPaybackVendorCredit(lclSubject, lclFile, fileName, transactionDate, auditId) {
     var config = getLclTransactionConfig(lclSubject.customerKey, LCL_DEDUCTION_TYPE);
     var documentNumber = lclFile.documentNumber;
 
@@ -401,6 +574,7 @@ var existingRecordId = findExistingEmailCaptureTransaction('vendorcredit', exter
 
 if (existingRecordId) {
     nlapiLogExecution('AUDIT', 'Payback Vendor Credit already exists', 'externalId=' + externalId + ' existingId=' + existingRecordId + ' tranid=' + paybackDocumentNumber);
+    setTransactionAuditLinkIfBlank('vendorcredit', existingRecordId, auditId);
 
     return {
         id: existingRecordId,
@@ -417,6 +591,7 @@ if (existingRecordId) {
     setBodyField(record, 'tranid', paybackDocumentNumber);
     setBodyField(record, 'memo', memo);
     setBodyField(record, 'custbody_created_from_email_capture', 'T');
+    setBodyField(record, FIELD_RELATED_EMAIL_CAPTURE, auditId);
     setBodyField(record, 'currency', LCL_CURRENCY_ID);
     setBodyField(record, 'location', LCL_LOCATION_ID);
     setBodyField(record, 'account', config.accountId);
@@ -581,6 +756,71 @@ function ensureCsvRowLength(row, length) {
     while (row.length < length) {
         row.push('');
     }
+}
+
+function addAuditIdToCsvContents(contents, auditId) {
+    if (!auditId) {
+        return { error: 'Audit ID is required to add audit column to CSV' };
+    }
+
+    if (!contents) {
+        return { error: 'CSV contents are empty or unavailable' };
+    }
+
+    var rows = contents.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    if (!rows.length || !trim(rows[0])) {
+        return { error: 'CSV header row is empty' };
+    }
+
+    var headers = parseCsvLine(rows[0]);
+    var auditColumnIndex = ensureCsvColumn(headers, AUDIT_CSV_COLUMN_NAME);
+    var dataRows = [];
+
+    for (var rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+        if (!trim(rows[rowIndex])) {
+            continue;
+        }
+
+        var values = parseCsvLine(rows[rowIndex]);
+        ensureCsvRowLength(values, headers.length);
+        values[auditColumnIndex] = auditId;
+        dataRows.push(values);
+    }
+
+    return {
+        updatedContents: buildCsvContent(headers, dataRows),
+        rowCount: dataRows.length
+    };
+}
+
+function maybeCreateAuditCsvUpdatedFile(csvFile, auditId) {
+    if (!auditId) {
+        return { updated: false };
+    }
+
+    var result = addAuditIdToCsvContents(getCsvFileContents(csvFile), auditId);
+    if (result.error) {
+        return result;
+    }
+
+    var updatedFileName = buildUpdatedFileName(csvFile.getName());
+    var updatedFile = nlapiCreateFile(updatedFileName, 'CSV', result.updatedContents);
+    updatedFile.setFolder(TARGET_FOLDER_ID);
+    var updatedFileId = nlapiSubmitFile(updatedFile);
+
+    nlapiLogExecution('AUDIT', 'Audit ID CSV created',
+            'originalFile=' + csvFile.getName() +
+            ' updatedFile=' + updatedFileName +
+            ' updatedFileId=' + updatedFileId +
+            ' auditId=' + auditId +
+            ' rowCount=' + result.rowCount);
+
+    return {
+        updated: true,
+        fileId: updatedFileId,
+        fileName: updatedFileName,
+        rowCount: result.rowCount
+    };
 }
 
 function getMetroCreditColumnIndexes(headers) {
@@ -808,7 +1048,7 @@ function analyzeLclRemittanceRows(csvFile) {
     };
 }
 
-function maybeCreateLclRemittanceUpdatedFile(subject, csvFile) {
+function maybeCreateLclRemittanceUpdatedFile(subject, csvFile, auditId) {
     var lclSubject = parseLclSubject(subject);
     if (!lclSubject || lclSubject.error ||
             lclSubject.customerKey !== LCL_CUSTOMER_KEY ||
@@ -838,7 +1078,16 @@ function maybeCreateLclRemittanceUpdatedFile(subject, csvFile) {
         return { updated: false };
     }
 
-    var updatedFile = nlapiCreateFile(analysis.updatedFileName, 'CSV', analysis.updatedContents);
+    var updatedContents = analysis.updatedContents;
+    if (auditId) {
+        var auditCsvResult = addAuditIdToCsvContents(updatedContents, auditId);
+        if (auditCsvResult.error) {
+            return auditCsvResult;
+        }
+        updatedContents = auditCsvResult.updatedContents;
+    }
+
+    var updatedFile = nlapiCreateFile(analysis.updatedFileName, 'CSV', updatedContents);
     updatedFile.setFolder(TARGET_FOLDER_ID);
     var updatedFileId = nlapiSubmitFile(updatedFile);
 
@@ -939,7 +1188,7 @@ function analyzeMetroRemittanceCredits(csvFile, lclFile) {
     };
 }
 
-function maybeCreateMetroRemittanceUpdatedFile(subject, csvFile) {
+function maybeCreateMetroRemittanceUpdatedFile(subject, csvFile, auditId) {
     var lclSubject = parseLclSubject(subject);
     if (!lclSubject || lclSubject.error ||
             lclSubject.customerKey !== METRO_CUSTOMER_KEY ||
@@ -969,7 +1218,16 @@ function maybeCreateMetroRemittanceUpdatedFile(subject, csvFile) {
         return { updated: false };
     }
 
-    var updatedFile = nlapiCreateFile(analysis.updatedFileName, 'CSV', analysis.updatedContents);
+    var updatedContents = analysis.updatedContents;
+    if (auditId) {
+        var auditCsvResult = addAuditIdToCsvContents(updatedContents, auditId);
+        if (auditCsvResult.error) {
+            return auditCsvResult;
+        }
+        updatedContents = auditCsvResult.updatedContents;
+    }
+
+    var updatedFile = nlapiCreateFile(analysis.updatedFileName, 'CSV', updatedContents);
     updatedFile.setFolder(TARGET_FOLDER_ID);
     var updatedFileId = nlapiSubmitFile(updatedFile);
 
@@ -1194,7 +1452,7 @@ function addLclItemLine(record, config, amount, documentNumber, fileName) {
     debugLog('LCL item line committed', 'recordType=' + config.recordType + ' item=' + config.itemId + ' amount=' + amount);
 }
 
-function createCustomerRefundForCreditMemo(creditMemoId, customerId, documentNumber, transactionDate, amount) {
+function createCustomerRefundForCreditMemo(creditMemoId, customerId, documentNumber, transactionDate, amount, auditId) {
     if (!CUSTOMER_REFUND_ACCOUNT_ID) {
         throw nlapiCreateError('MISSING_REFUND_ACCOUNT', 'CUSTOMER_REFUND_ACCOUNT_ID is required to create Customer Refund', true);
     }
@@ -1204,6 +1462,7 @@ var existingRefundId = findExistingEmailCaptureTransaction('customerrefund', ref
 
 if (existingRefundId) {
     nlapiLogExecution('AUDIT', 'Customer Refund already exists', 'externalId=' + refundExternalId + ' refundId=' + existingRefundId + ' documentNumber=' + documentNumber);
+    setTransactionAuditLinkIfBlank('customerrefund', existingRefundId, auditId);
     return existingRefundId;
 }
 
@@ -1218,6 +1477,7 @@ if (existingRefundId) {
     setBodyField(refund, 'tranid', documentNumber);
     setBodyField(refund, 'memo', memo);
     setBodyField(refund, 'custbody_created_from_email_capture', 'T');
+    setBodyField(refund, FIELD_RELATED_EMAIL_CAPTURE, auditId);
     setBodyField(refund, 'paymentmethod', 7); //EFT/ACH
 
     var line = refund.findLineItemValue('apply', 'doc', String(creditMemoId));
@@ -1239,7 +1499,7 @@ if (existingRefundId) {
     return refundId;
 }
 
-function createLclTransaction(lclSubject, lclFile, fileName, transactionDate) {
+function createLclTransaction(lclSubject, lclFile, fileName, transactionDate, auditId) {
     var config = getLclTransactionConfig(lclSubject.customerKey, lclSubject.transactionType);
     if (!config) {
         throw nlapiCreateError('LCL_CONFIG_MISSING', 'No LCL transaction config for type ' + lclSubject.transactionType, true);
@@ -1253,10 +1513,11 @@ var existingRecordId = findExistingEmailCaptureTransaction(config.recordType, ex
 
 if (existingRecordId) {
     nlapiLogExecution('AUDIT', 'Email Capture transaction already exists', 'recordType=' + config.recordType + ' externalId=' + externalId + ' existingId=' + existingRecordId);
+    setTransactionAuditLinkIfBlank(config.recordType, existingRecordId, auditId);
 
     var existingRefundId = null;
     if (config.recordType === 'creditmemo') {
-        existingRefundId = createCustomerRefundForCreditMemo(existingRecordId, config.entityId, documentNumber, transactionDate, lclSubject.amount);
+        existingRefundId = createCustomerRefundForCreditMemo(existingRecordId, config.entityId, documentNumber, transactionDate, lclSubject.amount, auditId);
     }
 
     return {
@@ -1280,6 +1541,7 @@ if (existingRecordId) {
     setBodyField(record, 'tranid', documentNumber);
     setBodyField(record, 'memo', memo);
     setBodyField(record, 'custbody_created_from_email_capture', 'T');
+    setBodyField(record, FIELD_RELATED_EMAIL_CAPTURE, auditId);
     setBodyField(record, 'currency', LCL_CURRENCY_ID);
     setBodyField(record, 'location', LCL_LOCATION_ID);
     setBodyField(record, 'account', config.accountId);
@@ -1294,7 +1556,7 @@ if (existingRecordId) {
     var refundId = null;
 
     if (config.recordType === 'creditmemo') {
-        refundId = createCustomerRefundForCreditMemo(recordId, config.entityId, documentNumber, transactionDate, lclSubject.amount);
+        refundId = createCustomerRefundForCreditMemo(recordId, config.entityId, documentNumber, transactionDate, lclSubject.amount, auditId);
     }
 
     return {
@@ -1308,7 +1570,7 @@ if (existingRecordId) {
     };
 }
 
-function maybeCreateLclTransaction(subject, csvFile) {
+function maybeCreateLclTransaction(subject, csvFile, auditId) {
     debugLog('Checking LCL transaction add-on', 'subject=' + subject + ' csvFile=' + csvFile.getName());
     var lclSubject = parseLclSubject(subject);
     if (!lclSubject) {
@@ -1321,10 +1583,13 @@ function maybeCreateLclTransaction(subject, csvFile) {
         return { isLcl: true, created: false };
     }
 
-    if (lclSubject.skipTransaction && lclSubject.skipSecondBillCredit) {
-        nlapiLogExecution('AUDIT', 'All transactions skipped', 'First and second amounts are zero or blank. subject=' + subject);
-        return { isLcl: true, created: false, skipTransaction: true };
-    }
+if (lclSubject.skipTransaction && lclSubject.skipSecondBillCredit) {
+    nlapiLogExecution('AUDIT', 'All transactions skipped', 'First and second amounts are zero or blank. subject=' + subject);
+    updateEmailAuditLog(auditId, {
+        custrecord_mi_status_msg_error_details: 'Both amount fields are zero or blank. No direct transaction created; CSV import will continue.'
+    });
+    return { isLcl: true, created: false, skipTransaction: true };
+}
 
 
     debugLog('LCL subject parsed', 'customer=' + lclSubject.customerName + ' transactionType=' + lclSubject.transactionType + ' timestamp=' + lclSubject.timestampText + ' amount=' + lclSubject.amount);
@@ -1367,11 +1632,11 @@ function maybeCreateLclTransaction(subject, csvFile) {
 if (lclSubject.skipTransaction) {
     nlapiLogExecution('AUDIT', 'Main transaction skipped', lclSubject.skipReason + ' subject=' + subject);
 } else {
-    result = createLclTransaction(lclSubject, lclFile, csvFileName, transactionDateResult.value);
+    result = createLclTransaction(lclSubject, lclFile, csvFileName, transactionDateResult.value, auditId);
 }
 
 if (lclSubject.skipSecondBillCredit === false) {
-    var paybackResult = createPaybackVendorCredit(lclSubject, lclFile, csvFileName, transactionDateResult.value);
+    var paybackResult = createPaybackVendorCredit(lclSubject, lclFile, csvFileName, transactionDateResult.value, auditId);
     result.isLcl = true;
     result.created = true;
     result.paybackVendorCreditId = paybackResult.id;
@@ -1382,6 +1647,16 @@ if (lclSubject.skipSecondBillCredit === false) {
 
 if (lclSubject.skipTransaction && lclSubject.skipSecondBillCredit) {
     result.skipTransaction = true;
+}
+
+if (result.created) {
+    updateEmailAuditLog(auditId, {
+        custrecord_mi_main_transaction: result.id,
+        custrecord_mi_customer_refund: result.refundId,
+        custrecord_mi_payback_bill_credit: result.paybackVendorCreditId,
+        custrecord_mi_status: AUDIT_STATUS_TRANSACTIONS_CREATED,
+        custrecord_mi_status_msg_error_details: 'Transactions created or matched. main=' + (result.id || '') + ' refund=' + (result.refundId || '') + ' payback=' + (result.paybackVendorCreditId || '')
+    });
 }
 
 return result;
@@ -1439,103 +1714,250 @@ function isAllowedSender(message) {
  *                                otherwise create by default
  */
 function process(message, newRecord) {
+    var auditId = '';
+
     try {
         var subject = message.getSubject();
         nlapiLogExecution('DEBUG', 'Email Capture triggered', 'subject=' + subject + ' targetFolderId=' + TARGET_FOLDER_ID);
 
-      var senderValidation = isAllowedSender(message);
-if (!senderValidation.allowed) {
-    nlapiLogExecution('AUDIT', 'Email sender blocked', 'subject=' + subject + ' rawSender=' + senderValidation.raw + ' parsedEmail=' + senderValidation.email + ' parsedDomain=' + senderValidation.domain + ' allowedDomain=' + ALLOWED_SENDER_DOMAIN);
-    return;
-}
-
+        var senderValidation = isAllowedSender(message);
         var importConfig = resolveImportConfig(subject);
+        var csvFile = getCsvAttachment(message);
+        var parsedSubjectForAudit = parseLclSubject(subject);
+        var parsedFileForAudit = csvFile ? parseLclCsvFileName(csvFile.getName()) : null;
+        var auditDocumentNumber = '';
+        var auditCustomerId = '';
+        var auditEmailTypeId = '';
+        var auditFirstAmount = '';
+        var auditSecondAmount = '';
+
+        if (parsedSubjectForAudit && !parsedSubjectForAudit.error) {
+            auditCustomerId = getAuditCustomerId(parsedSubjectForAudit.customerKey);
+            auditEmailTypeId = getAuditEmailTypeId(parsedSubjectForAudit.transactionType);
+            auditFirstAmount = parsedSubjectForAudit.amount;
+            auditSecondAmount = parsedSubjectForAudit.secondAmount;
+        }
+
+        if (parsedFileForAudit && !parsedFileForAudit.error) {
+            auditDocumentNumber = parsedFileForAudit.documentNumber;
+        }
+
+        var auditInfo = createOrLoadEmailAuditLog(message, subject, senderValidation, auditDocumentNumber, auditCustomerId, auditEmailTypeId, auditFirstAmount, auditSecondAmount);
+        auditId = auditInfo.id;
+
+        if (!auditId) {
+            nlapiLogExecution('ERROR', 'Email audit unavailable',
+                    'Audit log was not created or loaded. subject=' + subject +
+                    ' sender=' + senderValidation.email +
+                    ' importConfig=' + (importConfig ? importConfig.description : '') +
+                    ' csvFile=' + (csvFile ? csvFile.getName() : ''));
+
+            if (!senderValidation.allowed) {
+                nlapiLogExecution('AUDIT', 'Email sender blocked', 'subject=' + subject + ' rawSender=' + senderValidation.raw + ' parsedEmail=' + senderValidation.email + ' parsedDomain=' + senderValidation.domain + ' allowedDomain=' + ALLOWED_SENDER_DOMAIN);
+                return;
+            }
+
+            if (!importConfig) {
+                nlapiLogExecution('AUDIT', 'No matching import config for subject', subject);
+                return;
+            }
+
+            if (!csvFile) {
+                nlapiLogExecution('ERROR', 'Matched subject but no CSV attachment found', subject);
+                return;
+            }
+
+            try {
+                var fallbackFileId = saveAttachment(csvFile);
+                nlapiLogExecution('ERROR', 'Original CSV saved without audit',
+                        'Manual processing required. subject=' + subject +
+                        ' fileId=' + fallbackFileId +
+                        ' fileName=' + csvFile.getName());
+            } catch (fallbackSaveError) {
+                nlapiLogExecution('ERROR', 'Original CSV save failed after audit unavailable',
+                        'subject=' + subject +
+                        ' fileName=' + csvFile.getName() +
+                        ' error=' + getErrorDetails(fallbackSaveError));
+            }
+
+            return;
+        }
+
+        if (!senderValidation.allowed) {
+            nlapiLogExecution('AUDIT', 'Email sender blocked', 'subject=' + subject + ' rawSender=' + senderValidation.raw + ' parsedEmail=' + senderValidation.email + ' parsedDomain=' + senderValidation.domain + ' allowedDomain=' + ALLOWED_SENDER_DOMAIN);
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_SKIPPED,
+                custrecord_mi_status_msg_error_details: 'Sender domain blocked. parsedEmail=' + senderValidation.email + ' parsedDomain=' + senderValidation.domain + ' allowedDomain=' + ALLOWED_SENDER_DOMAIN
+            });
+            return;
+        }
+
         if (!importConfig) {
             nlapiLogExecution('AUDIT', 'No matching import config for subject', subject);
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_SKIPPED,
+                custrecord_mi_status_msg_error_details: 'No matching import config for subject.'
+            });
             return;
         }
         debugLog('Import config resolved', 'keyword=' + importConfig.keyword + ' mappingId=' + importConfig.mappingId + ' description=' + importConfig.description);
 
-        var csvFile = getCsvAttachment(message);
         if (!csvFile) {
             nlapiLogExecution('ERROR', 'Matched subject but no CSV attachment found', subject);
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_FAILED,
+                custrecord_mi_status_msg_error_details: 'Matched subject but no CSV attachment found.'
+            });
             return;
         }
         debugLog('CSV attachment ready', 'name=' + csvFile.getName());
 
         var fileId = saveAttachment(csvFile);
         debugLog('CSV attachment saved result', 'fileId=' + fileId + ' name=' + csvFile.getName());
+        nlapiLogExecution('AUDIT', 'Original CSV stored for email',
+                'subject=' + subject +
+                ' auditId=' + auditId +
+                ' fileId=' + fileId +
+                ' fileName=' + csvFile.getName());
+        updateEmailAuditLog(auditId, {
+            custrecord_mi_original_attachment: fileId,
+            custrecord_mi_status: AUDIT_STATUS_PROCESSING,
+            custrecord_mi_status_msg_error_details: 'Original CSV saved. fileId=' + fileId
+        });
 
         var savedCsvFile = nlapiLoadFile(fileId);
         debugLog('CSV file loaded for LCL parsing', 'fileId=' + fileId + ' name=' + savedCsvFile.getName());
 
         var lclResult = { isLcl: false, created: false };
         try {
-            lclResult = maybeCreateLclTransaction(subject, savedCsvFile);
+            lclResult = maybeCreateLclTransaction(subject, savedCsvFile, auditId);
         } catch (lclError) {
-            nlapiLogExecution('ERROR', 'LCL transaction creation failed', getErrorDetails(lclError));
+            var lclErrorDetails = getErrorDetails(lclError);
+            nlapiLogExecution('ERROR', 'LCL transaction creation failed', lclErrorDetails);
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_FAILED,
+                custrecord_mi_status_msg_error_details: 'Transaction creation failed. ' + lclErrorDetails
+            });
             if (isLclTransactionSubject(subject)) {
                 lclResult = { isLcl: true, created: false };
             }
         }
 
         if (lclResult && lclResult.isLcl && !lclResult.created && !lclResult.skipTransaction) {
-    nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL transaction was not created successfully. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
-    return;
-}
+            nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL transaction was not created successfully. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_FAILED,
+                custrecord_mi_status_msg_error_details: 'Transaction was not created successfully; CSV import not scheduled. subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName()
+            });
+            return;
+        }
 
         var importFileId = fileId;
         var importFileName = savedCsvFile.getName();
-        var lclRemittanceImportResult = maybeCreateLclRemittanceUpdatedFile(subject, savedCsvFile);
+        var lclRemittanceImportResult = maybeCreateLclRemittanceUpdatedFile(subject, savedCsvFile, auditId);
         var metroCreditImportResult = { updated: false };
+        var auditCsvImportResult = { updated: false };
 
         if (lclRemittanceImportResult.error) {
             nlapiLogExecution('ERROR', 'CSV import not scheduled', 'LCL remittance combine failed. ' + lclRemittanceImportResult.error + ' subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_FAILED,
+                custrecord_mi_status_msg_error_details: 'LCL remittance combine failed. ' + lclRemittanceImportResult.error
+            });
             return;
         }
 
         if (lclRemittanceImportResult.updated) {
             importFileId = lclRemittanceImportResult.fileId;
             importFileName = lclRemittanceImportResult.fileName;
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_updated_csv_file: importFileId,
+                custrecord_mi_status_msg_error_details: 'LCL remittance grouped CSV created. fileId=' + importFileId + ' fileName=' + importFileName
+            });
         } else {
-            metroCreditImportResult = maybeCreateMetroRemittanceUpdatedFile(subject, savedCsvFile);
+            metroCreditImportResult = maybeCreateMetroRemittanceUpdatedFile(subject, savedCsvFile, auditId);
         }
 
         if (metroCreditImportResult.error) {
             nlapiLogExecution('ERROR', 'CSV import not scheduled', 'Metro remittance credit filter failed. ' + metroCreditImportResult.error + ' subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_status: AUDIT_STATUS_FAILED,
+                custrecord_mi_status_msg_error_details: 'Metro remittance credit filter failed. ' + metroCreditImportResult.error
+            });
             return;
         }
 
         if (metroCreditImportResult.updated) {
             importFileId = metroCreditImportResult.fileId;
             importFileName = metroCreditImportResult.fileName;
+            updateEmailAuditLog(auditId, {
+                custrecord_mi_updated_csv_file: importFileId,
+                custrecord_mi_status_msg_error_details: 'Metro remittance credit CSV created. fileId=' + importFileId + ' fileName=' + importFileName
+            });
         }
 
-        triggerCsvImport(importFileId, importConfig.mappingId);
+        if (!lclRemittanceImportResult.updated && !metroCreditImportResult.updated) {
+            auditCsvImportResult = maybeCreateAuditCsvUpdatedFile(savedCsvFile, auditId);
+            if (auditCsvImportResult.error) {
+                nlapiLogExecution('ERROR', 'CSV import not scheduled', 'Audit CSV creation failed. ' + auditCsvImportResult.error + ' subject=' + subject + ' fileId=' + fileId + ' fileName=' + csvFile.getName());
+                updateEmailAuditLog(auditId, {
+                    custrecord_mi_status: AUDIT_STATUS_FAILED,
+                    custrecord_mi_status_msg_error_details: 'Audit CSV creation failed. ' + auditCsvImportResult.error
+                });
+                return;
+            }
+
+            if (auditCsvImportResult.updated) {
+                importFileId = auditCsvImportResult.fileId;
+                importFileName = auditCsvImportResult.fileName;
+                updateEmailAuditLog(auditId, {
+                    custrecord_mi_updated_csv_file: importFileId,
+                    custrecord_mi_status_msg_error_details: 'Audit ID CSV created. fileId=' + importFileId + ' fileName=' + importFileName
+                });
+            }
+        }
+
+        var csvImportStatus = triggerCsvImport(importFileId, importConfig.mappingId);
+        updateEmailAuditLog(auditId, {
+            custrecord_mi_csv_import_task_id: csvImportStatus,
+            custrecord_mi_status: AUDIT_STATUS_CSV_IMPORT_SUBMITTED,
+            custrecord_mi_status_msg_error_details: 'CSV import submitted. fileId=' + importFileId + ' fileName=' + importFileName + ' mappingId=' + importConfig.mappingId + ' scheduleStatus=' + csvImportStatus
+        });
 
         if (newRecord) {
             var messageText = 'Auto-processed CSV import: ' + importConfig.description;
+            if (auditId) {
+                messageText += '; audit ' + auditId;
+            }
             if (lclResult && lclResult.created) {
-    if (lclResult.id) {
-        messageText += '; created ' + lclResult.recordType + ' ' + lclResult.id + ' tranid ' + lclResult.tranid;
-    }
-    if (lclResult.refundId) {
-        messageText += '; created customerrefund ' + lclResult.refundId;
-    }
-    if (lclResult.paybackVendorCreditId) {
-        messageText += '; created payback vendorcredit ' + lclResult.paybackVendorCreditId + ' tranid ' + lclResult.paybackTranid;
-    }
-}
+                if (lclResult.id) {
+                    messageText += '; created ' + lclResult.recordType + ' ' + lclResult.id + ' tranid ' + lclResult.tranid;
+                }
+                if (lclResult.refundId) {
+                    messageText += '; created customerrefund ' + lclResult.refundId;
+                }
+                if (lclResult.paybackVendorCreditId) {
+                    messageText += '; created payback vendorcredit ' + lclResult.paybackVendorCreditId + ' tranid ' + lclResult.paybackTranid;
+                }
+            }
             if (metroCreditImportResult.updated) {
                 messageText += '; created filtered import file ' + importFileName + ' creditCount ' + metroCreditImportResult.creditCount;
             }
             if (lclRemittanceImportResult.updated) {
                 messageText += '; created grouped import file ' + importFileName + ' combinedGroups ' + lclRemittanceImportResult.combinedGroupCount + ' removedNegativeRows ' + lclRemittanceImportResult.removedNegativeSourceRowCount;
             }
+            if (auditCsvImportResult.updated) {
+                messageText += '; created audit import file ' + importFileName;
+            }
             newRecord.setFieldValue('incomingmessage', messageText);
         }
 
     } catch (e) {
-        nlapiLogExecution('ERROR', 'Email Capture CSV import failed', getErrorDetails(e));
+        var errorDetails = getErrorDetails(e);
+        nlapiLogExecution('ERROR', 'Email Capture CSV import failed', errorDetails);
+        updateEmailAuditLog(auditId, {
+            custrecord_mi_status: AUDIT_STATUS_FAILED,
+            custrecord_mi_status_msg_error_details: errorDetails
+        });
     }
 }
