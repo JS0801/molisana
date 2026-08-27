@@ -36,7 +36,7 @@ var TARGET_FOLDER_ID = 475348;
 
 var SCHEDULED_SCRIPT_ID = 'customscript_mi_import_bills_and_payment';
 var SCHEDULED_DEPLOYMENT_ID = 'customdeploy_mi_import_bills_and_payment';
-var CSV_IMPORT_ENABLED = false;
+var CSV_IMPORT_ENABLED = true;
 
 var EMAIL_AUDIT_RECORD_TYPE = 'customrecord_email_capture_audit_log';
 var FIELD_RELATED_EMAIL_CAPTURE = 'custbody_related_email_capture';
@@ -439,15 +439,17 @@ function saveAttachment(csvFile) {
  * N/task CSV_IMPORT.
  * @param {string} fileId
  * @param {string} mappingId
+ * @param {string} auditId
  */
-function triggerCsvImport(fileId, mappingId) {
-    debugLog('Scheduling CSV import trigger', 'scriptId=' + SCHEDULED_SCRIPT_ID + ' deploymentId=' + SCHEDULED_DEPLOYMENT_ID + ' fileId=' + fileId + ' mappingId=' + mappingId);
+function triggerCsvImport(fileId, mappingId, auditId) {
+    debugLog('Scheduling CSV import trigger', 'scriptId=' + SCHEDULED_SCRIPT_ID + ' deploymentId=' + SCHEDULED_DEPLOYMENT_ID + ' fileId=' + fileId + ' mappingId=' + mappingId + ' auditId=' + auditId);
     var status = nlapiScheduleScript(SCHEDULED_SCRIPT_ID, SCHEDULED_DEPLOYMENT_ID, {
         custscript_import_file_id: fileId,
-        custscript_import_mapping_id: mappingId
+        custscript_import_mapping_id: mappingId,
+        custscript_mi_email_capture_audit_id: auditId || ''
     });
 
-    nlapiLogExecution('AUDIT', 'CSV import scheduled', 'fileId=' + fileId + ' mappingId=' + mappingId + ' status=' + status);
+    nlapiLogExecution('AUDIT', 'CSV import scheduled', 'fileId=' + fileId + ' mappingId=' + mappingId + ' auditId=' + auditId + ' status=' + status);
     return status;
 }
 
@@ -1968,11 +1970,10 @@ function process(message, newRecord) {
         }
 
         if (CSV_IMPORT_ENABLED) {
-            var csvImportStatus = triggerCsvImport(importFileId, importConfig.mappingId);
+            var csvImportStatus = triggerCsvImport(importFileId, importConfig.mappingId, auditId);
             updateEmailAuditLog(auditId, {
-                custrecord_mi_csv_import_task_id: csvImportStatus,
                 custrecord_mi_status: AUDIT_STATUS_CSV_IMPORT_SUBMITTED,
-                custrecord_mi_status_msg_error_details: 'CSV import submitted. fileId=' + importFileId + ' fileName=' + importFileName + ' mappingId=' + importConfig.mappingId + ' scheduleStatus=' + csvImportStatus
+                custrecord_mi_status_msg_error_details: 'CSV import trigger scheduled. fileId=' + importFileId + ' fileName=' + importFileName + ' mappingId=' + importConfig.mappingId + ' scheduleStatus=' + csvImportStatus
             });
         } else {
             nlapiLogExecution('AUDIT', 'CSV import not triggered',
