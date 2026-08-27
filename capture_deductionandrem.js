@@ -352,7 +352,7 @@ LCL_TRANSACTION_CONFIG[getTransactionConfigKey(METRO_CUSTOMER_KEY, LCL_REMITTANC
     recordType: 'creditmemo',
     entityId: '6327',
     accountId: '119',
-    itemId: '6113',
+    itemId: '6808',
     fileType: 'Remittance',
     dateColumnName: 'Remittance Date',
     referenceFieldId: 'custbody_2663_reference_num',
@@ -1519,12 +1519,13 @@ if (existingRefundId) {
     setBodyField(refund, 'externalid', refundExternalId);
     setBodyField(refund, 'customer', customerId);
     setBodyField(refund, 'trandate', transactionDate);
+    setBodyField(refund, 'paymentmethod', 7); //EFT/ACH
     setBodyField(refund, 'account', CUSTOMER_REFUND_ACCOUNT_ID);
     setBodyField(refund, 'tranid', documentNumber);
     setBodyField(refund, 'memo', memo);
     setBodyField(refund, 'custbody_created_from_email_capture', 'T');
     setBodyField(refund, FIELD_RELATED_EMAIL_CAPTURE, auditId);
-    setBodyField(refund, 'paymentmethod', 7); //EFT/ACH
+    
 
     var line = refund.findLineItemValue('apply', 'doc', String(creditMemoId));
     debugLog('Customer Refund apply line lookup', 'creditMemoId=' + creditMemoId + ' line=' + line);
