@@ -328,7 +328,7 @@ LCL_TRANSACTION_CONFIG[getTransactionConfigKey(LCL_CUSTOMER_KEY, LCL_REMITTANCE_
     accountId: '119',
     itemId: '6808',
     fileType: 'Remittance',
-    dateColumnName: 'Payment Date',
+    dateColumnName: 'Remittance Date',
     referenceFieldId: 'custbody_2663_reference_num',
     setLineLocation: false,
     setLineDescription: true
