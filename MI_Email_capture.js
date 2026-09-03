@@ -7,6 +7,7 @@ var NOTES_FIELD     = 'custbody_mi_approval_notes';
 
 function process(email) {
     try {
+      nlapiLogExecution('AUDIT', 'Suject', email.getSubject() );
         // Subject: Approve_VENDBILL48768 / Reject_VENDBILL48768
         var match = String(email.getSubject() || '').trim().match(/^(Approve|Reject)_(.+)$/i);
         if (!match) return;
