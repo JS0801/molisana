@@ -9,13 +9,13 @@
   <inittriggertype></inittriggertype>
   <isinactive>F</isinactive>
   <islogenabled>T</islogenabled>
-  <keephistory>ONLYWHENTESTING</keephistory>
+  <keephistory>ALWAYS</keephistory>
   <name>MI | Bill Approval Email Capture</name>
   <recordtypes>VENDORBILL</recordtypes>
-  <releasestatus>TESTING</releasestatus>
+  <releasestatus>RELEASED</releasestatus>
   <runasadmin>F</runasadmin>
   <initcondition>
-    <formula><![CDATA["Status" IN ("Transaction Status1") AND isChecked("Created From Email Capture") = 'T']]></formula>
+    <formula><![CDATA["Status" IN ("Transaction Status1") AND "Account" IN ("Account1")]]></formula>
     <type>VISUAL_BUILDER</type>
     <parameters>
       <parameter>
@@ -28,8 +28,13 @@
         <value>174</value>
       </parameter>
       <parameter>
-        <name>Created From Email Capture</name>
-        <value>[scriptid=custbody_created_from_email_capture]</value>
+        <name>Account</name>
+        <value>STDBODYACCOUNT</value>
+      </parameter>
+      <parameter>
+        <name>Account1</name>
+        <selectrecordtype>-112</selectrecordtype>
+        <value>[ACCOUNT_SPECIFIC_VALUE]</value>
       </parameter>
     </parameters>
   </initcondition>
