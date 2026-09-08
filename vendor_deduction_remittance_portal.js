@@ -893,7 +893,11 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
       var currentUserId = getCurrentUserId();
       var config = getApprovalConfig();
       var canViewAll = !!config.overviewUserMap[currentUserId];
-      var allPendingBills = getPendingApprovalBills(vendorId);
+      var allPendingBills = getPendingApprovalBills(
+        vendorId,
+        currentUserId,
+        config
+      );
 
       var bills = allPendingBills.filter(function (b) {
 
@@ -1339,20 +1343,51 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
       }
     }
 
-    function getPendingApprovalBills(vendorId) {
+    function getPendingApprovalBills(
+      vendorId,
+      currentUserId,
+      config
+    ) {
 
       var out = [];
+      var canViewAll = !!config.overviewUserMap[currentUserId];
+      var isFinalApprover =
+        !!config.finalApproverId &&
+        config.finalApproverId === currentUserId;
+
+      var filters = [
+        ['mainline', 'is', 'T'],
+        'AND',
+        ['entity', 'anyof', vendorId],
+        'AND',
+        ['approvalstatus', 'anyof', APPROVAL_STATUS_PENDING]
+      ];
+
+      if (!canViewAll) {
+
+        var assignedValidatorFilter = [
+          [FIELD_BILL_VALIDATOR, 'anyof', currentUserId],
+          'AND',
+          [FIELD_VALIDATOR_CHECK, 'is', 'F']
+        ];
+
+        filters.push('AND');
+
+        if (isFinalApprover) {
+          filters.push([
+            [FIELD_VALIDATOR_CHECK, 'is', 'T'],
+            'OR',
+            assignedValidatorFilter
+          ]);
+        } else {
+          filters.push(assignedValidatorFilter);
+        }
+      }
 
       search.create({
         type: search.Type.VENDOR_BILL,
 
-        filters: [
-          ['mainline', 'is', 'T'],
-          'AND',
-          ['entity', 'anyof', vendorId],
-          'AND',
-          ['approvalstatus', 'anyof', APPROVAL_STATUS_PENDING]
-        ],
+        filters: filters,
 
         columns: [
           search.createColumn({
