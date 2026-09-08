@@ -33,6 +33,14 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
     var FIELD_REMIT_NO     = 'custbody_note_to_vendor';
     var FIELD_CLAIM_NO     = 'custbody_mi_claim_no';
     var FIELD_CLAIM_STATUS = 'custbody_mi_claim_status';
+    var FIELD_BILL_VALIDATOR = 'custbody_vendbill_validator';
+    var FIELD_VALIDATOR_CHECK = 'custbody_vendbill_validator_check';
+
+    var PARAM_FINAL_APPROVER = 'custscript_vdr_final_approver';
+    var PARAM_APPROVAL_USERS = 'custscript_vdr_approval_users';
+
+    var APPROVAL_STATUS_PENDING = '1';
+    var APPROVAL_STATUS_APPROVED = '2';
 
     // NEW: Vendor must have this checkbox checked to appear in the portal
     var FIELD_VENDOR_PORTAL = 'custentity_inclding_deduction_portal';
@@ -53,6 +61,8 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
 
           if (action === 'detail') {
             renderDetail(context);
+          } else if (action === 'billapproval') {
+            renderBillApproval(context);
           } else {
             renderDashboard(context);
           }
@@ -116,6 +126,12 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
         );
 
         context.response.write(JSON.stringify(result2));
+        return;
+      }
+
+      if (body.action === 'approveBill') {
+        var result3 = approvePendingBill(body.billId);
+        context.response.write(JSON.stringify(result3));
         return;
       }
 
@@ -263,6 +279,180 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
           error: e.message
         };
       }
+    }
+
+    // =========================================================================
+    // Two-stage Vendor Bill approval
+    // =========================================================================
+    function getApprovalConfig() {
+
+      var script = runtime.getCurrentScript();
+      var finalApprover = script.getParameter({
+        name: PARAM_FINAL_APPROVER
+      });
+      var approvalUsers = script.getParameter({
+        name: PARAM_APPROVAL_USERS
+      });
+
+      return {
+        finalApproverId:
+          finalApprover === null || finalApprover === undefined
+            ? ''
+            : String(finalApprover),
+
+        overviewUserMap: parseEmployeeIdList(approvalUsers)
+      };
+    }
+
+    function parseEmployeeIdList(value) {
+
+      var out = {};
+
+      String(value || '')
+        .split(/[\s,;]+/)
+        .forEach(function (id) {
+          var cleanId = String(id || '').trim();
+
+          if (cleanId) {
+            out[cleanId] = true;
+          }
+        });
+
+      return out;
+    }
+
+    function getCurrentUserId() {
+
+      var currentUser = runtime.getCurrentUser();
+
+      return currentUser && currentUser.id !== undefined
+        ? String(currentUser.id)
+        : '';
+    }
+
+    function approvePendingBill(billId) {
+      try {
+
+        if (!billId) {
+          throw new Error('Bill is required.');
+        }
+
+        var currentUserId = getCurrentUserId();
+        var config = getApprovalConfig();
+        var billRec = record.load({
+          type: record.Type.VENDOR_BILL,
+          id: billId,
+          isDynamic: false
+        });
+
+        var approvalStatus = String(
+          billRec.getValue({
+            fieldId: 'approvalstatus'
+          }) || ''
+        );
+
+        var vendorId = String(
+          billRec.getValue({
+            fieldId: 'entity'
+          }) || ''
+        );
+
+        var validatorId = String(
+          billRec.getValue({
+            fieldId: FIELD_BILL_VALIDATOR
+          }) || ''
+        );
+
+        var validatorChecked = !!billRec.getValue({
+          fieldId: FIELD_VALIDATOR_CHECK
+        });
+
+        if (!vendorId || !isVendorEnabledForPortal(vendorId)) {
+          throw new Error(
+            'This bill is not available in the Deduction Portal.'
+          );
+        }
+
+        if (approvalStatus !== APPROVAL_STATUS_PENDING) {
+          throw new Error('This bill is no longer pending approval.');
+        }
+
+        if (!validatorChecked) {
+
+          if (!validatorId || currentUserId !== validatorId) {
+            throw new Error(
+              'Only the validator assigned to this bill can complete validator approval.'
+            );
+          }
+
+          var validatorValues = {};
+          validatorValues[FIELD_VALIDATOR_CHECK] = true;
+
+          record.submitFields({
+            type: record.Type.VENDOR_BILL,
+            id: billId,
+            values: validatorValues,
+            options: {
+              enableSourcing: false,
+              ignoreMandatoryFields: false
+            }
+          });
+
+          return {
+            success: true,
+            stage: 'validator',
+            message: 'Validator approval completed.'
+          };
+        }
+
+        if (
+          !config.finalApproverId ||
+          currentUserId !== config.finalApproverId
+        ) {
+          throw new Error(
+            'Only the configured final approver can approve this bill.'
+          );
+        }
+
+        record.submitFields({
+          type: record.Type.VENDOR_BILL,
+          id: billId,
+          values: {
+            approvalstatus: Number(APPROVAL_STATUS_APPROVED)
+          },
+          options: {
+            enableSourcing: false,
+            ignoreMandatoryFields: false
+          }
+        });
+
+        return {
+          success: true,
+          stage: 'final',
+          message: 'Bill approved.'
+        };
+
+      } catch (e) {
+
+        log.error('approvePendingBill error', e);
+
+        return {
+          success: false,
+          error: e.message
+        };
+      }
+    }
+
+    function isVendorEnabledForPortal(vendorId) {
+
+      var lookup = search.lookupFields({
+        type: search.Type.VENDOR,
+        id: vendorId,
+        columns: [FIELD_VENDOR_PORTAL]
+      });
+      var value = lookup[FIELD_VENDOR_PORTAL];
+
+      return value === true || value === 'T';
     }
 
     // =========================================================================
@@ -570,6 +760,14 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
           }) +
           '">Open &rsaquo;</a></td>' +
 
+          '<td><a class="row-link" href="' +
+          selfUrl({
+            action: 'billapproval',
+            vendorid: c.vendorId,
+            dashboardvendorid: vendorId
+          }) +
+          '">Approve Bills &rsaquo;</a></td>' +
+
           '</tr>'
         );
       }).join('');
@@ -631,13 +829,15 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
 
         '<th></th>' +
 
+        '<th>Approve Bills</th>' +
+
         '</tr></thead>' +
 
         '<tbody id="tbl-body">' +
 
         (
           rows ||
-          '<tr><td colspan="10" class="empty">' +
+          '<tr><td colspan="11" class="empty">' +
           'No open Bill Credits found.' +
           '</td></tr>'
         ) +
@@ -658,6 +858,183 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
           'Deduction & Remittance Portal',
           html,
           'Vendor: ' + esc(selectedVendorName)
+        )
+      );
+    }
+
+    // =========================================================================
+    // Pending Vendor Bills -- validator approval, then final approval
+    // =========================================================================
+    function renderBillApproval(context) {
+
+      var vendorId = String(
+        context.request.parameters.vendorid || ''
+      );
+      var dashboardVendorId = String(
+        context.request.parameters.dashboardvendorid || ''
+      );
+      var eligibleVendors = getEligibleVendors();
+      var vendorMap = {};
+
+      eligibleVendors.forEach(function (v) {
+        vendorMap[String(v.id)] = v.name;
+      });
+
+      if (!vendorId) {
+        throw new Error('Vendor is required.');
+      }
+
+      if (!vendorMap[vendorId]) {
+        throw new Error(
+          'This vendor is not enabled for the Deduction Portal.'
+        );
+      }
+
+      var currentUserId = getCurrentUserId();
+      var config = getApprovalConfig();
+      var canViewAll = !!config.overviewUserMap[currentUserId];
+      var allPendingBills = getPendingApprovalBills(vendorId);
+
+      var bills = allPendingBills.filter(function (b) {
+
+        if (canViewAll) {
+          return true;
+        }
+
+        if (
+          !b.validatorApproved &&
+          b.validatorId === currentUserId
+        ) {
+          return true;
+        }
+
+        return (
+          b.validatorApproved &&
+          !!config.finalApproverId &&
+          config.finalApproverId === currentUserId
+        );
+      });
+
+      var rows = bills.map(function (b) {
+
+        var isValidatorAction =
+          !b.validatorApproved &&
+          !!b.validatorId &&
+          b.validatorId === currentUserId;
+
+        var isFinalAction =
+          b.validatorApproved &&
+          !!config.finalApproverId &&
+          config.finalApproverId === currentUserId;
+
+        var statusBadge = b.validatorApproved
+          ? '<span class="badge badge-amber">Final Approval</span>'
+          : '<span class="badge badge-blue">Validator Approval</span>';
+
+        var actionHtml =
+          isValidatorAction || isFinalAction
+            ? '<button class="btn-bill-approve">Approve</button>'
+            : '<span class="muted">&mdash;</span>';
+
+        return (
+          '<tr data-billid="' + esc(b.id) + '">' +
+
+          '<td>' + esc(b.vendorName) + '</td>' +
+
+          '<td><a href="' + billUrl(b.id) + '" target="_blank">' +
+          esc(b.tranid) +
+          '</a></td>' +
+
+          '<td>' + esc(b.trandate) + '</td>' +
+
+          '<td class="num">' + fmtMoney(b.amount) + '</td>' +
+
+          '<td>' + esc(b.validatorName || '(not assigned)') + '</td>' +
+
+          '<td>' +
+          (
+            b.validatorApproved
+              ? '<span class="badge badge-green">Yes</span>'
+              : '<span class="badge badge-blue">No</span>'
+          ) +
+          '</td>' +
+
+          '<td>' + statusBadge + '</td>' +
+
+          '<td>' + actionHtml + '</td>' +
+
+          '<td class="row-msg"></td>' +
+
+          '</tr>'
+        );
+      }).join('');
+
+      var backUrl = dashboardVendorId
+        ? selfUrl({
+            vendorid: dashboardVendorId
+          })
+        : selfUrl({});
+
+      var html =
+        '<div style="margin-bottom:14px">' +
+          '<a href="' + backUrl + '" style="color:#36677D;font-size:12px">' +
+          '&lsaquo; Back to Dashboard' +
+          '</a>' +
+        '</div>' +
+
+        tiles([
+          {
+            label: 'Pending Bills',
+            value: bills.length,
+            color: '#003764'
+          },
+          {
+            label: 'Validator Approval',
+            value: bills.filter(function (b) {
+              return !b.validatorApproved;
+            }).length,
+            color: '#36677D'
+          },
+          {
+            label: 'Final Approval',
+            value: bills.filter(function (b) {
+              return b.validatorApproved;
+            }).length,
+            color: '#B95C00'
+          }
+        ]) +
+
+        '<div class="card">' +
+          '<table class="tbl">' +
+            '<thead><tr>' +
+              '<th>Vendor</th>' +
+              '<th>Bill #</th>' +
+              '<th>Date</th>' +
+              '<th class="num">Amount</th>' +
+              '<th>Validator</th>' +
+              '<th>Validator Approved?</th>' +
+              '<th>Approval Status</th>' +
+              '<th>Action</th>' +
+              '<th></th>' +
+            '</tr></thead>' +
+            '<tbody id="approval-tbl-body">' +
+            (
+              rows ||
+              '<tr><td colspan="9" class="empty">' +
+              'No pending bills are available for this user.' +
+              '</td></tr>'
+            ) +
+            '</tbody>' +
+          '</table>' +
+        '</div>' +
+
+        billApprovalClientScript();
+
+      context.response.write(
+        renderShell(
+          'Approve Bills - ' + vendorMap[vendorId],
+          html,
+          'Logged in as employee #' + currentUserId
         )
       );
     }
@@ -960,6 +1337,116 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
 
         return 'Vendor #' + vendorId;
       }
+    }
+
+    function getPendingApprovalBills(vendorId) {
+
+      var out = [];
+
+      search.create({
+        type: search.Type.VENDOR_BILL,
+
+        filters: [
+          ['mainline', 'is', 'T'],
+          'AND',
+          ['entity', 'anyof', vendorId],
+          'AND',
+          ['approvalstatus', 'anyof', APPROVAL_STATUS_PENDING]
+        ],
+
+        columns: [
+          search.createColumn({
+            name: 'internalid'
+          }),
+
+          search.createColumn({
+            name: 'entity'
+          }),
+
+          search.createColumn({
+            name: 'tranid'
+          }),
+
+          search.createColumn({
+            name: 'trandate',
+            sort: search.Sort.ASC
+          }),
+
+          search.createColumn({
+            name: 'amount'
+          }),
+
+          search.createColumn({
+            name: FIELD_BILL_VALIDATOR
+          }),
+
+          search.createColumn({
+            name: FIELD_VALIDATOR_CHECK
+          })
+        ]
+
+      }).run().each(function (r) {
+
+        var validatorApproved = r.getValue({
+          name: FIELD_VALIDATOR_CHECK
+        });
+
+        out.push({
+          id: String(
+            r.getValue({
+              name: 'internalid'
+            })
+          ),
+
+          vendorId: String(
+            r.getValue({
+              name: 'entity'
+            })
+          ),
+
+          vendorName:
+            r.getText({
+              name: 'entity'
+            }) || getVendorName(vendorId),
+
+          tranid:
+            r.getValue({
+              name: 'tranid'
+            }),
+
+          trandate:
+            r.getValue({
+              name: 'trandate'
+            }),
+
+          amount: Math.abs(
+            parseFloat(
+              r.getValue({
+                name: 'amount'
+              })
+            ) || 0
+          ),
+
+          validatorId: String(
+            r.getValue({
+              name: FIELD_BILL_VALIDATOR
+            }) || ''
+          ),
+
+          validatorName:
+            r.getText({
+              name: FIELD_BILL_VALIDATOR
+            }) || '',
+
+          validatorApproved:
+            validatorApproved === true ||
+            validatorApproved === 'T'
+        });
+
+        return true;
+      });
+
+      return out;
     }
 
     // =========================================================================
@@ -1610,15 +2097,104 @@ define(['N/record', 'N/search', 'N/https', 'N/log', 'N/runtime', 'N/url', 'N/cac
 
         '.btn-approve{background:#3D7A41;color:#fff;border-color:#3D7A41;}',
 
+        '.btn-bill-approve{background:#3D7A41;color:#fff;border-color:#3D7A41;}',
+
         '.btn-approve[disabled]{background:#D9D9D9;border-color:#D9D9D9;color:#888;cursor:not-allowed;}',
+
+        '.btn-bill-approve[disabled]{background:#D9D9D9;border-color:#D9D9D9;color:#888;cursor:not-allowed;}',
 
         '.btn-save-claim{color:#36677D;}',
 
         '.row-msg{font-size:11px;color:#3D7A41;}',
 
+        '.muted{color:#999;}',
+
         '.err-box{background:#FBEAEA;color:#B00020;border:1px solid #E8B4B4;border-radius:6px;padding:14px;}'
 
       ].join('');
+    }
+
+    function billApprovalClientScript() {
+
+      return (
+        '<script>' +
+
+        '(function(){' +
+
+        'var body = document.getElementById("approval-tbl-body");' +
+
+        'if(!body) return;' +
+
+        'function post(payload, cb){' +
+
+          'var xhr = new XMLHttpRequest();' +
+
+          'xhr.open("POST", window.location.pathname + window.location.search);' +
+
+          'xhr.setRequestHeader("Content-Type","application/json");' +
+
+          'xhr.onload = function(){' +
+
+            'var res = {};' +
+
+            'try{' +
+              'res = JSON.parse(xhr.responseText);' +
+            '}catch(e){}' +
+
+            'cb(res);' +
+
+          '};' +
+
+          'xhr.onerror = function(){' +
+            'cb({success:false,error:"Network error"});' +
+          '};' +
+
+          'xhr.send(JSON.stringify(payload));' +
+
+        '}' +
+
+        'body.addEventListener("click", function(e){' +
+
+          'if(!e.target.classList.contains("btn-bill-approve")) return;' +
+
+          'var tr = e.target.closest("tr[data-billid]");' +
+
+          'if(!tr) return;' +
+
+          'var button = e.target;' +
+
+          'var msgCell = tr.querySelector(".row-msg");' +
+
+          'button.disabled = true;' +
+
+          'button.textContent = "Approving...";' +
+
+          'post({' +
+            'action:"approveBill",' +
+            'billId:tr.getAttribute("data-billid")' +
+          '}, function(res){' +
+
+            'if(res.success){' +
+              'window.location.reload();' +
+              'return;' +
+            '}' +
+
+            'button.disabled = false;' +
+
+            'button.textContent = "Approve";' +
+
+            'msgCell.style.color = "#B00020";' +
+
+            'msgCell.textContent = res.error || "Approval failed";' +
+
+          '});' +
+
+        '});' +
+
+        '})();' +
+
+        '</script>'
+      );
     }
 
     // =========================================================================
