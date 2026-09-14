@@ -5,6 +5,7 @@
 define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/format'],
 (search, record, runtime, url, file, log, format) => {
     const TITLE = 'Inbound Shipment Receipt Validation';
+    const QC_FIELD = 'custrecord_mi_qc_status';
     const PARAM = 'custscript_ibs_validation_search';
     let lineMaps = new WeakMap();
     const EPSILON = 0.00000001;
@@ -92,6 +93,12 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                     const column = columns.find(c => c.name === name && join(c) === (joined || ''));
                     return column ? result.getValue(column) : '';
                 };
+                const qcColumn = columns.find(c => c.name === QC_FIELD);
+                const issueColumn = columns.find(c => c.name === 'custrecord_mi_open_issue');
+                line.qcOriginal = text(qcColumn ? result.getValue(qcColumn) : '');
+                const issue = text(issueColumn ? result.getText(issueColumn) || result.getValue(issueColumn) : '').trim();
+                line.qcInitial = qcColumn ? qcDefault(line.qcOriginal, issue) : '';
+                line.qcEnabled = !!qcColumn;
                 const inventoryKey = shipmentId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
                 if (!inventoryStates.has(inventoryKey)) inventoryStates.set(inventoryKey, {expected:number(get('quantityexpected')), received:number(get('quantityreceived')),
                     locationId:text(result.getValue(locationColumn)), location:text(result.getText(locationColumn) || ''),
@@ -151,6 +158,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         preloadDetails(shipments, meta);
         log.debug({title: 'IBS search loaded', details: {searchId, resultRows: pages.count, shipments: shipments.length}});
         return {columns: meta, shipments};
+    }
+
+    function qcDefault(existing, issue) {
+        return text(existing) || (text(issue).trim().toLowerCase() === 'label' ? '2' : text(issue).trim() ? '3' : '');
     }
 
     // Prepare popup data once, from the main search, before returning the page data.
@@ -379,18 +390,33 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         if (!Array.isArray(payload.lines) || !payload.lines.length) throw Error('No changed item lines to submit.');
         const shipment = record.load({type: 'inboundshipment', id: shipmentId, isDynamic: false});
         const changed = new Set();
+        const seen = new Set();
         for (const change of payload.lines) {
             if (runtime.getCurrentScript().getRemainingUsage() < 180) throw Error('Too many edited lines in one submission. Submit fewer lines at a time. No changes were saved for this shipment.');
             const lineId = validId(change.itemId);
             const inventoryId = text(change.inventoryId);
             const index = findLine(shipment, lineId, inventoryId);
-            if (changed.has(index)) throw Error('The same IBS line was edited through multiple search rows. Submit changes from one row for that IBS line.');
-            changed.add(index);
+            if (seen.has(index)) throw Error('The same IBS line was edited through multiple search rows. Submit changes from one row for that IBS line.');
+            seen.add(index);
+            if (change.qcStatus !== undefined) {
+                itemScope(shipmentId, lineId);
+                const desired = text(change.qcStatus);
+                if (!['','1','2','3','4','5'].includes(desired)) throw Error('Invalid QC Status.');
+                const current = text(shipment.getSublistValue({sublistId:'items',fieldId:QC_FIELD,line:index}));
+                if (current !== desired) {
+                    if (current !== text(change.qcOriginal)) throw Error('QC Status changed in NetSuite. Refresh the page before submitting.');
+                    shipment.setSublistValue({sublistId:'items',fieldId:QC_FIELD,line:index,value:desired});
+                    changed.add(index);
+                    log.debug({title:'IBS QC Status changed',details:{shipmentId,itemId:lineId,previous:current,status:desired}});
+                }
+            }
+            if (change.rows === undefined) continue;
             const detail = getDetail({shipmentId, lineId, inventoryId}, shipment);
             if (detail.snapshot !== change.snapshot) {
                 throw Error('Shipment quantities or inventory details changed for ' + detail.item + '. Refresh the page before submitting.');
             }
             const total = validateRows(change.rows, detail);
+            changed.add(index);
             const subrecord = shipment.getSublistSubrecord({sublistId: 'items', fieldId: 'inventorydetail', line: index});
             for (let i = subrecord.getLineCount({sublistId: 'inventoryassignment'}) - 1; i >= 0; i--) {
                 subrecord.removeLine({sublistId: 'inventoryassignment', line: i});
@@ -405,8 +431,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             });
             log.debug({title: 'IBS line validated', details: {shipmentId, lineId, rows: change.rows.length, total, maximum: detail.max}});
         }
+        if (!changed.size) return {id:shipmentId,lines:0};
         const id = shipment.save({enableSourcing: true, ignoreMandatoryFields: false});
-        log.audit({title: 'IBS inventory details saved', details: {shipmentId: id, lines: Array.from(changed), userId: runtime.getCurrentUser().id}});
+        log.audit({title: 'IBS line changes saved', details: {shipmentId: id, lines: Array.from(changed), userId: runtime.getCurrentUser().id}});
         return {id, lines: changed.size};
     }
 
@@ -430,6 +457,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
     function client(endpoint) {
         const $ = id => document.getElementById(id);
         const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const qcOptions = [{id:'1',name:'Release'},{id:'2',name:'To Be Labelled'},{id:'3',name:'Pending QC Release'},{id:'4',name:'QC Released'},{id:'5',name:'QC DEVIATE'}];
         const selected = {ibs:'',container:'',seal:''};
         const filterFields = {ibs:'shipmentnumber',container:'custrecord157',seal:'custrecord158'};
         let data = {columns: [], shipments: []}, expanded = new Set(), edits = {}, active = null, busy = false;
@@ -481,18 +509,52 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             });
             list.hidden = false; $('filter-'+name).setAttribute('aria-expanded','true');
         }
+        function defaultQcDrafts() {
+            data.shipments.forEach(s => s.lines.forEach(l => {
+                if (l.qcEnabled && l.qcInitial !== l.qcOriginal) {
+                    const k = key(s.id,l.id);
+                    if (!edits[k]) edits[k] = {shipmentId:s.id,lineId:l.id,itemId:l.itemId,inventoryId:l.detail.inventory.id,qcStatus:l.qcInitial,qcOriginal:l.qcOriginal};
+                }
+            }));
+        }
+        function mergeChanges(lines) {
+            const merged = {};
+            lines.forEach(line => {
+                const k = line.itemId + ':' + line.inventoryId;
+                if (!merged[k]) { merged[k] = {...line}; return; }
+                const target = merged[k];
+                if (line.qcStatus !== undefined) {
+                    if (target.qcStatus !== undefined && target.qcStatus !== line.qcStatus) throw Error('Conflicting QC Status values on rows for the same IBS item line.');
+                    target.qcStatus = line.qcStatus; target.qcOriginal = line.qcOriginal;
+                }
+                if (line.rows !== undefined) {
+                    if (target.rows !== undefined && JSON.stringify(target.rows) !== JSON.stringify(line.rows)) throw Error('Conflicting inventory edits on rows for the same IBS item line.');
+                    target.rows = line.rows; target.snapshot = line.snapshot;
+                }
+            });
+            return Object.values(merged);
+        }
         function render() {
             const shown = filteredShipments();
             const headers = data.columns.filter(c => c.section === 'header');
             const items = data.columns.filter(c => c.section === 'item');
+            const remaining = items.findIndex(c => c.name === 'quantityremaining');
+            items.splice(remaining >= 0 ? remaining + 1 : items.length,0,{key:'inventoryButton',label:'Inventory Detail'});
             let html = '<thead><tr><th></th>' + headers.map(c => '<th>' + escape(c.label) + '</th>').join('') + '</tr></thead><tbody>';
             shown.forEach(s => {
                 html += '<tr><td><button class="expander" aria-expanded="' + expanded.has(s.id) + '" data-expand="' + s.id + '">' + (expanded.has(s.id) ? '−' : '+') + '</button></td>' + headers.map(c => '<td>' + cell(s.cells[c.key]) + '</td>').join('') + '</tr>';
                 if (expanded.has(s.id)) {
-                    html += '<tr class="expanded"><td colspan="' + (headers.length + 1) + '"><div class="item-scroll"><table><thead><tr>' + items.map(c => '<th>' + escape(c.label) + '</th>').join('') + '<th>Inventory Detail</th></tr></thead><tbody>';
+                    html += '<tr class="expanded"><td colspan="' + (headers.length + 1) + '"><div class="item-scroll"><table><thead><tr>' + items.map(c => '<th>' + escape(c.label) + '</th>').join('') + '</tr></thead><tbody>';
                     s.lines.forEach(l => {
                         const draft = edits[key(s.id,l.id)];
-                        html += '<tr>' + items.map(c => '<td>' + cell(l.cells[c.key]) + '</td>').join('') + '<td class="' + (draft ? 'dirty' : '') + '"><button class="detail-button ' + ((draft ? draft.rows.length : l.hasDetail) ? 'filled' : '') + '" title="View / Edit Inventory Detail" aria-label="View / Edit Inventory Detail" data-detail="' + s.id + ':' + l.id + '">' + '<img class="inventory-icon" alt="Inventory Detail" src="' + ((draft ? draft.rows.length : l.hasDetail) ? 'https://4382108.app.netsuite.com/core/media/media.nl?id=24230&c=4382108&h=IH_6SQ4VYeAu0pFkOMmf5qXj8CSBZWAU0A5XLbIcoYkJkseL' : 'https://4382108.app.netsuite.com/core/media/media.nl?id=24231&c=4382108&h=YnSYg6zHZBKBjFQ6yI7HCuuSDbzV1x356tga3ZAREJ8Ix3f3') + '">' + '</button></td></tr>';
+                        html += '<tr>' + items.map(c => {
+                            if (c.key === 'inventoryButton') return '<td class="' + (draft ? 'dirty' : '') + '"><button class="detail-button ' + ((draft && draft.rows ? draft.rows.length : l.hasDetail) ? 'filled' : '') + '" title="View / Edit Inventory Detail" aria-label="View / Edit Inventory Detail" data-detail="' + s.id + ':' + l.id + '">' + '<img class="inventory-icon" alt="Inventory Detail" src="' + ((draft && draft.rows ? draft.rows.length : l.hasDetail) ? 'https://4382108.app.netsuite.com/core/media/media.nl?id=24230&c=4382108&h=IH_6SQ4VYeAu0pFkOMmf5qXj8CSBZWAU0A5XLbIcoYkJkseL' : 'https://4382108.app.netsuite.com/core/media/media.nl?id=24231&c=4382108&h=YnSYg6zHZBKBjFQ6yI7HCuuSDbzV1x356tga3ZAREJ8Ix3f3') + '">' + '</button></td>';
+                            if (c.name === 'custrecord_mi_qc_status') {
+                                const value = draft && draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
+                                return '<td><select aria-label="QC Status" data-qc="' + s.id + ':' + l.id + '"' + (busy ? ' disabled' : '') + '>' + options(qcOptions,value) + '</select></td>';
+                            }
+                            return '<td>' + cell(l.cells[c.key]) + '</td>';
+                        }).join('') + '</tr>';
                     });
                     html += '</tbody></table></div></td></tr>';
                 }
@@ -507,10 +569,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         }
         async function load(discard) {
             if (busy) return;
-            if (discard && Object.keys(edits).length && !confirm('Discard unsaved inventory changes and refresh?')) return;
+            if (discard && Object.keys(edits).length && !confirm('Discard pending line changes and refresh?')) return;
             if (discard) edits = {};
             setBusy(true); message('Loading shipments…');
-            try { data = await request('list'); message(''); render(); }
+            try { data = await request('list'); defaultQcDrafts(); message(''); render(); }
             catch(error) { message(error.message,true); }
             finally { setBusy(false); }
         }
@@ -578,7 +640,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             if (!line || !line.detail) { message('Inventory detail is not available. Refresh the page.',true); return; }
             const stored = line.detail;
             const draft = edits[key(shipmentId,lineId)];
-            active = {...stored,rows:JSON.parse(JSON.stringify(draft ? draft.rows : stored.inventory.rows))};
+            active = {...stored,rows:JSON.parse(JSON.stringify(draft && draft.rows ? draft.rows : stored.inventory.rows))};
             showDetail(); $('modal').hidden = false; $('close').focus();
         }
         function closeDetail() { $('modal').hidden = true; active = null; }
@@ -598,24 +660,28 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             }
             if (total-active.max > 0.00000001) { $('detailError').textContent = 'Total inventory quantity cannot exceed ' + active.max + '.'; return; }
             const k = key(active.shipmentId,active.lineId);
-            if (JSON.stringify(active.rows) === JSON.stringify(active.inventory.rows)) delete edits[k];
-            else edits[k] = {shipmentId:active.shipmentId,lineId:active.lineId,itemId:active.itemId,inventoryId:active.inventory.id,snapshot:active.snapshot,rows:active.rows};
+            const draft = edits[k] || {shipmentId:active.shipmentId,lineId:active.lineId,itemId:active.itemId,inventoryId:active.inventory.id};
+            if (JSON.stringify(active.rows) === JSON.stringify(active.inventory.rows)) { delete draft.rows; delete draft.snapshot; }
+            else { draft.rows = active.rows; draft.snapshot = active.snapshot; }
+            if (draft.rows !== undefined || draft.qcStatus !== undefined) edits[k] = draft;
+            else delete edits[k];
             closeDetail(); render();
         }
         async function submit() {
             if (busy || !Object.keys(edits).length) return;
-            setBusy(true); message('Validating and saving inventory details…');
+            setBusy(true); message('Validating and saving changed lines…');
             const groups = {};
             Object.values(edits).forEach(e => (groups[e.shipmentId] ||= []).push(e));
             let saved = 0;
             try {
                 for (const [shipmentId,lines] of Object.entries(groups)) {
-                    await request('save', {}, {shipmentId,lines});
+                    await request('save', {}, {shipmentId,lines:mergeChanges(lines)});
                     lines.forEach(l => delete edits[key(shipmentId,l.lineId)]);
                     saved++;
                 }
                 data = await request('list');
-                message('Inventory details saved for ' + saved + ' shipment(s).');
+                defaultQcDrafts();
+                message('Line changes saved for ' + saved + ' shipment(s).');
             } catch(error) { message((saved ? saved + ' shipment(s) saved. ' : '') + error.message + ' Remaining drafts are retained. Refresh the page if the record changed.',true); }
             finally { setBusy(false); render(); }
         }
@@ -634,6 +700,23 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         $('refresh').onclick = () => load(true);
         $('clear').onclick = () => { Object.keys(selected).forEach(name => { selected[name] = ''; $('filter-'+name).value = ''; }); hideChoices(); render(); };
         $('submit').onclick = submit;
+        $('shipments').onchange = event => {
+            const target = event.target.dataset.qc;
+            if (!target || busy) return;
+            const [shipmentId,lineId] = target.split(':');
+            const shipment = data.shipments.find(s => s.id === shipmentId);
+            const line = shipment.lines.find(l => l.id === lineId);
+            shipment.lines.filter(l => l.itemId === line.itemId && l.detail.inventory.id === line.detail.inventory.id).forEach(l => {
+                const k = key(shipmentId,l.id);
+                const draft = edits[k] || {shipmentId,lineId:l.id,itemId:l.itemId,inventoryId:l.detail.inventory.id};
+                l.qcInitial = event.target.value;
+                if (event.target.value === l.qcOriginal) { delete draft.qcStatus; delete draft.qcOriginal; }
+                else { draft.qcStatus = event.target.value; draft.qcOriginal = l.qcOriginal; }
+                if (draft.rows !== undefined || draft.qcStatus !== undefined) edits[k] = draft;
+                else delete edits[k];
+            });
+            render();
+        };
         $('shipments').onclick = event => {
             const button = event.target.closest('button');
             if (button && !busy) {
