@@ -49,34 +49,31 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         const saved = search.load({id: searchId});
         if (text(saved.searchType).toLowerCase() !== 'inboundshipment') throw Error('The configured search must be an Inbound Shipment search.');
         if (saved.columns.some(c => c.summary)) throw Error('Use a detail saved search without summary/group columns.');
-        const columns = saved.columns;
+        const columns = saved.columns.filter(c => !(join(c) === 'inboundshipmentitem' && ['internalid', 'id'].includes(c.name)));
         const baseId = columns.find(c => !join(c) && c.name === 'internalid');
         const itemColumn = columns.find(c => !join(c) && c.name === 'item');
         if (!baseId || !itemColumn) throw Error('The search needs Internal Id and Item columns.');
-        let lineColumn = columns.find(c => join(c) === 'inboundshipmentitem' && ['internalid', 'id'].includes(c.name));
-        if (!lineColumn) lineColumn = search.createColumn({name: 'internalid', join: 'inboundShipmentItem', label: 'IBS Line ID'});
-        saved.columns = columns.includes(lineColumn) ? columns : columns.concat(lineColumn);
-        saved.columns = saved.columns.concat(search.createColumn({name: 'internalid', sort: search.Sort.ASC}),
-            search.createColumn({name: lineColumn.name, join: lineColumn.join, sort: search.Sort.ASC}));
+        const lineColumn = itemColumn;
+        saved.columns = columns;
         const extra = [];
         [['ibs', 'shipmentnumber'], ['container', 'custrecord157'], ['seal', 'custrecord158']].forEach(([key, field]) => {
             if (text(filters[key]).trim()) extra.push(search.createFilter({name: 'formulatext', formula: '{' + field + '}', operator: search.Operator.CONTAINS, values: text(filters[key]).trim()}));
         });
         if (filters.shipmentId) extra.push(search.createFilter({name: 'internalid', operator: search.Operator.ANYOF, values: validId(filters.shipmentId)}));
         saved.filters = saved.filters.concat(extra);
-        const visible = columns.filter(c => c !== lineColumn);
+        const visible = columns;
         const meta = visible.map((c, i) => ({key: 'c' + i, name: c.name, join: join(c), label: c.label || c.name,
             section: join(c) === 'inventorydetail' ? 'inventory' : (!join(c) && HEADER_FIELDS.includes(c.name) ? 'header' : 'item')}));
         const groups = new Map();
         const images = {};
-        log.debug('Search', JSON.stringify(saved))
+        log.debug({title: 'IBS item identity column', details: {name: lineColumn.name, join: lineColumn.join}});
         const pages = saved.runPaged({pageSize: 1000});
         pages.pageRanges.forEach(page => {
             if (runtime.getCurrentScript().getRemainingUsage() < 120) throw Error('Too many results. Narrow the shipment, container, or seal filters and try again.');
             pages.fetch({index: page.index}).data.forEach(result => {
                 const shipmentId = text(result.getValue(baseId));
                 const lineId = text(result.getValue(lineColumn));
-                if (!lineId) throw Error('The search did not return an IBS item line ID. Check the Inbound Shipment Item: Internal ID column.');
+                if (!lineId) throw Error('The search returned an empty Item value.');
                 if (!groups.has(shipmentId)) groups.set(shipmentId, {id: shipmentId, cells: {}, lines: new Map()});
                 const shipment = groups.get(shipmentId);
                 if (!shipment.lines.has(lineId)) shipment.lines.set(lineId, {id: lineId, itemId: text(result.getValue(itemColumn)), cells: {}, hasDetail: false});
@@ -128,11 +125,32 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         return text(value);
     }
 
-    function findLine(shipment, lineId) {
+    function findLine(shipment, itemId) {
+        const purchaseOrders = {};
+        const matches = [];
         for (let line = 0; line < shipment.getLineCount({sublistId: 'items'}); line++) {
-            if (text(shipment.getSublistValue({sublistId: 'items', fieldId: 'id', line})) === text(lineId)) return line;
+            let actualItem = '';
+            if (shipment.hasSublistSubrecord({sublistId: 'items', fieldId: 'inventorydetail', line})) {
+                actualItem = text(shipment.getSublistSubrecord({sublistId: 'items', fieldId: 'inventorydetail', line}).getValue({fieldId: 'item'}));
+            }
+            if (!actualItem) {
+                const poId = shipment.getSublistValue({sublistId: 'items', fieldId: 'purchaseorder', line});
+                const poLineKey = text(shipment.getSublistValue({sublistId: 'items', fieldId: 'shipmentitem', line}));
+                if (!purchaseOrders[poId]) purchaseOrders[poId] = record.load({type: 'purchaseorder', id: poId});
+                const po = purchaseOrders[poId];
+                for (let i = 0; i < po.getLineCount({sublistId: 'item'}); i++) {
+                    if (text(po.getSublistValue({sublistId: 'item', fieldId: 'lineuniquekey', line: i})) === poLineKey) {
+                        actualItem = text(po.getSublistValue({sublistId: 'item', fieldId: 'item', line: i}));
+                        break;
+                    }
+                }
+            }
+            if (!actualItem) throw Error('Cannot identify an IBS item line. No inventory details were saved.');
+            if (actualItem === text(itemId)) matches.push(line);
         }
-        throw Error('The shipment item line no longer exists. Refresh the page.');
+        if (matches.length > 1) throw Error('This item appears on multiple lines in the shipment. Item alone cannot identify which line to update.');
+        if (!matches.length) throw Error('The item is no longer on this shipment. Refresh the page.');
+        return matches[0];
     }
 
     function isoDate(value) {
