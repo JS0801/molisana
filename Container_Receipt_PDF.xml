@@ -1,0 +1,94 @@
+<?xml version="1.0"?><!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">
+<pdf>
+<head>
+	<link name="NotoSans" type="font" subtype="truetype" src="${nsfont.NotoSans_Regular}" src-bold="${nsfont.NotoSans_Bold}" src-italic="${nsfont.NotoSans_Italic}" src-bolditalic="${nsfont.NotoSans_BoldItalic}" bytes="2" />
+	<#if .locale == "zh_CN">
+		<link name="NotoSansCJKsc" type="font" subtype="opentype" src="${nsfont.NotoSansCJKsc_Regular}" src-bold="${nsfont.NotoSansCJKsc_Bold}" bytes="2" />
+	<#elseif .locale == "zh_TW">
+		<link name="NotoSansCJKtc" type="font" subtype="opentype" src="${nsfont.NotoSansCJKtc_Regular}" src-bold="${nsfont.NotoSansCJKtc_Bold}" bytes="2" />
+	<#elseif .locale == "ja_JP">
+		<link name="NotoSansCJKjp" type="font" subtype="opentype" src="${nsfont.NotoSansCJKjp_Regular}" src-bold="${nsfont.NotoSansCJKjp_Bold}" bytes="2" />
+	<#elseif .locale == "ko_KR">
+		<link name="NotoSansCJKkr" type="font" subtype="opentype" src="${nsfont.NotoSansCJKkr_Regular}" src-bold="${nsfont.NotoSansCJKkr_Bold}" bytes="2" />
+	<#elseif .locale == "th_TH">
+		<link name="NotoSansThai" type="font" subtype="opentype" src="${nsfont.NotoSansThai_Regular}" src-bold="${nsfont.NotoSansThai_Bold}" bytes="2" />
+	</#if>
+    <macrolist>
+        <macro id="nlfooter">
+            <p style="text-align: center;"><span style="font-size:12px;">ALL DAMAGED PRODUCTS MUST BE PHOTOGRAPHED AND SENT TO MANAGER. THE PHOTOGRAPHS MUST INCLUDE THE CONTAINER NUMBER FOUND ON THE RIGHT WALL. PHOTOS MUST BE SENT TO MANAGER IMMEDIATELY VIA WHATSAPP.</span></p>
+        </macro>
+    </macrolist>
+    <style type="text/css">table { font-size: 9pt; table-layout: fixed; width: 100%; }
+th { font-weight: bold; font-size: 8pt; vertical-align: middle; padding: 5px 6px 3px; background-color: #e3e3e3; color: #333333; padding-bottom: 10px; padding-top: 10px; }
+td { padding: 4px 6px; }
+b { font-weight: bold; color: #333333; }
+</style>
+</head>
+<body footer="nlfooter" footer-height="20pt" padding="0.5in 0.5in 0.5in 0.5in" size="Letter">
+    <div>
+<table align="center" style="border:0px dashed black;display:table;height:20px;overflow:hidden;width:718px;"><tr>
+	<td style="text-align: center; width: 696px; vertical-align: top;">
+	<div style="margin-left: 160px;"><span style="font-size:48px;"><strong>Container Receipt</strong></span></div>
+
+	<div style="margin-left: 280px;"><span style="font-size:16px;">Molisana Imports</span></div>
+	</td>
+	</tr></table>
+</div>
+
+<table align="center" border="1" cellpadding="1" cellspacing="1" style="width:500px;"><tr>
+	<th scope="row" style="width: 189px;"><span style="font-size:16px;">Receiver Name:</span></th>
+	<td style="width: 277px;">&nbsp;</td>
+	</tr>
+	<tr>
+	<th scope="row" style="width: 189px;"><span style="font-size:16px;">Date:</span></th>
+	<td style="width: 277px;">&nbsp;</td>
+	</tr>
+	<tr>
+	<th scope="row" style="width: 189px;"><span style="font-size:16px;">Warehouse:</span></th>
+	<td style="width: 277px; text-align: center;"><span style="font-size:16px;">MAIN / SECONDARY / FERN</span></td>
+	</tr>
+	<tr>
+	<th scope="row" style="width: 189px;"><span style="font-size:16px;">Lumper:</span></th>
+	<td style="width: 277px; text-align: center;"><span style="font-size:16px;">YES / NO</span></td>
+	</tr>
+	<tr>
+	<th scope="row" style="width: 189px;"><span style="font-size:16px;">Infestation:</span></th>
+	<td style="width: 277px; text-align: center;"><span style="font-size:16px;">YES / NO</span></td>
+	</tr>
+	<tr>
+	<th scope="row" style="width: 189px;"><span style="font-size:16px;">Odor:</span></th>
+	<td style="width: 277px; text-align: center;"><span style="font-size:16px;">YES / NO</span></td>
+	</tr>
+	<tr>
+	<th scope="row" style="width: 189px;"><span style="font-size:16px;">Issues with Container:</span></th>
+	<td style="width: 277px; text-align: center;"><span style="font-size:16px;">YES / NO</span></td>
+	</tr></table>
+&nbsp;
+
+<table><#list results as result><#if result_index == 0>
+<thead>
+	<tr>
+	<th style="width: 74px; height: 5px;"><span style="font-size:12px;">Shipment #</span></th>
+	<th style="width: 94px; height: 5px;"><span style="font-size:12px;">Container #</span></th>
+	<th style="width: 61px; height: 5px;"><span style="font-size:12px;">PO#</span></th>
+	<th style="width: 120px; height: 5px;"><span style="font-size:12px;">Item</span></th>
+	<th style="width: 72px; height: 5px;"><span style="font-size: 12px;">Qty Exp</span></th>
+	<th style="width: 76px; height: 5px;"><span style="font-size: 12px;">Qty Recd</span></th>
+	<th style="width: 91px; height: 5px;"><span style="font-size: 12px;">Lot #</span></th>
+	<th style="width: 96px; height: 5px;"><span style="font-size:12px;">Bin #</span></th>
+	</tr>
+</thead>
+</#if><tr>
+	<td style="width: 74px;"><span style="font-size:12px;">${result.shipmentnumber}</span></td>
+	<td style="width: 94px;"><span style="font-size:12px;">${result.custrecord157}</span></td>
+	<td style="width: 61px;"><span style="font-size:12px;">${result.purchaseorder}</span></td>
+	<td style="width: 120px;"><span style="font-size:12px;">${result.itemid}</span></td>
+	<td style="width: 72px; text-align: center;"><span style="font-size:14px;">${result.quantityexpected}</span></td>
+	<td style="width: 76px; text-align: center;"><span style="font-size:14px;">${result.quantityreceived}</span></td>
+	<td style="width: 91px; text-align: center;"><span style="font-size:14px;">${result.serialnumber}</span></td>
+	<td style="width: 96px; text-align: center;"><span style="font-size:14px;">${result.binnumber}</span></td>
+	</tr>
+	</#list></table>
+<br /><span style="font-size:12px;"><strong>Issue (Describe what is wrong):</strong></span><br /><br />__________________________________________________________________________________________
+</body>
+</pdf>
