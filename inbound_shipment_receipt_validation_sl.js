@@ -61,7 +61,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         });
         if (filters.shipmentId) extra.push(search.createFilter({name: 'internalid', operator: search.Operator.ANYOF, values: validId(filters.shipmentId)}));
         saved.filters = saved.filters.concat(extra);
-        const visible = columns;
+        const visible = columns.filter(c => !(join(c) === 'itemreceipt' && c.name === 'internalid'));
         const meta = visible.map((c, i) => ({key: 'c' + i, name: c.name, join: join(c), label: c.label || c.name,
             section: join(c) === 'inventorydetail' ? 'inventory' : (!join(c) && HEADER_FIELDS.includes(c.name) ? 'header' : 'item')}));
         const groups = new Map();
@@ -69,7 +69,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         log.debug({title: 'IBS item identity column', details: {name: lineColumn.name, join: lineColumn.join}});
         const pages = saved.runPaged({pageSize: 1000});
         pages.pageRanges.forEach(page => {
-            if (runtime.getCurrentScript().getRemainingUsage() < 120) throw Error('Too many results. Narrow the shipment, container, or seal filters and try again.');
+            if (runtime.getCurrentScript().getRemainingUsage() < 120) throw Error('The configured saved search returns too many results. Narrow its criteria and refresh.');
             pages.fetch({index: page.index}).data.forEach(result => {
                 const shipmentId = text(result.getValue(baseId));
                 const lineId = text(result.getValue(lineColumn));
@@ -102,12 +102,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
                         }
                         if (id) cell.url = url.resolveRecord({recordType: type, recordId: id, isEditMode: false});
                     }
-                    if (['custrecord_conatiner_images', 'custitem_atlas_item_image'].includes(m.name) && value) {
-                        if (!(text(value) in images)) {
-                            try { images[text(value)] = file.load({id: value}).url; }
-                            catch (error) { images[text(value)] = ''; log.debug({title: 'Image not available', details: {fileId: value, message: error.message}}); }
-                        }
-                        cell.image = images[text(value)];
+                    if (['custrecord_conatiner_images', 'custitem_atlas_item_image'].includes(m.name)) {
+                        const imageKey = text(value || label);
+                        if (!(imageKey in images)) images[imageKey] = imageUrl(value, label);
+                        cell.image = images[imageKey];
+                        cell.isImage = true;
                     }
                     const cells = m.section === 'header' ? shipment.cells : line.cells;
                     if (!cells[m.key]) cells[m.key] = [];
@@ -118,6 +117,23 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         const shipments = Array.from(groups.values()).map(s => ({...s, lines: Array.from(s.lines.values())}));
         log.debug({title: 'IBS search loaded', details: {searchId, resultRows: pages.count, shipments: shipments.length}});
         return {columns: meta, shipments};
+    }
+
+    function imageUrl(value, label) {
+        for (const candidate of [value, label]) {
+            let source = text(candidate).trim().replace(/&amp;/gi, '&');
+            if (!source) continue;
+            const attribute = source.match(/(?:src|href)\s*=\s*["']([^"']+)["']/i);
+            if (attribute) source = attribute[1];
+            const mediaId = source.match(/[?&]id=(\d+)/i);
+            const fileId = /^\d+$/.test(source) ? source : (mediaId ? mediaId[1] : '');
+            if (fileId) {
+                try { return file.load({id: fileId}).url; }
+                catch (error) { log.debug({title: 'Image file lookup failed', details: {fileId, message: error.message}}); }
+            }
+            if (/^(https?:\/\/|\/(?!\/))/i.test(source) && !/[<>"'\r\n]/.test(source)) return source;
+        }
+        return '';
     }
 
     function validId(value) {
@@ -311,7 +327,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + TITLE + '</title><style>' + styles() + '</style></head><body>' +
             '<main><header><div><h1>' + TITLE + '</h1><p>Review shipments and validate inventory details</p></div><div><button id="refresh">Refresh</button> <button id="submit" class="primary" disabled>Submit</button></div></header>' +
             '<section class="metrics"><div><b id="shipCount">0</b>Shipments</div><div><b id="lineCount">0</b>Item Lines</div><div><b id="editCount">0</b>Changed Lines</div></section>' +
-            '<form id="filters"><label>Shipment Number<input name="ibs" placeholder="Contains shipment number"></label><label>Container Number<input name="container" placeholder="Contains container number"></label><label>Seal Number<input name="seal" placeholder="Contains seal number"></label><button class="primary">Apply Filters</button><button type="button" id="clear">Clear</button></form>' +
+            '<form id="filters">' + [['ibs','Shipment Number'],['container','Container Number'],['seal','Seal Number']].map(([name,label]) =>
+                '<div class="filter-field"><label for="filter-' + name + '">' + label + '</label><input id="filter-' + name + '" name="' + name + '" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="choices-' + name + '" placeholder="Type to search"><div id="choices-' + name + '" class="filter-choices" hidden></div></div>').join('') + '<button type="button" id="clear">Clear</button></form>' +
             '<div id="message" role="status"></div><div class="table-wrap"><table id="shipments"></table></div><footer>Open + to view item lines. Click Inventory Detail to view or edit assignments.</footer></main>' +
             '<div id="modal" class="modal" role="dialog" aria-modal="true" aria-label="Inventory Detail" hidden><div class="dialog"><div class="dialog-head"><strong>Inventory Detail</strong><button id="close">×</button></div><div id="detailBody" class="dialog-body"></div><div class="dialog-actions"><button id="cancel">Cancel</button><button id="ok" class="primary">OK</button></div></div></div>' +
             '<div id="imageModal" class="modal" role="dialog" aria-modal="true" aria-label="Image preview" hidden><div class="image-dialog"><button id="closeImage">Close</button><img id="largeImage" alt="Full size image"></div></div>' +
@@ -319,12 +336,14 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
     }
 
     function styles() {
-        return `*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#24364b;font:13px Arial,sans-serif}main{margin:20px;border:1px solid #d7dde7;border-radius:8px;overflow:hidden;background:white}header{background:#122d4a;color:white;padding:22px;display:flex;justify-content:space-between;align-items:center;gap:20px}h1{font-size:22px;margin:0}header p{margin:7px 0 0;color:#c4d2e1}button{cursor:pointer;background:white;color:#24364b;border:1px solid #bdc7d8;border-radius:5px;padding:8px 13px;font-weight:bold}button.primary{background:#1664c0;border-color:#1664c0;color:white}button:disabled{opacity:.5;cursor:default}.metrics{display:flex;gap:14px;background:#f8fafc;padding:18px}.metrics>div{background:white;border:1px solid #dce3ed;border-radius:7px;padding:14px 22px;min-width:160px;color:#64748b}.metrics b{display:block;font-size:25px;color:#163b63;margin-bottom:5px}form{display:flex;gap:12px;padding:16px;align-items:end;border-bottom:1px solid #d7dde7;flex-wrap:wrap}label{display:block;font-size:11px;font-weight:bold}input,select{display:block;margin-top:5px;width:100%;border:1px solid #bdc7d8;border-radius:5px;padding:7px;background:white;color:#24364b}form input{width:230px}#message{padding:12px 16px;white-space:pre-wrap}#message:empty{display:none}.error{color:#a52727;background:#fff0ef}.success{color:#17603c;background:#edf9f2}.table-wrap{overflow:auto;max-height:65vh}table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}th{background:#e8eef7;color:#24364b;border-bottom:1px solid #cad4e3;border-right:1px solid #d8e0ea;padding:10px;text-align:left;white-space:nowrap}#shipments>thead th{position:sticky;top:0;z-index:1}td{border-bottom:1px solid #e6ebf2;border-right:1px solid #edf1f6;padding:9px;vertical-align:middle;min-width:90px}tr:hover>td{background:#f8fbff}td:first-child{min-width:40px}a{color:#165ba7;text-decoration:none;font-weight:bold}a:hover{text-decoration:underline}.expanded>td{padding:14px;background:#f9fbfd}.item-scroll{overflow:auto;max-width:calc(100vw - 100px)}.item-scroll table{min-width:1120px}.expander{padding:2px;width:24px;height:24px}.thumb{width:45px;height:45px;object-fit:contain;cursor:zoom-in}.detail-button{color:#1664c0;font-size:19px;padding:3px 8px}.filled{color:#168052}.dirty{background:#fff4d5!important}footer{padding:13px 16px;color:#667085}.modal{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.38)}[hidden]{display:none!important}.dialog{width:min(1100px,calc(100vw - 32px));max-height:calc(100vh - 44px);overflow:auto;background:white;border:1px solid #c9d4e4;border-radius:8px;box-shadow:0 24px 70px rgba(15,23,42,.24)}.dialog-head{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#e8eef7;border-bottom:1px solid #cad4e3}.dialog-head strong{font-size:15px}.dialog-body{padding:16px}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 14px;border-top:1px solid #d7dde7}.detail-summary{display:flex;gap:25px;flex-wrap:wrap;margin-bottom:15px}.detail-summary b{display:block;margin-top:4px}.inventory-wrap{overflow:auto}.inventory-wrap input,.inventory-wrap select{min-width:110px}.inventory-wrap input[type=number]{width:95px;min-width:95px}.image-dialog{background:white;padding:15px;border-radius:8px;max-width:94vw}.image-dialog img{display:block;max-width:90vw;max-height:80vh;margin-top:10px}.hint{color:#667085;padding:10px 0}.empty{text-align:center;padding:40px;color:#64748b}@media(max-width:700px){main{margin:8px}header{align-items:flex-start;flex-direction:column}.metrics{gap:6px}.metrics>div{min-width:0;padding:12px;flex:1}h1{font-size:19px}}`;
+        return `.filter-field{position:relative}.filter-choices{position:absolute;top:100%;left:0;right:0;max-height:250px;overflow:auto;background:white;border:1px solid #bdc7d8;border-radius:5px;box-shadow:0 8px 20px #122d4a22;z-index:5}.filter-choices button{display:block;width:100%;text-align:left;border:0;border-radius:0;font-weight:normal}.filter-choices button:hover{background:#e8eef7}.inv-entry{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:16px}.inv-entry label{flex:1;min-width:120px}.inventory-icon{width:20px;height:20px;object-fit:contain}.detail-button{border:0!important;background:transparent!important;padding:3px!important}*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#24364b;font:13px Arial,sans-serif}main{margin:20px;border:1px solid #d7dde7;border-radius:8px;overflow:hidden;background:white}header{background:#122d4a;color:white;padding:22px;display:flex;justify-content:space-between;align-items:center;gap:20px}h1{font-size:22px;margin:0}header p{margin:7px 0 0;color:#c4d2e1}button{cursor:pointer;background:white;color:#24364b;border:1px solid #bdc7d8;border-radius:5px;padding:8px 13px;font-weight:bold}button.primary{background:#1664c0;border-color:#1664c0;color:white}button:disabled{opacity:.5;cursor:default}.metrics{display:flex;gap:14px;background:#f8fafc;padding:18px}.metrics>div{background:white;border:1px solid #dce3ed;border-radius:7px;padding:14px 22px;min-width:160px;color:#64748b}.metrics b{display:block;font-size:25px;color:#163b63;margin-bottom:5px}form{display:flex;gap:12px;padding:16px;align-items:end;border-bottom:1px solid #d7dde7;flex-wrap:wrap}label{display:block;font-size:11px;font-weight:bold}input,select{display:block;margin-top:5px;width:100%;border:1px solid #bdc7d8;border-radius:5px;padding:7px;background:white;color:#24364b}form input{width:230px}#message{padding:12px 16px;white-space:pre-wrap}#message:empty{display:none}.error{color:#a52727;background:#fff0ef}.success{color:#17603c;background:#edf9f2}.table-wrap{overflow:auto;max-height:65vh}table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}th{background:#e8eef7;color:#24364b;border-bottom:1px solid #cad4e3;border-right:1px solid #d8e0ea;padding:10px;text-align:left;white-space:nowrap}#shipments>thead th{position:sticky;top:0;z-index:1}td{border-bottom:1px solid #e6ebf2;border-right:1px solid #edf1f6;padding:9px;vertical-align:middle;min-width:90px}tr:hover>td{background:#f8fbff}td:first-child{min-width:40px}a{color:#165ba7;text-decoration:none;font-weight:bold}a:hover{text-decoration:underline}.expanded>td{padding:14px;background:#f9fbfd}.item-scroll{overflow:auto;max-width:calc(100vw - 100px)}.item-scroll table{min-width:1120px}.expander{padding:2px;width:24px;height:24px}.thumb{width:45px;height:45px;object-fit:contain;cursor:zoom-in}.detail-button{color:#1664c0;font-size:19px;padding:3px 8px}.filled{color:#168052}.dirty{background:#fff4d5!important}footer{padding:13px 16px;color:#667085}.modal{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.38)}[hidden]{display:none!important}.dialog{width:min(1100px,calc(100vw - 32px));max-height:calc(100vh - 44px);overflow:auto;background:white;border:1px solid #c9d4e4;border-radius:8px;box-shadow:0 24px 70px rgba(15,23,42,.24)}.dialog-head{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#e8eef7;border-bottom:1px solid #cad4e3}.dialog-head strong{font-size:15px}.dialog-body{padding:16px}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 14px;border-top:1px solid #d7dde7}.detail-summary{display:flex;gap:25px;flex-wrap:wrap;margin-bottom:15px}.detail-summary b{display:block;margin-top:4px}.inventory-wrap{overflow:auto}.inventory-wrap input,.inventory-wrap select{min-width:110px}.inventory-wrap input[type=number]{width:95px;min-width:95px}.image-dialog{background:white;padding:15px;border-radius:8px;max-width:94vw}.image-dialog img{display:block;max-width:90vw;max-height:80vh;margin-top:10px}.hint{color:#667085;padding:10px 0}.empty{text-align:center;padding:40px;color:#64748b}@media(max-width:700px){main{margin:8px}header{align-items:flex-start;flex-direction:column}.metrics{gap:6px}.metrics>div{min-width:0;padding:12px;flex:1}h1{font-size:19px}}`;
     }
 
     function client(endpoint) {
         const $ = id => document.getElementById(id);
         const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const selected = {ibs:'',container:'',seal:''};
+        const filterFields = {ibs:'shipmentnumber',container:'custrecord157',seal:'custrecord158'};
         let data = {columns: [], shipments: []}, expanded = new Set(), edits = {}, active = null, busy = false;
         const key = (shipmentId, lineId) => shipmentId + ':' + lineId;
         const message = (value, error) => { $('message').textContent = value; $('message').className = error ? 'error' : 'success'; };
@@ -345,30 +364,56 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         }
         function cell(values) {
             return (values || []).map(c => {
+                if (c.isImage && !c.image) return '<span class="hint">Image unavailable</span>';
                 if (c.image) return '<img class="thumb" src="' + escape(c.image) + '" data-image="' + escape(c.image) + '" alt="' + escape(c.text) + '">';
                 return c.url ? '<a target="_blank" rel="noopener" href="' + escape(c.url) + '">' + escape(c.text) + '</a>' : escape(c.text);
             }).join('<br>');
         }
+        function filterValues(shipment, name) {
+            const column = data.columns.find(c => !c.join && c.name === filterFields[name]);
+            return column ? (shipment.cells[column.key] || []).map(c => c.text) : [];
+        }
+        function filteredShipments() {
+            return data.shipments.filter(s => Object.keys(selected).every(name => !selected[name] || filterValues(s,name).includes(selected[name])));
+        }
+        function hideChoices() {
+            Object.keys(selected).forEach(name => { $('choices-'+name).hidden = true; $('filter-'+name).setAttribute('aria-expanded','false'); });
+        }
+        function showChoices(name, query) {
+            hideChoices();
+            const list = $('choices-'+name);
+            const values = [...new Set(data.shipments.flatMap(s => filterValues(s,name)).filter(Boolean))]
+                .filter(value => value.toLowerCase().includes(query.toLowerCase())).sort((a,b) => a.localeCompare(b,undefined,{numeric:true}));
+            list.innerHTML = '';
+            [''].concat(values).forEach(value => {
+                const button = document.createElement('button'); button.type = 'button'; button.textContent = value || 'All';
+                button.onmousedown = event => event.preventDefault();
+                button.onclick = () => { selected[name] = value; $('filter-'+name).value = value; hideChoices(); render(); };
+                list.appendChild(button);
+            });
+            list.hidden = false; $('filter-'+name).setAttribute('aria-expanded','true');
+        }
         function render() {
+            const shown = filteredShipments();
             const headers = data.columns.filter(c => c.section === 'header');
             const items = data.columns.filter(c => c.section === 'item');
             let html = '<thead><tr><th></th>' + headers.map(c => '<th>' + escape(c.label) + '</th>').join('') + '</tr></thead><tbody>';
-            data.shipments.forEach(s => {
+            shown.forEach(s => {
                 html += '<tr><td><button class="expander" aria-expanded="' + expanded.has(s.id) + '" data-expand="' + s.id + '">' + (expanded.has(s.id) ? '−' : '+') + '</button></td>' + headers.map(c => '<td>' + cell(s.cells[c.key]) + '</td>').join('') + '</tr>';
                 if (expanded.has(s.id)) {
                     html += '<tr class="expanded"><td colspan="' + (headers.length + 1) + '"><div class="item-scroll"><table><thead><tr>' + items.map(c => '<th>' + escape(c.label) + '</th>').join('') + '<th>Inventory Detail</th></tr></thead><tbody>';
                     s.lines.forEach(l => {
                         const draft = edits[key(s.id,l.id)];
-                        html += '<tr>' + items.map(c => '<td>' + cell(l.cells[c.key]) + '</td>').join('') + '<td class="' + (draft ? 'dirty' : '') + '"><button class="detail-button ' + ((draft ? draft.rows.length : l.hasDetail) ? 'filled' : '') + '" title="View / Edit Inventory Detail" aria-label="View / Edit Inventory Detail" data-detail="' + s.id + ':' + l.id + '">' + ((draft ? draft.rows.length : l.hasDetail) ? '▤✓' : '▤+') + '</button></td></tr>';
+                        html += '<tr>' + items.map(c => '<td>' + cell(l.cells[c.key]) + '</td>').join('') + '<td class="' + (draft ? 'dirty' : '') + '"><button class="detail-button ' + ((draft ? draft.rows.length : l.hasDetail) ? 'filled' : '') + '" title="View / Edit Inventory Detail" aria-label="View / Edit Inventory Detail" data-detail="' + s.id + ':' + l.id + '">' + '<img class="inventory-icon" alt="Inventory Detail" src="' + ((draft ? draft.rows.length : l.hasDetail) ? 'https://4382108.app.netsuite.com/core/media/media.nl?id=24230&c=4382108&h=IH_6SQ4VYeAu0pFkOMmf5qXj8CSBZWAU0A5XLbIcoYkJkseL' : 'https://4382108.app.netsuite.com/core/media/media.nl?id=24231&c=4382108&h=YnSYg6zHZBKBjFQ6yI7HCuuSDbzV1x356tga3ZAREJ8Ix3f3') + '">' + '</button></td></tr>';
                     });
                     html += '</tbody></table></div></td></tr>';
                 }
             });
             html += '</tbody>';
-            if (!data.shipments.length) html += '<tbody><tr><td class="empty" colspan="' + (headers.length+1) + '">No matching shipments.</td></tr></tbody>';
+            if (!shown.length) html += '<tbody><tr><td class="empty" colspan="' + (headers.length+1) + '">No matching shipments.</td></tr></tbody>';
             $('shipments').innerHTML = html;
-            $('shipCount').textContent = data.shipments.length;
-            $('lineCount').textContent = data.shipments.reduce((sum,s) => sum+s.lines.length,0);
+            $('shipCount').textContent = shown.length;
+            $('lineCount').textContent = shown.reduce((sum,s) => sum+s.lines.length,0);
             $('editCount').textContent = Object.keys(edits).length;
             setBusy(busy);
         }
@@ -377,7 +422,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             if (discard && Object.keys(edits).length && !confirm('Discard unsaved inventory changes and refresh?')) return;
             if (discard) edits = {};
             setBusy(true); message('Loading shipments…');
-            try { data = await request('list', Object.fromEntries(new FormData($('filters')))); message(''); render(); }
+            try { data = await request('list'); message(''); render(); }
             catch(error) { message(error.message,true); }
             finally { setBusy(false); }
         }
@@ -386,17 +431,16 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             if (value && !list.some(v => v.id === value)) html += '<option selected value="' + escape(value) + '">Unavailable (' + escape(value) + ')</option>';
             return html + list.map(v => '<option value="' + escape(v.id) + '"' + (v.id === value ? ' selected' : '') + '>' + escape(v.name) + '</option>').join('');
         }
-        function inventoryCell(column, row, index) {
-            const attr = ' data-row="' + index + '" ';
+        function inventoryCell(column, row) {
             switch(column.name) {
                 case 'internalid': return escape(active.inventory.id);
                 case 'item': return escape(active.item);
                 case 'location': return escape(active.location);
-                case 'inventorynumber': return active.rules.lot || active.rules.serial ? '<input' + attr + 'data-field="number" value="' + escape(row.number) + '">' : '—';
-                case 'binnumber': return active.rules.bins ? '<select' + attr + 'data-field="bin">' + options(active.bins,row.bin) + '</select>' : '—';
-                case 'status': return active.rules.statuses ? '<select' + attr + 'data-field="status">' + options(active.statuses,row.status) + '</select>' : '—';
-                case 'expirationdate': return active.rules.lot ? '<input type="date"' + attr + 'data-field="expiry" value="' + escape(row.expiry) + '">' : '—';
-                case 'quantity': return '<input type="number" min="0" step="any"' + attr + 'data-field="quantity" value="' + escape(row.quantity) + '">';
+                case 'inventorynumber': return escape(row.number);
+                case 'binnumber': return escape((active.bins.find(b => b.id === row.bin) || {}).name || row.bin);
+                case 'status': return escape((active.statuses.find(v => v.id === row.status) || {}).name || row.status);
+                case 'expirationdate': return escape(row.expiry);
+                case 'quantity': return escape(row.quantity);
                 default: return '—';
             }
         }
@@ -404,9 +448,39 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             const required = [['inventorynumber','Number'],['binnumber','Bin Number'],['expirationdate','Expiration Date'],['quantity','Quantity'],['status','Status']];
             const columns = active.columns.slice();
             required.forEach(([name,label]) => { if (!columns.some(c => c.name === name)) columns.push({name,label}); });
+            const label = (name,fallback) => escape((columns.find(c => c.name === name) || {}).label || fallback);
+            const numberField = active.rules.lot || active.rules.serial ? '<label>' + label('inventorynumber','Serial/Lot Number') + '<input id="inv-number"></label>' : '';
+            const expiryField = active.rules.lot ? '<label>' + label('expirationdate','Expiry Date') + '<input id="inv-expiry" type="date"></label>' : '';
+            const binField = active.rules.bins ? '<label>' + label('binnumber','Bin') + '<select id="inv-bin">' + options(active.bins,'') + '</select></label>' : '';
+            const statusField = active.rules.statuses ? '<label>' + label('status','Status') + '<select id="inv-status">' + options(active.statuses,'') + '</select></label>' : '';
             $('detailBody').innerHTML = '<div class="hint">Quantities in ' + escape(active.units.name || 'base units') + '</div><div class="detail-summary"><div>Item<b>' + escape(active.item) + '</b></div><div>Qty Expected<b>' + active.expected + '</b></div><div>Qty Received<b>' + active.received + '</b></div><div>Maximum Quantity<b>' + active.max + '</b></div><div>Total Qty<b id="total"></b></div></div>' +
-                '<div class="inventory-wrap"><table><thead><tr>' + columns.map(c => '<th>' + escape(c.label) + '</th>').join('') + '<th></th></tr></thead><tbody>' + active.rows.map((row,i) => '<tr>' + columns.map(c => '<td>' + inventoryCell(c,row,i) + '</td>').join('') + '<td><button data-remove="' + i + '">Remove</button></td></tr>').join('') + '</tbody></table></div><p><button id="addRow">Add Row</button></p><div class="hint">Total Qty must not exceed Qty Expected − Qty Received. OK stages changes; Submit saves the shipment.</div><div id="detailError" class="error" role="alert"></div>';
+                '<div class="inv-entry">' + numberField + expiryField + binField + statusField + '<label>' + label('quantity','Quantity') + '<input id="inv-qty" type="number" min="0" step="any"></label><button class="primary" id="addRow">Add Row</button></div>' +
+                '<div class="inventory-wrap"><table><thead><tr>' + columns.map(c => '<th>' + escape(c.label) + '</th>').join('') + '<th></th></tr></thead><tbody>' + active.rows.map((row,i) => '<tr>' + columns.map(c => '<td>' + inventoryCell(c,row) + '</td>').join('') + '<td><button data-edit="' + i + '">Edit</button> <button data-remove="' + i + '">Remove</button></td></tr>').join('') + '</tbody></table></div><div class="hint">Total Qty must not exceed Qty Expected − Qty Received. OK stages changes; Submit saves the shipment.</div><div id="detailError" class="error" role="alert"></div>';
+            active.editIndex = null;
             updateTotal();
+        }
+        function addInventoryRow() {
+            const value = id => $(id) ? $(id).value.trim() : '';
+            const row = {number:value('inv-number'),expiry:value('inv-expiry'),bin:value('inv-bin'),status:value('inv-status'),quantity:Number(value('inv-qty'))};
+            let error = '';
+            if (!Number.isFinite(row.quantity) || row.quantity <= 0) error = 'Enter Quantity greater than zero.';
+            if ((active.rules.lot || active.rules.serial) && !row.number) error = 'Enter Serial/Lot Number.';
+            if (active.rules.bins && !row.bin) error = 'Select Bin.';
+            if (active.rules.statuses && !row.status) error = 'Select Status.';
+            if (active.rules.serial && row.quantity !== 1) error = 'Serial quantity must be 1.';
+            if ($('inv-expiry') && !$('inv-expiry').checkValidity()) error = 'Enter a valid expiration date.';
+            const otherRows = active.rows.filter((r,i) => i !== active.editIndex);
+            const total = otherRows.reduce((sum,r) => sum+Number(r.quantity),0) + row.quantity;
+            if (total-active.max > 0.00000001) error = 'Inventory detail quantity cannot be more than ' + active.max + '.';
+            if (active.rules.serial && otherRows.some(r => r.number.toLowerCase() === row.number.toLowerCase())) error = 'This serial number already exists.';
+            if (error) { $('detailError').textContent = error; return; }
+            const duplicate = active.rules.lot && active.editIndex === null ? active.rows.find(r => r.number.toLowerCase() === row.number.toLowerCase() && r.bin === row.bin && r.status === row.status && r.expiry === row.expiry) : null;
+            if (duplicate) {
+                if (!confirm('This lot number already exists. Click OK to merge and add the quantity.')) return;
+                duplicate.quantity = Number(duplicate.quantity) + row.quantity;
+            } else if (active.editIndex !== null) active.rows[active.editIndex] = row;
+            else active.rows.push(row);
+            showDetail();
         }
         function updateTotal() { $('total').textContent = Math.round(active.rows.reduce((sum,r) => sum + (Number(r.quantity)||0),0)*1e8)/1e8; }
         async function openDetail(shipmentId,lineId) {
@@ -426,6 +500,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         }
         function closeDetail() { $('modal').hidden = true; active = null; }
         function stageDetail() {
+            if (['inv-number','inv-expiry','inv-bin','inv-status','inv-qty'].some(id => $(id) && $(id).value)) { $('detailError').textContent = 'Click Add Row / Update Row before OK, or clear the entry fields.'; return; }
             let total = 0; const serials = new Set();
             for (const row of active.rows) {
                 const q = Number(row.quantity);
@@ -456,14 +531,25 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
                     lines.forEach(l => delete edits[key(shipmentId,l.lineId)]);
                     saved++;
                 }
-                data = await request('list', Object.fromEntries(new FormData($('filters'))));
+                data = await request('list');
                 message('Inventory details saved for ' + saved + ' shipment(s).');
             } catch(error) { message((saved ? saved + ' shipment(s) saved. ' : '') + error.message + ' Remaining drafts are retained. Reopen the affected popup if the record changed.',true); }
             finally { setBusy(false); render(); }
         }
-        $('filters').onsubmit = event => { event.preventDefault(); load(true); };
+        $('filters').onsubmit = event => event.preventDefault();
+        Object.keys(selected).forEach(name => {
+            const input = $('filter-'+name);
+            input.onfocus = () => showChoices(name,'');
+            input.oninput = () => { if (!input.value) { selected[name] = ''; render(); } showChoices(name,input.value); };
+            input.onkeydown = event => {
+                if (event.key === 'Escape') { hideChoices(); input.value = selected[name]; }
+                if (event.key === 'Enter') { event.preventDefault(); const choices = $('choices-'+name).querySelectorAll('button'); if (choices.length === 2) choices[1].click(); }
+            };
+            input.onblur = () => { input.value = selected[name]; };
+        });
+        document.addEventListener('click', event => { if (!event.target.closest('.filter-field')) hideChoices(); });
         $('refresh').onclick = () => load(true);
-        $('clear').onclick = () => { if (Object.keys(edits).length && !confirm('Discard unsaved inventory changes and clear filters?')) return; edits = {}; $('filters').reset(); load(false); };
+        $('clear').onclick = () => { Object.keys(selected).forEach(name => { selected[name] = ''; $('filter-'+name).value = ''; }); hideChoices(); render(); };
         $('submit').onclick = submit;
         $('shipments').onclick = event => {
             const button = event.target.closest('button');
@@ -473,13 +559,14 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             }
             if (event.target.dataset.image) { $('largeImage').src = event.target.dataset.image; $('imageModal').hidden = false; $('closeImage').focus(); }
         };
-        $('detailBody').oninput = event => {
-            const field = event.target.dataset.field;
-            if (field) { active.rows[Number(event.target.dataset.row)][field] = event.target.value; updateTotal(); }
-        };
         $('detailBody').onclick = event => {
-            if (event.target.id === 'addRow') { active.rows.push({number:'',bin:'',status:'',expiry:'',quantity:active.rules.serial ? 1 : ''}); showDetail(); }
+            if (event.target.id === 'addRow') addInventoryRow();
             if (event.target.dataset.remove !== undefined) { active.rows.splice(Number(event.target.dataset.remove),1); showDetail(); }
+            if (event.target.dataset.edit !== undefined) {
+                active.editIndex = Number(event.target.dataset.edit); const row = active.rows[active.editIndex];
+                [['inv-number','number'],['inv-expiry','expiry'],['inv-bin','bin'],['inv-status','status'],['inv-qty','quantity']].forEach(([id,field]) => { if ($(id)) $(id).value = row[field]; });
+                $('addRow').textContent = 'Update Row';
+            }
         };
         $('close').onclick = closeDetail; $('cancel').onclick = closeDetail; $('ok').onclick = stageDetail;
         $('closeImage').onclick = () => $('imageModal').hidden = true;
