@@ -69,6 +69,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             section: join(c) === 'inventorydetail' ? 'inventory' : (!join(c) && HEADER_FIELDS.includes(c.name) ? 'header' : 'item')}));
         const groups = new Map();
         const images = {};
+        log.debug('Search', JSOn.stringify(saved))
         const pages = saved.runPaged({pageSize: 1000});
         pages.pageRanges.forEach(page => {
             if (runtime.getCurrentScript().getRemainingUsage() < 120) throw Error('Too many results. Narrow the shipment, container, or seal filters and try again.');
