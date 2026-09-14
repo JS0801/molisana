@@ -2,10 +2,11 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  */
-define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
-(search, record, runtime, url, file, log) => {
+define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/format'],
+(search, record, runtime, url, file, log, format) => {
     const TITLE = 'Inbound Shipment Receipt Validation';
     const PARAM = 'custscript_ibs_validation_search';
+    let lineMaps = new WeakMap();
     const EPSILON = 0.00000001;
     const HEADER_FIELDS = ['internalid', 'shipmentnumber', 'custrecord157', 'custrecord158',
         'expectedshippingdate', 'custrecord_port_eta', 'memo', 'custrecord_mi_container_type', 'custrecord_conatiner_images'];
@@ -17,6 +18,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
 
     function onRequest(context) {
         const action = context.request.parameters.action || '';
+        const started = Date.now();
+        lineMaps = new WeakMap();
         try {
             if (!action) {
                 context.response.write(buildPage());
@@ -24,7 +27,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             }
             let result;
             if (action === 'list') result = readSearch(context.request.parameters);
-            else if (action === 'detail') result = getDetail(context.request.parameters);
             else if (action === 'save' && context.request.method === 'POST') {
                 result = saveDetails(JSON.parse(context.request.body || '{}'));
             } else throw Error('Invalid request.');
@@ -33,6 +35,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             log.error({title: 'IBS validation: ' + (action || 'page'), details: error});
             if (action) writeJson(context, {ok: false, error: error.message || text(error)});
             else context.response.write('<h2>' + esc(TITLE) + '</h2><p>' + esc(error.message) + '</p>');
+        } finally {
+            log.debug({title: 'IBS request timing', details: {action: action || 'page', milliseconds: Date.now() - started, remainingUsage: runtime.getCurrentScript().getRemainingUsage()}});
         }
     }
 
@@ -54,7 +58,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         const itemColumn = columns.find(c => !join(c) && c.name === 'item');
         if (!baseId || !itemColumn) throw Error('The search needs Internal Id and Item columns.');
         const lineColumn = itemColumn;
-        saved.columns = columns;
+        const locationColumn = columns.find(c => !join(c) && c.name === 'receivinglocation') || search.createColumn({name:'receivinglocation'});
+        const unitColumn = columns.find(c => !join(c) && c.name === 'unit') || search.createColumn({name:'unit'});
+        saved.columns = columns.concat([locationColumn, unitColumn].filter(c => !columns.includes(c)));
         const extra = [];
         [['ibs', 'shipmentnumber'], ['container', 'custrecord157'], ['seal', 'custrecord158']].forEach(([key, field]) => {
             if (text(filters[key]).trim()) extra.push(search.createFilter({name: 'formulatext', formula: '{' + field + '}', operator: search.Operator.CONTAINS, values: text(filters[key]).trim()}));
@@ -66,6 +72,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             section: join(c) === 'inventorydetail' ? 'inventory' : (!join(c) && HEADER_FIELDS.includes(c.name) ? 'header' : 'item')}));
         const groups = new Map();
         const images = {};
+        const links = {};
         log.debug({title: 'IBS item identity column', details: {name: lineColumn.name, join: lineColumn.join}});
         const pages = saved.runPaged({pageSize: 1000});
         pages.pageRanges.forEach(page => {
@@ -78,6 +85,22 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
                 const shipment = groups.get(shipmentId);
                 if (!shipment.lines.has(lineId)) shipment.lines.set(lineId, {id: lineId, itemId: text(result.getValue(itemColumn)), cells: {}, hasDetail: false});
                 const line = shipment.lines.get(lineId);
+                const get = (name, joined) => {
+                    const column = columns.find(c => c.name === name && join(c) === (joined || ''));
+                    return column ? result.getValue(column) : '';
+                };
+                if (!line.stored) line.stored = {expected:number(get('quantityexpected')), received:number(get('quantityreceived')),
+                    locationId:text(result.getValue(locationColumn)), location:text(result.getText(locationColumn) || ''),
+                    unit:text(result.getValue(unitColumn)), inventory:{id:text(get('internalid','inventorydetail')),rows:[]}};
+                const qty = get('quantity','inventorydetail');
+                if (qty !== '' && qty != null && Number(qty) !== 0) {
+                    const lotColumn = columns.find(c => c.name === 'inventorynumber' && join(c) === 'inventorydetail');
+                    const expiry = get('expirationdate','inventorydetail');
+                    const row = {number:text(lotColumn ? result.getText(lotColumn) || result.getValue(lotColumn) : ''),
+                        bin:text(get('binnumber','inventorydetail')), status:text(get('status','inventorydetail')),
+                        expiry:expiry ? isoDate(format.parse({value:text(expiry),type:format.Type.DATE})) : '', quantity:Number(qty)};
+                    if (!line.stored.inventory.rows.some(r => JSON.stringify(r) === JSON.stringify(row))) line.stored.inventory.rows.push(row);
+                }
                 visible.forEach((column, i) => {
                     const m = meta[i];
                     const value = result.getValue(column);
@@ -88,6 +111,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
                         if (m.name === 'internalid' && value) line.hasDetail = true;
                         return;
                     }
+                    const cells = m.section === 'header' ? shipment.cells : line.cells;
+                    if (!cells[m.key]) cells[m.key] = [];
+                    if (cells[m.key].some(c => c.value === cell.value)) return;
                     let type = '';
                     if (!m.join && ['internalid', 'shipmentnumber'].includes(m.name)) type = 'inboundshipment';
                     if (!m.join && m.name === 'item') type = 'inventoryitem';
@@ -100,7 +126,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
                             const idColumn = columns.find(c => join(c) === 'itemreceipt' && c.name === 'internalid');
                             id = idColumn ? result.getValue(idColumn) : '';
                         }
-                        if (id) cell.url = url.resolveRecord({recordType: type, recordId: id, isEditMode: false});
+                        if (id) {
+                            const linkKey = type + ':' + id;
+                            if (!links[linkKey]) links[linkKey] = url.resolveRecord({recordType: type, recordId: id, isEditMode: false});
+                            cell.url = links[linkKey];
+                        }
                     }
                     if (['custrecord_conatiner_images', 'custitem_atlas_item_image'].includes(m.name)) {
                         const imageKey = text(value || label);
@@ -108,15 +138,44 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
                         cell.image = images[imageKey];
                         cell.isImage = true;
                     }
-                    const cells = m.section === 'header' ? shipment.cells : line.cells;
-                    if (!cells[m.key]) cells[m.key] = [];
-                    if (!cells[m.key].some(c => c.value === cell.value)) cells[m.key].push(cell);
+                    cells[m.key].push(cell);
                 });
             });
         });
         const shipments = Array.from(groups.values()).map(s => ({...s, lines: Array.from(s.lines.values())}));
+        preloadDetails(shipments, meta);
         log.debug({title: 'IBS search loaded', details: {searchId, resultRows: pages.count, shipments: shipments.length}});
         return {columns: meta, shipments};
+    }
+
+    // Prepare popup data once, from the main search, before returning the page data.
+    function preloadDetails(shipments, columns) {
+        const rulesByItem = {}, unitsByItem = {}, binsByLocation = {};
+        let statuses;
+        const itemColumn = columns.find(c => !c.join && c.name === 'item');
+        shipments.forEach(shipment => shipment.lines.forEach(line => {
+            const state = line.stored;
+            if (!rulesByItem[line.itemId]) rulesByItem[line.itemId] = itemRules(line.itemId);
+            const rules = rulesByItem[line.itemId];
+            const unitKey = line.itemId + ':' + state.unit;
+            if (!unitsByItem[unitKey]) unitsByItem[unitKey] = unitInfo(line.itemId, state.unit);
+            const units = unitsByItem[unitKey];
+            if (rules.bins && state.locationId && !binsByLocation[state.locationId]) {
+                binsByLocation[state.locationId] = options('bin', [['location','anyof',state.locationId], 'AND', ['inactive','is','F']], 'binnumber');
+            }
+            if (rules.statuses && !statuses) statuses = options('inventorystatus', [['isinactive','is','F']], 'name');
+            const expected = state.expected * units.rate, received = state.received * units.rate;
+            line.detail = {...state,shipmentId:shipment.id,lineId:line.id,expected,received,units,rules,
+                bins:binsByLocation[state.locationId] || [],statuses:rules.statuses ? statuses : [],
+                item:line.cells[itemColumn.key][0].text,max:Math.max(0,expected-received),
+                columns:columns.filter(c => c.section === 'inventory'),snapshot:snapshot(state)};
+            delete line.stored;
+        }));
+    }
+
+    function snapshot(state) {
+        const rows = state.inventory.rows.map(r => JSON.stringify({number:text(r.number),bin:text(r.bin),status:text(r.status),expiry:text(r.expiry),quantity:Number(r.quantity)})).sort();
+        return JSON.stringify({expected:state.expected,received:state.received,locationId:state.locationId,rows});
     }
 
     function imageUrl(value, label) {
@@ -142,31 +201,56 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
     }
 
     function findLine(shipment, itemId) {
-        const purchaseOrders = {};
-        const matches = [];
-        for (let line = 0; line < shipment.getLineCount({sublistId: 'items'}); line++) {
-            let actualItem = '';
-            if (shipment.hasSublistSubrecord({sublistId: 'items', fieldId: 'inventorydetail', line})) {
-                actualItem = text(shipment.getSublistSubrecord({sublistId: 'items', fieldId: 'inventorydetail', line}).getValue({fieldId: 'item'}));
+        if (!lineMaps.has(shipment)) {
+            const count = shipment.getLineCount({sublistId: 'items'});
+            const shipmentLines = [];
+            for (let line = 0; line < count; line++) {
+                shipmentLines.push({line,
+                    po: text(shipment.getSublistValue({sublistId: 'items', fieldId: 'purchaseorder', line})),
+                    key: text(shipment.getSublistValue({sublistId: 'items', fieldId: 'shipmentitem', line}))});
             }
-            if (!actualItem) {
-                const poId = shipment.getSublistValue({sublistId: 'items', fieldId: 'purchaseorder', line});
-                const poLineKey = text(shipment.getSublistValue({sublistId: 'items', fieldId: 'shipmentitem', line}));
-                if (!purchaseOrders[poId]) purchaseOrders[poId] = record.load({type: 'purchaseorder', id: poId});
-                const po = purchaseOrders[poId];
-                for (let i = 0; i < po.getLineCount({sublistId: 'item'}); i++) {
-                    if (text(po.getSublistValue({sublistId: 'item', fieldId: 'lineuniquekey', line: i})) === poLineKey) {
-                        actualItem = text(po.getSublistValue({sublistId: 'item', fieldId: 'item', line: i}));
-                        break;
-                    }
+            const poIds = [...new Set(shipmentLines.map(l => l.po).filter(Boolean))];
+            const poItems = {};
+            if (poIds.length) {
+                const lookup = search.create({type: 'purchaseorder', filters: [['internalid','anyof',poIds], 'AND', ['mainline','is','F']],
+                    columns: [search.createColumn({name:'internalid',sort:search.Sort.ASC}), search.createColumn({name:'lineuniquekey',sort:search.Sort.ASC}), 'item']}).run();
+                for (let start = 0; ; start += 1000) {
+                    const rows = lookup.getRange({start, end: start + 1000});
+                    rows.forEach(r => { poItems[text(r.getValue('internalid')) + ':' + text(r.getValue('lineuniquekey'))] = text(r.getValue('item')); });
+                    if (rows.length < 1000) break;
                 }
             }
-            if (!actualItem) throw Error('Cannot identify an IBS item line. No inventory details were saved.');
-            if (actualItem === text(itemId)) matches.push(line);
+            const map = {};
+            shipmentLines.forEach(l => {
+                let item = poItems[l.po + ':' + l.key];
+                if (!item && shipment.hasSublistSubrecord({sublistId:'items',fieldId:'inventorydetail',line:l.line})) {
+                    item = text(shipment.getSublistSubrecord({sublistId:'items',fieldId:'inventorydetail',line:l.line}).getValue({fieldId:'item'}));
+                }
+                if (!item) throw Error('Cannot identify an IBS item line. No inventory details were saved.');
+                if (!map[item]) map[item] = [];
+                map[item].push(l.line);
+            });
+            lineMaps.set(shipment, map);
         }
+        const matches = lineMaps.get(shipment)[text(itemId)] || [];
         if (matches.length > 1) throw Error('This item appears on multiple lines in the shipment. Item alone cannot identify which line to update.');
         if (!matches.length) throw Error('The item is no longer on this shipment. Refresh the page.');
         return matches[0];
+    }
+
+    function itemScope(shipmentId, itemId) {
+        const searchId = runtime.getCurrentScript().getParameter({name: PARAM});
+        if (!searchId) throw Error('Set the deployment parameter ' + PARAM + '.');
+        const saved = search.load({id: searchId});
+        const inventoryColumns = saved.columns.filter(c => join(c) === 'inventorydetail').map(c => ({name:c.name,label:c.label || c.name}));
+        const itemColumn = search.createColumn({name:'item'});
+        saved.columns = [itemColumn];
+        saved.filters = saved.filters.concat([
+            search.createFilter({name:'internalid',operator:search.Operator.ANYOF,values:shipmentId}),
+            search.createFilter({name:'item',operator:search.Operator.ANYOF,values:itemId})]);
+        const rows = saved.run().getRange({start:0,end:1});
+        if (!rows.length) throw Error('This shipment item is no longer included in the configured search.');
+        return {item:text(rows[0].getText(itemColumn) || rows[0].getValue(itemColumn)), columns:inventoryColumns};
     }
 
     function isoDate(value) {
@@ -238,24 +322,22 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         return {rate, name};
     }
 
-    function getDetail(params, loadedShipment, searchData) {
+    function getDetail(params, loadedShipment) {
         const shipmentId = validId(params.shipmentId);
         const lineId = validId(params.lineId);
-        const data = searchData || readSearch({shipmentId});
-        const searchLine = data.shipments.find(s => s.id === shipmentId)?.lines.find(l => l.id === lineId);
-        if (!searchLine) throw Error('This shipment line is no longer included in the configured search.');
+        const scope = itemScope(shipmentId, lineId);
         const shipment = loadedShipment || record.load({type: 'inboundshipment', id: shipmentId});
         const index = findLine(shipment, lineId);
         const state = lineState(shipment, index);
-        const rules = itemRules(searchLine.itemId);
-        const units = unitInfo(searchLine.itemId, state.unit);
+        const rules = itemRules(lineId);
+        const units = unitInfo(lineId, state.unit);
         const expected = state.expected * units.rate, received = state.received * units.rate;
         const bins = rules.bins && state.locationId ? options('bin', [['location','anyof',state.locationId], 'AND', ['inactive','is','F']], 'binnumber') : [];
         const statuses = rules.statuses ? options('inventorystatus', [['isinactive','is','F']], 'name') : [];
-        return {shipmentId, lineId, ...state, expected, received, units, rules, bins, statuses, snapshot: JSON.stringify(state),
+        return {shipmentId, lineId, ...state, expected, received, units, rules, bins, statuses, snapshot: snapshot(state),
             location: text(shipment.getSublistText({sublistId: 'items', fieldId: 'receivinglocation', line: index})),
-            item: searchLine.cells[data.columns.find(c => !c.join && c.name === 'item').key][0].text,
-            max: Math.max(0, expected - received), columns: data.columns.filter(c => c.section === 'inventory')};
+            item: scope.item,
+            max: Math.max(0, expected - received), columns: scope.columns};
     }
 
     // Recheck current quantities and assignments before saving the IBS record.
@@ -290,17 +372,16 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
         const shipmentId = validId(payload.shipmentId);
         if (!Array.isArray(payload.lines) || !payload.lines.length) throw Error('No changed item lines to submit.');
         const shipment = record.load({type: 'inboundshipment', id: shipmentId, isDynamic: false});
-        const searchData = readSearch({shipmentId});
         const changed = new Set();
         for (const change of payload.lines) {
             if (runtime.getCurrentScript().getRemainingUsage() < 180) throw Error('Too many edited lines in one submission. Submit fewer lines at a time. No changes were saved for this shipment.');
             const lineId = validId(change.lineId);
             if (changed.has(lineId)) throw Error('Duplicate item line in submission.');
             changed.add(lineId);
-            const detail = getDetail({shipmentId, lineId}, shipment, searchData);
+            const detail = getDetail({shipmentId, lineId}, shipment);
             const index = findLine(shipment, lineId);
             if (detail.snapshot !== change.snapshot) {
-                throw Error('Shipment quantities or inventory details changed for ' + detail.item + '. Reopen the popup before submitting.');
+                throw Error('Shipment quantities or inventory details changed for ' + detail.item + '. Refresh the page before submitting.');
             }
             const total = validateRows(change.rows, detail);
             const subrecord = shipment.getSublistSubrecord({sublistId: 'items', fieldId: 'inventorydetail', line: index});
@@ -483,20 +564,15 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
             showDetail();
         }
         function updateTotal() { $('total').textContent = Math.round(active.rows.reduce((sum,r) => sum + (Number(r.quantity)||0),0)*1e8)/1e8; }
-        async function openDetail(shipmentId,lineId) {
+        function openDetail(shipmentId,lineId) {
             if (busy) return;
-            setBusy(true);
-            try {
-                const latest = await request('detail', {shipmentId,lineId});
-                const draft = edits[key(shipmentId,lineId)];
-                if (draft && draft.snapshot !== latest.snapshot) {
-                    delete edits[key(shipmentId,lineId)];
-                    message('This line changed in NetSuite. Its previous draft was discarded; current inventory details are shown.',true);
-                }
-                active = {...latest, rows: JSON.parse(JSON.stringify(draft && draft.snapshot === latest.snapshot ? draft.rows : latest.inventory.rows))};
-                showDetail(); $('modal').hidden = false; $('close').focus();
-            } catch(error) { message(error.message,true); }
-            finally { setBusy(false); render(); }
+            const shipment = data.shipments.find(s => s.id === shipmentId);
+            const line = shipment && shipment.lines.find(l => l.id === lineId);
+            if (!line || !line.detail) { message('Inventory detail is not available. Refresh the page.',true); return; }
+            const stored = line.detail;
+            const draft = edits[key(shipmentId,lineId)];
+            active = {...stored,rows:JSON.parse(JSON.stringify(draft ? draft.rows : stored.inventory.rows))};
+            showDetail(); $('modal').hidden = false; $('close').focus();
         }
         function closeDetail() { $('modal').hidden = true; active = null; }
         function stageDetail() {
@@ -533,7 +609,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log'],
                 }
                 data = await request('list');
                 message('Inventory details saved for ' + saved + ' shipment(s).');
-            } catch(error) { message((saved ? saved + ' shipment(s) saved. ' : '') + error.message + ' Remaining drafts are retained. Reopen the affected popup if the record changed.',true); }
+            } catch(error) { message((saved ? saved + ' shipment(s) saved. ' : '') + error.message + ' Remaining drafts are retained. Refresh the page if the record changed.',true); }
             finally { setBusy(false); render(); }
         }
         $('filters').onsubmit = event => event.preventDefault();
