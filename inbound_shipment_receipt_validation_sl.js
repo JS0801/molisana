@@ -67,10 +67,12 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         });
         if (filters.shipmentId) extra.push(search.createFilter({name: 'internalid', operator: search.Operator.ANYOF, values: validId(filters.shipmentId)}));
         saved.filters = saved.filters.concat(extra);
-        const visible = columns.filter(c => !(join(c) === 'itemreceipt' && c.name === 'internalid'));
+        const visible = columns.filter(c => !((!join(c) || join(c) === 'itemreceipt') && c.name === 'internalid'));
         const meta = visible.map((c, i) => ({key: 'c' + i, name: c.name, join: join(c), label: c.label || c.name,
             section: join(c) === 'inventorydetail' ? 'inventory' : (!join(c) && HEADER_FIELDS.includes(c.name) ? 'header' : 'item')}));
         const groups = new Map();
+        const inventoryStates = new Map();
+        let rowNumber = 0;
         const images = {};
         const links = {};
         log.debug({title: 'IBS item identity column', details: {name: lineColumn.name, join: lineColumn.join}});
@@ -79,19 +81,22 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             if (runtime.getCurrentScript().getRemainingUsage() < 120) throw Error('The configured saved search returns too many results. Narrow its criteria and refresh.');
             pages.fetch({index: page.index}).data.forEach(result => {
                 const shipmentId = text(result.getValue(baseId));
-                const lineId = text(result.getValue(lineColumn));
-                if (!lineId) throw Error('The search returned an empty Item value.');
+                const itemId = text(result.getValue(itemColumn));
+                const lineId = String(++rowNumber);
+                if (!itemId) throw Error('The search returned an empty Item value.');
                 if (!groups.has(shipmentId)) groups.set(shipmentId, {id: shipmentId, cells: {}, lines: new Map()});
                 const shipment = groups.get(shipmentId);
-                if (!shipment.lines.has(lineId)) shipment.lines.set(lineId, {id: lineId, itemId: text(result.getValue(itemColumn)), cells: {}, hasDetail: false});
+                shipment.lines.set(lineId, {id: lineId, itemId, cells: {}, hasDetail: false});
                 const line = shipment.lines.get(lineId);
                 const get = (name, joined) => {
                     const column = columns.find(c => c.name === name && join(c) === (joined || ''));
                     return column ? result.getValue(column) : '';
                 };
-                if (!line.stored) line.stored = {expected:number(get('quantityexpected')), received:number(get('quantityreceived')),
+                const inventoryKey = shipmentId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
+                if (!inventoryStates.has(inventoryKey)) inventoryStates.set(inventoryKey, {expected:number(get('quantityexpected')), received:number(get('quantityreceived')),
                     locationId:text(result.getValue(locationColumn)), location:text(result.getText(locationColumn) || ''),
-                    unit:text(result.getValue(unitColumn)), inventory:{id:text(get('internalid','inventorydetail')),rows:[]}};
+                    unit:text(result.getValue(unitColumn)), inventory:{id:text(get('internalid','inventorydetail')),rows:[]}});
+                line.stored = inventoryStates.get(inventoryKey);
                 const qty = get('quantity','inventorydetail');
                 if (qty !== '' && qty != null && Number(qty) !== 0) {
                     const lotColumn = columns.find(c => c.name === 'inventorynumber' && join(c) === 'inventorydetail');
@@ -165,7 +170,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             }
             if (rules.statuses && !statuses) statuses = options('inventorystatus', [['isinactive','is','F']], 'name');
             const expected = state.expected * units.rate, received = state.received * units.rate;
-            line.detail = {...state,shipmentId:shipment.id,lineId:line.id,expected,received,units,rules,
+            line.detail = {...state,shipmentId:shipment.id,lineId:line.id,itemId:line.itemId,expected,received,units,rules,
                 bins:binsByLocation[state.locationId] || [],statuses:rules.statuses ? statuses : [],
                 item:line.cells[itemColumn.key][0].text,max:Math.max(0,expected-received),
                 columns:columns.filter(c => c.section === 'inventory'),snapshot:snapshot(state)};
@@ -200,7 +205,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         return text(value);
     }
 
-    function findLine(shipment, itemId) {
+    function findLine(shipment, itemId, inventoryId) {
         if (!lineMaps.has(shipment)) {
             const count = shipment.getLineCount({sublistId: 'items'});
             const shipmentLines = [];
@@ -232,7 +237,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             });
             lineMaps.set(shipment, map);
         }
-        const matches = lineMaps.get(shipment)[text(itemId)] || [];
+        let matches = lineMaps.get(shipment)[text(itemId)] || [];
+        if (inventoryId) matches = matches.filter(line => text(shipment.getSublistValue({sublistId:'items',fieldId:'inventorydetail',line})) === text(inventoryId));
         if (matches.length > 1) throw Error('This item appears on multiple lines in the shipment. Item alone cannot identify which line to update.');
         if (!matches.length) throw Error('The item is no longer on this shipment. Refresh the page.');
         return matches[0];
@@ -327,7 +333,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         const lineId = validId(params.lineId);
         const scope = itemScope(shipmentId, lineId);
         const shipment = loadedShipment || record.load({type: 'inboundshipment', id: shipmentId});
-        const index = findLine(shipment, lineId);
+        const index = findLine(shipment, lineId, params.inventoryId);
         const state = lineState(shipment, index);
         const rules = itemRules(lineId);
         const units = unitInfo(lineId, state.unit);
@@ -375,11 +381,12 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         const changed = new Set();
         for (const change of payload.lines) {
             if (runtime.getCurrentScript().getRemainingUsage() < 180) throw Error('Too many edited lines in one submission. Submit fewer lines at a time. No changes were saved for this shipment.');
-            const lineId = validId(change.lineId);
-            if (changed.has(lineId)) throw Error('Duplicate item line in submission.');
-            changed.add(lineId);
-            const detail = getDetail({shipmentId, lineId}, shipment);
-            const index = findLine(shipment, lineId);
+            const lineId = validId(change.itemId);
+            const inventoryId = text(change.inventoryId);
+            const index = findLine(shipment, lineId, inventoryId);
+            if (changed.has(index)) throw Error('The same IBS line was edited through multiple search rows. Submit changes from one row for that IBS line.');
+            changed.add(index);
+            const detail = getDetail({shipmentId, lineId, inventoryId}, shipment);
             if (detail.snapshot !== change.snapshot) {
                 throw Error('Shipment quantities or inventory details changed for ' + detail.item + '. Refresh the page before submitting.');
             }
@@ -592,7 +599,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             if (total-active.max > 0.00000001) { $('detailError').textContent = 'Total inventory quantity cannot exceed ' + active.max + '.'; return; }
             const k = key(active.shipmentId,active.lineId);
             if (JSON.stringify(active.rows) === JSON.stringify(active.inventory.rows)) delete edits[k];
-            else edits[k] = {shipmentId:active.shipmentId,lineId:active.lineId,snapshot:active.snapshot,rows:active.rows};
+            else edits[k] = {shipmentId:active.shipmentId,lineId:active.lineId,itemId:active.itemId,inventoryId:active.inventory.id,snapshot:active.snapshot,rows:active.rows};
             closeDetail(); render();
         }
         async function submit() {
