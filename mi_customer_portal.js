@@ -2642,7 +2642,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                         search.createColumn({ name: 'companyname', join: 'customer' }),
                         search.createColumn({ name: 'firstname', join: 'salesrep' }),
                         search.createColumn({ name: 'lastname', join: 'salesrep' }),
-                        search.createColumn({ name: 'entityid', join: 'salesrep' })
+                        search.createColumn({ name: 'entityid', join: 'salesrep' }),
+                        search.createColumn({ name: 'memomain' })
                     ]
                 }).run().each(function (r) {
                     var oppId = r.getValue('internalid');
@@ -2652,6 +2653,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                     if (statusText.indexOf('Closed') >= 0 || statusText.indexOf('Won') >= 0 || statusText.indexOf('Lost') >= 0) {
                         return true;
                     }
+                    var notes = r.getValue({ name: 'memomain' });
 
                     var custName = r.getValue({ name: 'companyname', join: 'customer' }) || r.getText('entity');
                     var repName = ((r.getValue({ name: 'firstname', join: 'salesrep' }) || '') + ' ' + (r.getValue({ name: 'lastname', join: 'salesrep' }) || '')).trim() || r.getValue({ name: 'entityid', join: 'salesrep' });
@@ -2665,6 +2667,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                         customerName: custName,
                         repId: r.getValue('salesrep'),
                         repName: repName,
+                        notes: notes,
                         amount: Number(r.getValue('projectedtotal') || 0),
                         isApproved: isApproved,
                         po: r.getValue('custbody_po_num') || '',
