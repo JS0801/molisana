@@ -100,8 +100,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 const issue = text(issueColumn ? result.getText(issueColumn) || result.getValue(issueColumn) : '').trim();
                 line.qcInitial = qcColumn ? qcDefault(line.qcOriginal, issue) : '';
                 line.qcEnabled = !!qcColumn;
-                const inventoryKey = shipmentId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
-                const inventoryKey = shipmentId + ':' + line.poId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
+                var inventoryKey = shipmentId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
+                inventoryKey = shipmentId + ':' + line.poId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
                 if (!inventoryStates.has(inventoryKey)) inventoryStates.set(inventoryKey, {expected:number(get('quantityexpected')), received:number(get('quantityreceived')),
                     locationId:text(result.getValue(locationColumn)), location:text(result.getText(locationColumn) || ''),
                     unit:text(result.getValue(unitColumn)), inventory:{id:text(get('internalid','inventorydetail')),rows:[]}});
