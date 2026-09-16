@@ -2,8 +2,8 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  */
-define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/crypto'],
-function (ui, file, log, search, runtime, crypto) {
+define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/crypto', 'N/record'],
+function (ui, file, log, search, runtime, crypto, record) {
 
   var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
 
@@ -62,6 +62,179 @@ function (ui, file, log, search, runtime, crypto) {
   var IDX_LAST_BILLED_DATE           = 40;
   var IDX_EXPIRE_DATE                = 41;
   var IDX_EXPIRY_STATUS              = 42;
+
+
+
+  var CHANGED_ROW_COLOR = '#cfe8ff';
+var RESTRICTION_FIELD = 'custitem_recommened_restriction_quanti';
+
+var ITEM_RECORD_TYPES = {
+  InvtPart: 'inventoryitem',
+  Assembly: 'assemblyitem',
+  NonInvtPart: 'noninventoryitem',
+  Service: 'serviceitem',
+  OthCharge: 'otherchargeitem',
+  Kit: 'kititem',
+  Group: 'itemgroup',
+  Discount: 'discountitem',
+  Markup: 'markupitem',
+  Payment: 'paymentitem',
+  SubTotal: 'subtotalitem',
+  Subtotal: 'subtotalitem',
+  Description: 'descriptionitem',
+  GiftCert: 'giftcertificateitem',
+  DwnLdItem: 'downloaditem'
+};
+
+function normalizeRestriction(value) {
+  var text = String(value == null ? '' : value).trim();
+
+  if (text === '') return '';
+
+  if (!/^-?\d+$/.test(text)) {
+    throw new Error('Restriction must be blank or a whole integer.');
+  }
+
+  var number = Number(text);
+
+  if (!Number.isSafeInteger(number)) {
+    throw new Error('Restriction is outside the supported integer range.');
+  }
+
+  return String(number);
+}
+
+function getRestrictionMap() {
+  var itemMap = {};
+
+  var itemSearch = search.create({
+    type: search.Type.ITEM,
+    filters: [],
+    columns: [
+      search.createColumn({
+        name: 'internalid',
+        sort: search.Sort.ASC
+      }),
+      search.createColumn({ name: 'type' }),
+      search.createColumn({ name: RESTRICTION_FIELD })
+    ]
+  });
+
+  var paged = itemSearch.runPaged({ pageSize: 1000 });
+
+  paged.pageRanges.forEach(function (pageRange) {
+    var page = paged.fetch({ index: pageRange.index });
+
+    page.data.forEach(function (result) {
+      var id = String(result.getValue({ name: 'internalid' }));
+      var itemType = String(result.getValue({ name: 'type' }) || '');
+      var rawValue = result.getValue({ name: RESTRICTION_FIELD });
+
+      // Number conversion also handles stored values such as "5.0".
+      var savedValue = rawValue == null || rawValue === ''
+        ? ''
+        : normalizeRestriction(String(Number(rawValue)));
+
+      itemMap[id] = {
+        value: savedValue,
+        recordType: ITEM_RECORD_TYPES[itemType] || ''
+      };
+    });
+  });
+
+  return itemMap;
+}
+
+function saveRestrictionChanges(payload, itemMap) {
+  var changes;
+
+  try {
+    changes = JSON.parse(payload || '[]');
+  } catch (e) {
+    throw new Error('Invalid restriction changes.');
+  }
+
+  if (!Array.isArray(changes)) {
+    throw new Error('Invalid restriction changes.');
+  }
+
+  var seen = {};
+  var updates = [];
+
+  // Validate the complete request before performing any writes.
+  changes.forEach(function (change) {
+    if (!change || typeof change !== 'object') {
+      throw new Error('Invalid item change.');
+    }
+
+    var id = String(change.id || '');
+
+    if (!/^\d+$/.test(id) || !itemMap[id]) {
+      throw new Error('Item not found: ' + id);
+    }
+
+    if (seen[id]) {
+      throw new Error('Duplicate item change: ' + id);
+    }
+    seen[id] = true;
+
+    var desired = normalizeRestriction(change.value);
+    var original = normalizeRestriction(change.original);
+    var current = itemMap[id];
+
+    // No write is needed when the item already has the desired value.
+    if (desired === current.value) return;
+
+    if (original !== current.value) {
+      throw new Error(
+        'Item ' + id +
+        ' was changed by another user. Reload the page before saving.'
+      );
+    }
+
+    if (!current.recordType) {
+      throw new Error('Unsupported record type for item ' + id);
+    }
+
+    updates.push({
+      id: id,
+      value: desired,
+      recordType: current.recordType
+    });
+  });
+
+  var saved = 0;
+  var errors = [];
+
+  updates.forEach(function (update) {
+    try {
+      var values = {};
+      values[RESTRICTION_FIELD] =
+        update.value === '' ? '' : Number(update.value);
+
+      record.submitFields({
+        type: update.recordType,
+        id: update.id,
+        values: values,
+        options: {
+          enableSourcing: false,
+          ignoreMandatoryFields: false
+        }
+      });
+
+      itemMap[update.id].value = update.value;
+      saved++;
+    } catch (e) {
+      log.error('Restriction save failed: item ' + update.id, e);
+      errors.push('Item ' + update.id + ': ' + (e.message || String(e)));
+    }
+  });
+
+  return {
+    saved: saved,
+    errors: errors
+  };
+}
 
   function sign(empid, ts) {
     var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
@@ -665,18 +838,19 @@ pagedData.pageRanges.forEach(function (pageRange) {
 
   function onRequest(context) {
     log.debug('Triggered');
+    var isPost = context.request.method === 'POST';
 
-    if (context.request.method !== 'GET') {
-      context.response.write('This Suitelet only supports GET.');
-      return;
-    }
+if (context.request.method !== 'GET' && !isPost) {
+  context.response.write('This Suitelet only supports GET and POST.');
+  return;
+}
 
     var q = context.request.parameters || {};
     var mode    = q.mode || '';
     var cronts  = q.cronts || '';
     var cronsig = q.cronsig || '';
 
-    if (mode === 'cron') {
+    if (mode === 'cron' && !isPost) {
       context.response.setHeader({
         name: 'Content-Type',
         value: 'application/json'
@@ -710,15 +884,34 @@ pagedData.pageRanges.forEach(function (pageRange) {
 
     var form = ui.createForm({ title: 'Availability Tool' });
 
-    var empid = q.empid || '';
-    var ts    = q.ts || '';
-    var sig   = q.sig || '';
+var empid = isPost
+  ? (q.custpage_empid || '')
+  : (q.empid || '');
 
-    var selectedEmp = q.custpage_id || '';
+var ts = isPost
+  ? (q.custpage_ts || '')
+  : (q.ts || '');
 
-    if (empid && ts && sig && verify(empid, ts, sig)) {
-      selectedEmp = empid;
-    }
+var sig = isPost
+  ? (q.custpage_sig || '')
+  : (q.sig || '');
+
+var validToken = verify(empid, ts, sig);
+
+// Saving requires a valid signed portal token.
+if (isPost && !validToken) {
+  context.response.write(
+    'Your login has expired or is invalid. ' +
+    'Reopen the availability tool from the portal before saving.'
+  );
+  return;
+}
+
+var selectedEmp = isPost ? '' : (q.custpage_id || '');
+
+if (validToken) {
+  selectedEmp = empid;
+}
 
     if (!selectedEmp) {
       context.response.write(
@@ -762,6 +955,57 @@ pagedData.pageRanges.forEach(function (pageRange) {
     });
     fileField.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
 
+
+    var changesField = form.addField({
+  id: 'custpage_restriction_changes',
+  type: ui.FieldType.LONGTEXT,
+  label: 'Restriction Changes'
+});
+
+changesField.defaultValue = '[]';
+changesField.updateDisplayType({
+  displayType: ui.FieldDisplayType.HIDDEN
+});
+
+var restrictionMap;
+var saveMessage = '';
+var saveHasErrors = false;
+
+try {
+  restrictionMap = getRestrictionMap();
+
+  if (isPost) {
+    var saveResult = saveRestrictionChanges(
+      q.custpage_restriction_changes,
+      restrictionMap
+    );
+
+    saveMessage = saveResult.saved + ' item(s) updated.';
+
+    if (saveResult.errors.length) {
+      saveHasErrors = true;
+      saveMessage += '\n' + saveResult.errors.join('\n');
+      saveMessage +=
+        '\nUnsuccessful changes were not saved. ' +
+        'The table shows current saved values; re-enter those changes to retry.';
+    }
+  }
+} catch (e) {
+  log.error('Restriction load/save error', e);
+
+  context.response.write(
+    '<p>' + escHtml(e.message || String(e)) + '</p>' +
+    '<p>Return to the availability tool and reload before retrying.</p>'
+  );
+  return;
+}
+
+if (validToken) {
+  form.addSubmitButton({
+    label: 'Submit Changes'
+  });
+}
+
     var htmlField = form.addField({
       id: 'custpage_excel_html',
       type: ui.FieldType.INLINEHTML,
@@ -781,6 +1025,17 @@ pagedData.pageRanges.forEach(function (pageRange) {
     fileField.defaultValue = result.fileId;
 
     var html = '';
+
+
+    if (saveMessage) {
+  html +=
+    '<div style="padding:10px;margin-bottom:10px;' +
+    'white-space:pre-wrap;border:1px solid ' +
+    (saveHasErrors ? '#b42318' : '#298044') + ';color:' +
+    (saveHasErrors ? '#b42318' : '#176534') + ';">' +
+    escHtml(saveMessage) +
+    '</div>';
+      }
     html += '<style>' +
       '.table-container{max-height:850px;overflow-y:auto;overflow-x:auto;border:1px solid #ccc;}' +
       '.h-scroll{height:16px;overflow-x:auto;overflow-y:hidden;border:1px solid #ccc;border-bottom:0;width:100%;}' +
@@ -793,6 +1048,8 @@ pagedData.pageRanges.forEach(function (pageRange) {
       '.row-warning td{background-color:#ffd6d6 !important;}' +
       '.row-expired td{background-color:#ead6ff !important;}' +
       '.row-expiring td{background-color:#fff7bf !important;}' +
+      '#excelTable tbody tr.row-changed td{background-color:' +
+               CHANGED_ROW_COLOR + ' !important;}' +
       '.toolbar-wrap{display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;}' +
       '.legend-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}' +
       '.legend-label{font-size:12px;font-weight:600;color:#333;}' +
@@ -849,6 +1106,13 @@ pagedData.pageRanges.forEach(function (pageRange) {
     result.displayRows.forEach(function (rowObj) {
       var rowClass = rowObj.rowClass || '';
       var cells = rowObj.cells || [];
+      var rowItemId = String(cells[IDX_ITEM_ID] || '')
+  .replace(/"/g, '')
+  .trim();
+
+var savedRestriction = restrictionMap[rowItemId]
+  ? restrictionMap[rowItemId].value
+  : '';
       var warningVal = normalizeText(rowObj.warning);
       var expiryVal = normalizeText(rowObj.expiry);
 
@@ -860,15 +1124,21 @@ pagedData.pageRanges.forEach(function (pageRange) {
       for (var cIdx = 0; cIdx < cells.length; cIdx++) {
         var txt = cells[cIdx];
 
-        if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
-          html += '<td style="width:80px;min-width:80px;max-width:80px;">' +
-            '<input type="number" value="' + escHtml(String(txt || '').replace(/"/g, '')) + '" style="width:100%;box-sizing:border-box;" />' +
-          '</td>';
-        } else {
-          html += '<td>' + escHtml(txt) + '</td>';
-        }
+if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
+  html += '<td style="width:80px;min-width:80px;max-width:80px;">' +
+    '<input type="text" ' +
+      'class="restriction-input" ' +
+      'data-item-id="' + escHtml(rowItemId) + '" ' +
+      'data-original="' + escHtml(savedRestriction) + '" ' +
+      'value="' + escHtml(savedRestriction) + '" ' +
+      'autocomplete="off" ' +
+      'aria-label="Recommended Restriction" ' +
+      'style="width:100%;box-sizing:border-box;" />' +
+  '</td>';
+} else {
+  html += '<td>' + escHtml(txt) + '</td>';
+}
       }
-
       html += '</tr>';
     });
 
@@ -1187,6 +1457,120 @@ pagedData.pageRanges.forEach(function (pageRange) {
         '}' +
       '});' +
     '</script>';
+
+
+    html += '<script>(' + function () {
+  function initializeRestrictionEditing() {
+    var table = document.getElementById('excelTable');
+    var payloadField =
+      document.getElementById('custpage_restriction_changes');
+
+    if (!table || !payloadField || !payloadField.form) return;
+
+    var form = payloadField.form;
+
+    function normalizeInput(value) {
+      var text = String(value == null ? '' : value).trim();
+
+      if (text === '') return '';
+
+      if (!/^-?\d+$/.test(text)) {
+        throw new Error('Enter a whole integer or leave the field blank.');
+      }
+
+      var number = Number(text);
+
+      if (!Number.isSafeInteger(number)) {
+        throw new Error('The integer is outside the supported range.');
+      }
+
+      return String(number);
+    }
+
+    function updateRow(input) {
+      var original = input.getAttribute('data-original') || '';
+      var changed;
+      var error = '';
+
+      try {
+        changed = normalizeInput(input.value) !== original;
+      } catch (e) {
+        changed = true;
+        error = e.message;
+      }
+
+      input.setCustomValidity(error);
+
+      var row = input.closest('tr');
+      if (row) {
+        row.classList.toggle('row-changed', changed);
+      }
+
+      return !error;
+    }
+
+    table.addEventListener('input', function (event) {
+      var input = event.target;
+
+      if (!input.classList.contains('restriction-input')) return;
+
+      updateRow(input);
+    });
+
+    form.addEventListener('submit', function (event) {
+      var inputs = table.querySelectorAll('.restriction-input');
+      var changes = [];
+      var firstInvalid = null;
+
+      for (var i = 0; i < inputs.length; i++) {
+        var input = inputs[i];
+
+        if (!updateRow(input)) {
+          if (!firstInvalid) firstInvalid = input;
+          continue;
+        }
+
+        var value = normalizeInput(input.value);
+        var original = input.getAttribute('data-original') || '';
+
+        if (value !== original) {
+          changes.push({
+            id: input.getAttribute('data-item-id'),
+            original: original,
+            value: value
+          });
+        }
+      }
+
+      if (firstInvalid) {
+        event.preventDefault();
+
+        // Make an invalid edited row visible even if a filter hid it.
+        firstInvalid.closest('tr').style.display = '';
+        firstInvalid.focus();
+        firstInvalid.reportValidity();
+        return;
+      }
+
+      if (!changes.length) {
+        event.preventDefault();
+        alert('There are no restriction changes to save.');
+        return;
+      }
+
+      payloadField.value = JSON.stringify(changes);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener(
+      'DOMContentLoaded',
+      initializeRestrictionEditing
+    );
+  } else {
+    initializeRestrictionEditing();
+  }
+}.toString() + ')();</script>';
 
     htmlField.defaultValue = html;
     context.response.writePage(form);
