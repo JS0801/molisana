@@ -15,7 +15,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
         const FLD_VALIDATOR = 'custbody_vendbill_validator';
         const FLD_VALIDATOR_APPR = 'custbody_vendbill_validator_check';  // checkbox "Validator Approved?"
         const PARAM_FINAL_APPROVER = 'custscript_bill_final_approver';    // employee on the script
-        const FINAL_APPROVERS = ['-5', '12138'];                           // final approver employee IDs
+        const FINAL_APPROVERS = ['-5'];     //, '12138'                      // final approver employee IDs
         const ADMIN_ROLE = '3';                                            // Administrator role ID
 
         // Approval status internal IDs
@@ -30,7 +30,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
             // Final approvers = employees in FINAL_APPROVERS, plus the script parameter if set
             const paramApprover = String(script.getParameter({ name: PARAM_FINAL_APPROVER }) || '');
             const isFinal = FINAL_APPROVERS.includes(userId) || (paramApprover !== '' && userId === paramApprover);
-            const isAdmin = String(user.role) === ADMIN_ROLE;
+            const isAdmin = false; //String(user.role) === ADMIN_ROLE;
             const seeAll = isFinal || isAdmin;
 
             // ---- Approve / Reject button (POST) ----
