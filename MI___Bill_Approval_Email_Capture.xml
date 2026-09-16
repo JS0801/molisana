@@ -58,7 +58,7 @@
           <includeformat>PDF</includeformat>
           <includerecordlink>F</includerecordlink>
           <includetransaction>T</includetransaction>
-          <isinactive>F</isinactive>
+          <isinactive>T</isinactive>
           <recipientbccemail></recipientbccemail>
           <recipientccemail></recipientccemail>
           <recipientemail></recipientemail>
@@ -136,7 +136,7 @@
           <includeformat>PDF</includeformat>
           <includerecordlink>F</includerecordlink>
           <includetransaction>T</includetransaction>
-          <isinactive>F</isinactive>
+          <isinactive>T</isinactive>
           <recipient>[ACCOUNT_SPECIFIC_VALUE]</recipient>
           <recipientbccemail></recipientbccemail>
           <recipientccemail></recipientccemail>
