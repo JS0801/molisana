@@ -100,6 +100,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 const issue = text(issueColumn ? result.getText(issueColumn) || result.getValue(issueColumn) : '').trim();
                 line.qcInitial = qcColumn ? qcDefault(line.qcOriginal, issue) : '';
                 line.qcEnabled = !!qcColumn;
+                const inventoryKey = shipmentId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
                 const inventoryKey = shipmentId + ':' + line.poId + ':' + itemId + ':' + text(get('internalid','inventorydetail'));
                 if (!inventoryStates.has(inventoryKey)) inventoryStates.set(inventoryKey, {expected:number(get('quantityexpected')), received:number(get('quantityreceived')),
                     locationId:text(result.getValue(locationColumn)), location:text(result.getText(locationColumn) || ''),
@@ -182,6 +183,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             }
             if (rules.statuses && !statuses) statuses = options('inventorystatus', [['isinactive','is','F']], 'name');
             const expected = state.expected * units.rate, received = state.received * units.rate;
+            line.detail = {...state,shipmentId:shipment.id,lineId:line.id,itemId:line.itemId,expected,received,units,rules,
             line.detail = {...state,shipmentId:shipment.id,lineId:line.id,itemId:line.itemId,poId:line.poId,expected,received,units,rules,
                 bins:binsByLocation[state.locationId] || [],statuses:rules.statuses ? statuses : [],
                 item:line.cells[itemColumn.key][0].text,max:Math.max(0,expected-received),
@@ -217,6 +219,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         return text(value);
     }
 
+    function findLine(shipment, itemId, inventoryId) {
     function findLine(shipment, itemId, inventoryId, poId) {
         if (!lineMaps.has(shipment)) {
             const count = shipment.getLineCount({sublistId: 'items'});
@@ -252,11 +255,13 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         let matches = lineMaps.get(shipment)[text(itemId)] || [];
         if (poId) matches = matches.filter(line => text(shipment.getSublistValue({sublistId:'items',fieldId:'purchaseorder',line})) === text(poId));
         if (inventoryId) matches = matches.filter(line => text(shipment.getSublistValue({sublistId:'items',fieldId:'inventorydetail',line})) === text(inventoryId));
+        if (matches.length > 1) throw Error('This item appears on multiple lines in the shipment. Item alone cannot identify which line to update.');
         if (matches.length > 1) throw Error('This item appears on multiple lines in the shipment. PO and item still match multiple lines. A unique inventory detail is required.');
         if (!matches.length) throw Error('The item is no longer on this shipment. Refresh the page.');
         return matches[0];
     }
 
+    function itemScope(shipmentId, itemId) {
     function itemScope(shipmentId, itemId, poId) {
         const searchId = runtime.getCurrentScript().getParameter({name: PARAM});
         if (!searchId) throw Error('Set the deployment parameter ' + PARAM + '.');
@@ -299,6 +304,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 return text(detail.getSublistText({sublistId: 'inventoryassignment', fieldId: field, line: index}));
             };
             rows.push({number: text(value('receiptinventorynumber') || label('issueinventorynumber')),
+            rows.push({number: text(label('receiptinventorynumber') || label('issueinventorynumber') || value('receiptinventorynumber')),
                 bin: text(value('binnumber')), status: text(value('inventorystatus')),
                 expiry: isoDate(value('expirationdate')), quantity: number(value('quantity'))});
         }
@@ -345,8 +351,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
     function getDetail(params, loadedShipment) {
         const shipmentId = validId(params.shipmentId);
         const lineId = validId(params.lineId);
+        const scope = itemScope(shipmentId, lineId);
         const scope = itemScope(shipmentId, lineId, params.poId);
         const shipment = loadedShipment || record.load({type: 'inboundshipment', id: shipmentId});
+        const index = findLine(shipment, lineId, params.inventoryId);
         const index = findLine(shipment, lineId, params.inventoryId, params.poId);
         const state = lineState(shipment, index);
         const rules = itemRules(lineId);
@@ -388,6 +396,74 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         return total;
     }
 
+    function currentSearchSnapshot(shipmentId, poId, itemId, inventoryId) {
+        const saved = search.load({id:runtime.getCurrentScript().getParameter({name:PARAM})});
+        saved.columns = saved.columns.filter(c => !(join(c) === 'inboundshipmentitem' && ['internalid','id'].includes(c.name)));
+        const location = saved.columns.find(c => !join(c) && c.name === 'receivinglocation') || search.createColumn({name:'receivinglocation'});
+        if (!saved.columns.includes(location)) saved.columns = saved.columns.concat(location);
+        saved.filters = saved.filters.concat([
+            search.createFilter({name:'internalid',operator:search.Operator.ANYOF,values:shipmentId}),
+            search.createFilter({name:'purchaseorder',operator:search.Operator.ANYOF,values:poId}),
+            search.createFilter({name:'item',operator:search.Operator.ANYOF,values:itemId})]);
+        const results = saved.run();
+        let state;
+        for (let start = 0; ; start += 1000) {
+            const batch = results.getRange({start,end:start+1000});
+            batch.forEach(result => {
+                const get = (name, joined) => {
+                    const column = saved.columns.find(c => c.name === name && join(c) === (joined || ''));
+                    return column ? result.getValue(column) : '';
+                };
+                if (text(get('internalid','inventorydetail')) !== inventoryId) return;
+                if (!state) state = {expected:number(get('quantityexpected')),received:number(get('quantityreceived')),
+                    locationId:text(result.getValue(location)),inventory:{rows:[]}};
+                const qty = get('quantity','inventorydetail');
+                if (qty === '' || qty == null || Number(qty) === 0) return;
+                const lotColumn = saved.columns.find(c => c.name === 'inventorynumber' && join(c) === 'inventorydetail');
+                const expiry = get('expirationdate','inventorydetail');
+                const row = {number:text(lotColumn ? result.getText(lotColumn) || result.getValue(lotColumn) : ''),
+                    bin:text(get('binnumber','inventorydetail')),status:text(get('status','inventorydetail')),
+                    expiry:expiry ? isoDate(format.parse({value:text(expiry),type:format.Type.DATE})) : '',quantity:Number(qty)};
+                if (!state.inventory.rows.some(r => JSON.stringify(r) === JSON.stringify(row))) state.inventory.rows.push(row);
+            });
+            if (batch.length < 1000) break;
+        }
+        if (!state) throw Error('The shipment item or inventory detail changed. Refresh the page before submitting.');
+        return snapshot(state);
+    }
+
+    function writeAssignments(shipment, index, rows, detail) {
+        if (!rows.length) {
+            if (shipment.hasSublistSubrecord({sublistId:'items',fieldId:'inventorydetail',line:index})) {
+                shipment.removeSublistSubrecord({sublistId:'items',fieldId:'inventorydetail',line:index});
+            }
+            return;
+        }
+        const identity = row => JSON.stringify([text(row.number),text(row.bin),text(row.status),text(row.expiry)]);
+        const pending = rows.slice();
+        const retained = [];
+        const removed = [];
+        detail.inventory.rows.forEach((old, line) => {
+            const match = pending.findIndex(row => identity(row) === identity(old));
+            if (match < 0) removed.push(line);
+            else retained.push({old,row:pending.splice(match,1)[0]});
+        });
+        const subrecord = shipment.getSublistSubrecord({sublistId:'items',fieldId:'inventorydetail',line:index});
+        removed.reverse().forEach(line => subrecord.removeLine({sublistId:'inventoryassignment',line}));
+        retained.forEach(({old,row}, line) => {
+            if (Number(old.quantity) !== Number(row.quantity)) subrecord.setSublistValue({sublistId:'inventoryassignment',fieldId:'quantity',line,value:Number(row.quantity)});
+        });
+        pending.forEach((row, offset) => {
+            const line = retained.length + offset;
+            const set = (fieldId,value) => subrecord.setSublistValue({sublistId:'inventoryassignment',fieldId,line,value});
+            if (detail.rules.lot || detail.rules.serial) set('receiptinventorynumber',row.number);
+            if (row.expiry) set('expirationdate',parseDate(row.expiry));
+            if (detail.rules.bins) set('binnumber',Number(row.bin));
+            if (detail.rules.statuses) set('inventorystatus',Number(row.status));
+            set('quantity',Number(row.quantity));
+        });
+    }
+
     function saveDetails(payload) {
         const shipmentId = validId(payload.shipmentId);
         if (!Array.isArray(payload.lines) || !payload.lines.length) throw Error('No changed item lines to submit.');
@@ -399,10 +475,12 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const lineId = validId(change.itemId);
             const inventoryId = text(change.inventoryId);
             const poId = validId(change.poId);
+            const index = findLine(shipment, lineId, inventoryId);
             const index = findLine(shipment, lineId, inventoryId, poId);
             if (seen.has(index)) throw Error('The same IBS line was edited through multiple search rows. Submit changes from one row for that IBS line.');
             seen.add(index);
             if (change.qcStatus !== undefined) {
+                itemScope(shipmentId, lineId);
                 itemScope(shipmentId, lineId, poId);
                 const desired = text(change.qcStatus);
                 if (!['','1','2','3','4','5'].includes(desired)) throw Error('Invalid QC Status.');
@@ -415,30 +493,33 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 }
             }
             if (change.rows === undefined) continue;
-            const detail = getDetail({shipmentId, lineId, inventoryId, poId}, shipment);
+            const detail = getDetail({shipmentId, lineId, inventoryId}, shipment);
             if (detail.snapshot !== change.snapshot) {
+            const detail = getDetail({shipmentId, lineId, inventoryId, poId}, shipment);
+            if (currentSearchSnapshot(shipmentId, poId, lineId, inventoryId) !== change.snapshot) {
                 throw Error('Shipment quantities or inventory details changed for ' + detail.item + '. Refresh the page before submitting.');
             }
             const total = validateRows(change.rows, detail);
             changed.add(index);
             const subrecord = shipment.getSublistSubrecord({sublistId: 'items', fieldId: 'inventorydetail', line: index});
-            for (let i = subrecord.getLineCount({sublistId: 'inventoryassignment'}) - 1; i >= change.rows.length; i--) {
+            for (let i = subrecord.getLineCount({sublistId: 'inventoryassignment'}) - 1; i >= 0; i--) {
                 subrecord.removeLine({sublistId: 'inventoryassignment', line: i});
+            try {
+                writeAssignments(shipment, index, change.rows, detail);
+            } catch (error) {
+                log.error({title:'IBS assignment update failed',details:{shipmentId,poId,itemId:lineId,line:index,before:detail.inventory.rows.length,after:change.rows.length,error:error.message}});
+                throw error;
             }
             change.rows.forEach((row, line) => {
-                const previous = detail.inventory.rows[line];
-                const set = (fieldId, value, oldValue) => {
-                    if (!previous || text(value) !== text(oldValue)) subrecord.setSublistValue({sublistId:'inventoryassignment',fieldId,line,value});
-                };
-                if (detail.rules.lot || detail.rules.serial) set('receiptinventorynumber', row.number, previous && previous.number);
-                if (!previous || row.expiry !== previous.expiry) {
-                    if (row.expiry || (previous && previous.expiry)) subrecord.setSublistValue({sublistId:'inventoryassignment',fieldId:'expirationdate',line,value:row.expiry ? parseDate(row.expiry) : ''});
-                }
-                if (detail.rules.bins) set('binnumber', Number(row.bin), previous && previous.bin);
-                if (detail.rules.statuses) set('inventorystatus', Number(row.status), previous && previous.status);
-                set('quantity', row.quantity, previous && previous.quantity);
+                const set = (fieldId, value) => subrecord.setSublistValue({sublistId: 'inventoryassignment', fieldId, line, value});
+                if (detail.rules.lot || detail.rules.serial) set('receiptinventorynumber', row.number);
+                if (row.expiry) set('expirationdate', parseDate(row.expiry));
+                if (detail.rules.bins && row.bin) set('binnumber', Number(row.bin));
+                if (detail.rules.statuses && row.status) set('inventorystatus', Number(row.status));
+                set('quantity', row.quantity);
             });
             log.debug({title: 'IBS line validated', details: {shipmentId, lineId, rows: change.rows.length, total, maximum: detail.max}});
+            log.debug({title: 'IBS line validated', details: {shipmentId, lineId, before:detail.inventory.rows.length, rows: change.rows.length, total, maximum: detail.max}});
         }
         if (!changed.size) return {id:shipmentId,lines:0};
         const id = shipment.save({enableSourcing: true, ignoreMandatoryFields: false});
@@ -522,6 +603,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             data.shipments.forEach(s => s.lines.forEach(l => {
                 if (l.qcEnabled && l.qcInitial !== l.qcOriginal) {
                     const k = key(s.id,l.id);
+                    if (!edits[k]) edits[k] = {shipmentId:s.id,lineId:l.id,itemId:l.itemId,inventoryId:l.detail.inventory.id,qcStatus:l.qcInitial,qcOriginal:l.qcOriginal};
                     if (!edits[k]) edits[k] = {shipmentId:s.id,lineId:l.id,itemId:l.itemId,poId:l.poId,inventoryId:l.detail.inventory.id,qcStatus:l.qcInitial,qcOriginal:l.qcOriginal};
                 }
             }));
@@ -529,6 +611,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         function mergeChanges(lines) {
             const merged = {};
             lines.forEach(line => {
+                const k = line.itemId + ':' + line.inventoryId;
                 const k = line.poId + ':' + line.itemId + ':' + line.inventoryId;
                 if (!merged[k]) { merged[k] = {...line}; return; }
                 const target = merged[k];
@@ -632,6 +715,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const total = otherRows.reduce((sum,r) => sum+Number(r.quantity),0) + row.quantity;
             if (total-active.max > 0.00000001) error = 'Inventory detail quantity cannot be more than ' + active.max + '.';
             if (active.rules.serial && otherRows.some(r => r.number.toLowerCase() === row.number.toLowerCase())) error = 'This serial number already exists.';
+            if (error) { $('detailError').textContent = error; return; }
             if (error) { $('detailError').textContent = error; return false; }
             const duplicate = active.rules.lot && active.editIndex === null ? active.rows.find(r => r.number.toLowerCase() === row.number.toLowerCase() && r.bin === row.bin && r.status === row.status && r.expiry === row.expiry) : null;
             if (duplicate) {
@@ -667,10 +751,12 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 if (active.rules.statuses && !row.status) error = 'Select each status.';
                 if (active.rules.serial && (q !== 1 || serials.has(row.number.trim().toLowerCase()))) error = 'Use unique serial numbers with quantity 1.';
                 serials.add(row.number.trim().toLowerCase()); total += q;
+                if (error) { $('detailError').textContent = error; return; }
                 if (error) { $('detailError').textContent = error; return false; }
             }
             if (total-active.max > 0.00000001) { $('detailError').textContent = 'Total inventory quantity cannot exceed ' + active.max + '.'; return; }
             const k = key(active.shipmentId,active.lineId);
+            const draft = edits[k] || {shipmentId:active.shipmentId,lineId:active.lineId,itemId:active.itemId,inventoryId:active.inventory.id};
             const draft = edits[k] || {shipmentId:active.shipmentId,lineId:active.lineId,itemId:active.itemId,poId:active.poId,inventoryId:active.inventory.id};
             if (JSON.stringify(active.rows) === JSON.stringify(active.inventory.rows)) { delete draft.rows; delete draft.snapshot; }
             else { draft.rows = active.rows; draft.snapshot = active.snapshot; }
@@ -717,8 +803,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const [shipmentId,lineId] = target.split(':');
             const shipment = data.shipments.find(s => s.id === shipmentId);
             const line = shipment.lines.find(l => l.id === lineId);
+            shipment.lines.filter(l => l.itemId === line.itemId && l.detail.inventory.id === line.detail.inventory.id).forEach(l => {
             shipment.lines.filter(l => l.itemId === line.itemId && l.poId === line.poId && l.detail.inventory.id === line.detail.inventory.id).forEach(l => {
                 const k = key(shipmentId,l.id);
+                const draft = edits[k] || {shipmentId,lineId:l.id,itemId:l.itemId,inventoryId:l.detail.inventory.id};
                 const draft = edits[k] || {shipmentId,lineId:l.id,itemId:l.itemId,poId:l.poId,inventoryId:l.detail.inventory.id};
                 l.qcInitial = event.target.value;
                 if (event.target.value === l.qcOriginal) { delete draft.qcStatus; delete draft.qcOriginal; }
