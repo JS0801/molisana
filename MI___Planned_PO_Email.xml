@@ -1,0 +1,173 @@
+<workflow scriptid="customworkflow_mi_planned_po_email">
+  <description></description>
+  <initcontexts>ACTION|BANKCONNECTIVITY|BANKSTATEMENTPARSER|BUNDLEINSTALLATION|CLIENT|CSVIMPORT|CUSTOMGLLINES|CUSTOMMASSUPDATE|RECORDACTION|CUSTOMTOOL|DATASETBUILDER|DEBUGGER|EMAILCAPTURE|FICONNECTIVITY|FIPARSER|MAPREDUCE|OCRPLUGIN|OFFLINECLIENT|OTHER|PAYMENTPOSTBACK|PAYMENTGATEWAY|PLATFORMEXTENSION|PORTLET|PROMOTIONS|CONSOLRATEADJUSTOR|RESTWEBSERVICES|RESTLET|ADVANCEDREVREC|SCHEDULED|SDFINSTALLATION|SHIPPINGPARTNERS|WEBSERVICES|SUITELET|TAXCALCULATION|USEREVENT|USERINTERFACE|WORKBOOKBUILDER|WORKFLOW</initcontexts>
+  <initeventtypes></initeventtypes>
+  <initlocalizationcontext></initlocalizationcontext>
+  <initoncreate>T</initoncreate>
+  <initonvieworupdate>F</initonvieworupdate>
+  <initsavedsearchcondition></initsavedsearchcondition>
+  <inittriggertype>AFTERSUBMIT</inittriggertype>
+  <isinactive>F</isinactive>
+  <islogenabled>T</islogenabled>
+  <keephistory>ALWAYS</keephistory>
+  <name>MI | Planned PO Email</name>
+  <recordtypes>PURCHASEORDER</recordtypes>
+  <releasestatus>RELEASED</releasestatus>
+  <runasadmin>T</runasadmin>
+  <initcondition>
+    <formula><![CDATA[isChecked("Planned PO") = 'T']]></formula>
+    <type>VISUAL_BUILDER</type>
+    <parameters>
+      <parameter>
+        <name>Planned PO</name>
+        <value>[scriptid=custbody_planned_po]</value>
+      </parameter>
+    </parameters>
+  </initcondition>
+  <workflowstates>
+    <workflowstate scriptid="workflowstate275">
+      <description></description>
+      <donotexitworkflow>F</donotexitworkflow>
+      <name>State 1</name>
+      <positionx>653</positionx>
+      <positiony>223</positiony>
+      <workflowactions triggertype="ONENTRY">
+        <sendemailaction scriptid="workflowaction1852">
+          <attachmentfield></attachmentfield>
+          <attachmentfile></attachmentfile>
+          <attachmentjoinfield></attachmentjoinfield>
+          <attachmenttype>SPECIFIC</attachmenttype>
+          <body>&lt;p&gt;&#xd;
+&#xd;
+Dear {entity}, We are pleased to share a new Purchase Order for your review and processing.&#xd;
+&lt;br /&gt;&#xd;
+&lt;/p&gt;&#xd;
+&lt;p&gt;&lt;strong&gt;Purchase Order Details&lt;/strong&gt;&lt;/p&gt;&#xd;
+&lt;figure class=&quot;table&quot;&gt;&#xd;
+&lt;table border=&quot;0&quot; cellpadding=&quot;2&quot; cellspacing=&quot;0&quot;&gt;&#xd;
+&lt;tbody&gt;&#xd;
+&lt;tr&gt;&#xd;
+&lt;td&gt;&#xd;
+&lt;strong&gt;PO Number:&lt;/strong&gt;&#xd;
+&lt;/td&gt;&#xd;
+&lt;td&gt;&#xd;
+&#xd;
+        {tranid}&#xd;
+&lt;/td&gt;&#xd;
+&lt;/tr&gt;&#xd;
+&lt;tr&gt;&#xd;
+&lt;td&gt;&#xd;
+&lt;strong&gt;Date:&lt;/strong&gt;&#xd;
+&lt;/td&gt;&#xd;
+&lt;td&gt;&#xd;
+&#xd;
+        {trandate}&#xd;
+&lt;/td&gt;&#xd;
+&lt;/tr&gt;&#xd;
+&lt;tr&gt;&#xd;
+&lt;td&gt;&#xd;
+&lt;strong&gt;Vendor:&lt;/strong&gt;&#xd;
+&lt;/td&gt;&#xd;
+&lt;td&gt;&#xd;
+&#xd;
+        {entity}&#xd;
+&lt;/td&gt;&#xd;
+&lt;/tr&gt;&#xd;
+&lt;tr&gt;&#xd;
+&lt;td&gt;&#xd;
+&lt;strong&gt;Amount:&lt;/strong&gt;&#xd;
+&lt;/td&gt;&#xd;
+&lt;td&gt;&#xd;
+&#xd;
+        {total}&#xd;
+&lt;/td&gt;&#xd;
+&lt;/tr&gt;&#xd;
+&lt;tr&gt;&#xd;
+&lt;td&gt;&#xd;
+&lt;strong&gt;Delivery Date (Requested):&lt;/strong&gt;&#xd;
+&lt;/td&gt;&#xd;
+&lt;td&gt;&#xd;
+&#xd;
+        {duedate}&#xd;
+&lt;/td&gt;&#xd;
+&lt;/tr&gt;&#xd;
+&lt;tr&gt;&#xd;
+&lt;td&gt;&#xd;
+&lt;strong&gt;Ship To:&lt;/strong&gt;&#xd;
+&lt;/td&gt;&#xd;
+&lt;td&gt;&#xd;
+&#xd;
+        {shipaddress}&#xd;
+&lt;/td&gt;&#xd;
+&lt;/tr&gt;&#xd;
+&lt;/tbody&gt;&#xd;
+&lt;/table&gt;&#xd;
+&lt;/figure&gt;&#xd;
+&lt;p&gt;&#xd;
+&lt;br /&gt;&#xd;
+&#xd;
+You can view the full details of this Purchase Order in the attached document or via your usual process. If you have any questions or foresee any issues meeting the requested delivery date, please reply to this email or contact our purchasing team. &#xd;
+&lt;br /&gt;&#xd;
+&lt;br /&gt;&#xd;
+&#xd;
+Best regards,&#xd;
+&lt;br /&gt;&#xd;
+&#xd;
+{companyname}&#xd;
+&lt;br /&gt;&#xd;
+&#xd;
+{companyinfo.mainphone}&#xd;
+&lt;/p&gt;&#xd;
+ </body>
+          <conditionsavedsearch></conditionsavedsearch>
+          <contexttypes>ACTION|BANKCONNECTIVITY|BANKSTATEMENTPARSER|BUNDLEINSTALLATION|CLIENT|CSVIMPORT|CUSTOMGLLINES|CUSTOMMASSUPDATE|RECORDACTION|CUSTOMTOOL|DATASETBUILDER|DEBUGGER|EMAILCAPTURE|FICONNECTIVITY|FIPARSER|MAPREDUCE|OCRPLUGIN|OFFLINECLIENT|OTHER|PAYMENTPOSTBACK|PAYMENTGATEWAY|PLATFORMEXTENSION|PORTLET|PROMOTIONS|CONSOLRATEADJUSTOR|RESTWEBSERVICES|RESTLET|ADVANCEDREVREC|SCHEDULED|SDFINSTALLATION|SHIPPINGPARTNERS|WEBSERVICES|SUITELET|TAXCALCULATION|USEREVENT|USERINTERFACE|WORKBOOKBUILDER|WORKFLOW</contexttypes>
+          <eventtypes></eventtypes>
+          <includeformat>PDF</includeformat>
+          <includerecordlink>F</includerecordlink>
+          <includetransaction>T</includetransaction>
+          <isinactive>F</isinactive>
+          <recipient>[ACCOUNT_SPECIFIC_VALUE]</recipient>
+          <recipientbccemail></recipientbccemail>
+          <recipientccemail></recipientccemail>
+          <recipientemail></recipientemail>
+          <recipientfield></recipientfield>
+          <recipientjoinfield></recipientjoinfield>
+          <recipienttype>SPECIFIC</recipienttype>
+          <scheduledelay></scheduledelay>
+          <schedulemode>DELAY</schedulemode>
+          <schedulerecurrence></schedulerecurrence>
+          <scheduletimeofday></scheduletimeofday>
+          <scheduletimeunit></scheduletimeunit>
+          <sender>[ACCOUNT_SPECIFIC_VALUE]</sender>
+          <senderfield></senderfield>
+          <senderjoinfield></senderjoinfield>
+          <sendertype>SPECIFIC</sendertype>
+          <subject>New Purchase Order {tranid} from {companyname}</subject>
+          <template></template>
+          <usetemplate>F</usetemplate>
+          <initcondition>
+            <formula></formula>
+            <type>VISUAL_BUILDER</type>
+          </initcondition>
+        </sendemailaction>
+        <customaction scriptid="workflowaction1853">
+          <conditionsavedsearch></conditionsavedsearch>
+          <contexttypes>ACTION|BANKCONNECTIVITY|BANKSTATEMENTPARSER|BUNDLEINSTALLATION|CLIENT|CSVIMPORT|CUSTOMGLLINES|CUSTOMMASSUPDATE|RECORDACTION|CUSTOMTOOL|DATASETBUILDER|DEBUGGER|EMAILCAPTURE|FICONNECTIVITY|FIPARSER|MAPREDUCE|OCRPLUGIN|OFFLINECLIENT|OTHER|PAYMENTPOSTBACK|PAYMENTGATEWAY|PLATFORMEXTENSION|PORTLET|PROMOTIONS|CONSOLRATEADJUSTOR|RESTWEBSERVICES|RESTLET|ADVANCEDREVREC|SCHEDULED|SDFINSTALLATION|SHIPPINGPARTNERS|WEBSERVICES|SUITELET|TAXCALCULATION|USEREVENT|USERINTERFACE|WORKBOOKBUILDER|WORKFLOW</contexttypes>
+          <eventtypes></eventtypes>
+          <isinactive>F</isinactive>
+          <resultfield></resultfield>
+          <scheduledelay></scheduledelay>
+          <schedulemode>DELAY</schedulemode>
+          <schedulerecurrence></schedulerecurrence>
+          <scheduletimeofday></scheduletimeofday>
+          <scheduletimeunit></scheduletimeunit>
+          <scripttype>[scriptid=customscript_mi_send_email_to_vendor_po]</scripttype>
+          <initcondition>
+            <formula></formula>
+            <type>VISUAL_BUILDER</type>
+          </initcondition>
+        </customaction>
+      </workflowactions>
+    </workflowstate>
+  </workflowstates>
+</workflow>
