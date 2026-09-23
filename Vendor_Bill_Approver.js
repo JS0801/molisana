@@ -5,18 +5,28 @@
  * Vendor Bill Approval Portal (single file, custom HTML page)
  * - Validator (all users): sees only pending bills where custbody_vendbill_validator = current user.
  *   Approve ticks custbody_vendbill_validator_check, bill stays Pending for the final approver.
- * - Final approvers (employees -5 and 12138): see ALL pending bills. Approve / Reject at any stage is final.
+ * - Final approvers (employees -5, 8, 12138): see ALL pending bills. Approve / Reject at any stage is final.
+ * - View only (employees 12412, 11018, 11428): see ALL pending bills, no Approve / Reject.
  * - Administrator role: sees ALL pending bills. Can act only on bills where they are the validator.
+ * - Bills are selected with checkboxes and approved / rejected in bulk from the buttons above the list.
  */
-define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
-    (search, record, runtime, redirect, url) => {
+define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format'],
+    (search, record, runtime, redirect, url, format) => {
 
         // ---- Field IDs (change here if yours differ) ----
         const FLD_VALIDATOR = 'custbody_vendbill_validator';
-        const FLD_VALIDATOR_APPR = 'custbody_vendbill_validator_check';  // checkbox "Validator Approved?"
-        const PARAM_FINAL_APPROVER = 'custscript_bill_final_approver';    // employee on the script
-        const FINAL_APPROVERS = ['-5', '12138'];                     // final approver employee IDs
+        const FLD_VALIDATOR_APPR = 'custbody_vendbill_validator_check';   // checkbox "Validator Approved?"
+        const FLD_NOTE = 'custbody_note_to_vendor';                        // "Note to Vendor"
+        const FLD_DOC_URL = 'custbody_mi_sharepoint_document_url';         // SharePoint document link
+        const PARAM_FINAL_APPROVER = 'custscript_bill_final_approver';     // employee on the script
+
+        // ---- Access ----
+        const FINAL_APPROVERS = ['-5', '8', '12138'];                      // full rights: approve / reject any bill
+        const VIEW_ONLY = ['12412', '11018', '11428'];                     // see every bill, cannot approve / reject
         const ADMIN_ROLE = '3';                                            // Administrator role ID
+
+        // Line description column. The first one that works in this account is used.
+        const LINE_DESC_COLUMNS = ['description', 'memo'];
 
         // Approval status internal IDs
         const STATUS = { PENDING: '1', APPROVED: '2', REJECTED: '3' };
@@ -27,28 +37,34 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
             const script = runtime.getCurrentScript();
             const user = runtime.getCurrentUser();
             const userId = String(user.id);
-            // Final approvers = employees in FINAL_APPROVERS, plus the script parameter if set
+
             const paramApprover = String(script.getParameter({ name: PARAM_FINAL_APPROVER }) || '');
             const isFinal = FINAL_APPROVERS.includes(userId) || (paramApprover !== '' && userId === paramApprover);
+            const isViewOnly = VIEW_ONLY.includes(userId) && !isFinal;
             const isAdmin = String(user.role) === ADMIN_ROLE;
-            const seeAll = isFinal || isAdmin;
+            const seeAll = isFinal || isViewOnly || isAdmin;
 
-            // ---- Approve / Reject button (POST) ----
+            // ---- Bulk Approve / Reject (POST) ----
             if (req.method === 'POST') {
-                const result = processBill(req.parameters.bpaction, req.parameters.billid, userId, isFinal);
+                const result = processBills(req.parameters.bpaction, req.parameters.billids, userId, isFinal, isViewOnly);
                 redirect.toSuitelet({
                     scriptId: script.id,
                     deploymentId: script.deploymentId,
-                    parameters: { msg: result.msg, msgtype: result.type }
+                    parameters: {
+                        msg: result.msg, msgtype: result.type,
+                        from: req.parameters.from || '', to: req.parameters.to || ''
+                    }
                 });
                 return;
             }
 
             // ---- Page (GET) ----
             const slUrl = url.resolveScript({ scriptId: script.id, deploymentId: script.deploymentId });
-            const bills = getBills(userId, seeAll);
+            const from = req.parameters.from || '';   // yyyy-mm-dd from the date pickers
+            const to = req.parameters.to || '';
+            const bills = getBills(userId, seeAll, from, to);
             context.response.write(renderPage({
-                bills, isFinal, isAdmin, userId, slUrl,
+                bills, isFinal, isViewOnly, isAdmin, userId, slUrl, from, to,
                 userName: user.name,
                 msg: req.parameters.msg,
                 msgType: req.parameters.msgtype
@@ -58,10 +74,25 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
         // ==================================================================
         // Data
         // ==================================================================
-        const getBills = (userId, seeAll) => {
+
+        // yyyy-mm-dd (from the date picker) -> the account's date format, for search filters
+        const toNsDate = (iso) => {
+            if (!iso) return '';
+            const p = iso.split('-');
+            if (p.length !== 3) return '';
+            return format.format({ value: new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])), type: format.Type.DATE });
+        };
+
+        const getBills = (userId, seeAll, from, to) => {
             const filters = [['mainline', 'is', 'T'], 'AND', ['approvalstatus', 'anyof', STATUS.PENDING]];
-            // Everyone except final approver / admin: only bills where they are the validator
+            // Everyone except final approver / view only / admin: only bills where they are the validator
             if (!seeAll) filters.push('AND', [FLD_VALIDATOR, 'anyof', userId]);
+
+            // Bill date filter
+            const f = toNsDate(from), t = toNsDate(to);
+            if (f && t) filters.push('AND', ['trandate', 'within', f, t]);
+            else if (f) filters.push('AND', ['trandate', 'onorafter', f]);
+            else if (t) filters.push('AND', ['trandate', 'onorbefore', t]);
 
             const bills = [];
             search.create({
@@ -69,7 +100,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
                 filters,
                 columns: [
                     search.createColumn({ name: 'trandate', sort: search.Sort.DESC }),
-                    'entity', 'tranid', 'amount', FLD_VALIDATOR, FLD_VALIDATOR_APPR, 'approvalstatus'
+                    'entity', 'tranid', 'amount', FLD_NOTE, FLD_DOC_URL,
+                    FLD_VALIDATOR, FLD_VALIDATOR_APPR, 'approvalstatus'
                 ]
             }).run().each((r) => {
                 const v = r.getValue(FLD_VALIDATOR_APPR);
@@ -79,66 +111,122 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
                     vendor: r.getText('entity') || '',
                     amount: Math.abs(Number(r.getValue('amount')) || 0),
                     date: r.getValue('trandate') || '',
+                    note: r.getValue(FLD_NOTE) || '',
+                    docUrl: pickUrl(r.getValue(FLD_DOC_URL)),
                     validator: r.getText(FLD_VALIDATOR) || '',
                     validatorId: String(r.getValue(FLD_VALIDATOR) || ''),
                     validated: v === true || v === 'T',
                     status: r.getText('approvalstatus') || 'Pending Approval',
-                    link: url.resolveRecord({ recordType: record.Type.VENDOR_BILL, recordId: r.id })
+                    link: url.resolveRecord({ recordType: record.Type.VENDOR_BILL, recordId: r.id }),
+                    lineDesc: ''
                 });
                 return true;
             });
+
+            addLineDescriptions(bills);
             return bills;
         };
 
-        // ==================================================================
-        // Approve / Reject one bill
-        // ==================================================================
-        const processBill = (action, id, userId, isFinal) => {
-            if (!id || (action !== 'approve' && action !== 'reject')) {
-                return { msg: 'Nothing was changed. The request was missing the bill or the action.', type: 'warning' };
+        // Item line descriptions, shown in the bill's own row
+        const addLineDescriptions = (bills) => {
+            if (!bills.length) return;
+
+            const byId = {};
+            bills.forEach(b => { byId[b.id] = b; });
+
+            const filters = [
+                ['internalid', 'anyof', Object.keys(byId)], 'AND',
+                ['mainline', 'is', 'F'], 'AND',
+                ['taxline', 'is', 'F'], 'AND',
+                ['shipping', 'is', 'F']
+            ];
+
+            const load = (descCol) => {
+                const columns = ['internalid', 'item'];
+                if (descCol) columns.push(descCol);
+                const parts = {};
+
+                search.create({ type: search.Type.VENDOR_BILL, filters, columns }).run().each((r) => {
+                    const id = r.getValue({ name: 'internalid' });
+                    if (!byId[id]) return true;
+                    const text = (descCol ? r.getValue(descCol) : '') || r.getText('item') || '';
+                    if (!text) return true;
+                    if (!parts[id]) parts[id] = [];
+                    if (parts[id].indexOf(text) === -1) parts[id].push(text);
+                    return true;
+                });
+
+                Object.keys(parts).forEach(id => { byId[id].lineDesc = parts[id].join(' | '); });
+            };
+
+            // Try each description column, then fall back to item names only
+            const tries = LINE_DESC_COLUMNS.concat([null]);
+            for (let i = 0; i < tries.length; i++) {
+                try {
+                    load(tries[i]);
+                    return;
+                } catch (e) {
+                    log.audit({ title: 'Line description column not usable: ' + tries[i], details: e.message });
+                }
             }
+        };
+
+        // ==================================================================
+        // Bulk Approve / Reject
+        // ==================================================================
+        const processBills = (action, billids, userId, isFinal, isViewOnly) => {
+            if (isViewOnly) return { msg: 'You have view only access to this portal.', type: 'warning' };
+            if (action !== 'approve' && action !== 'reject') {
+                return { msg: 'Nothing was changed. No action was received.', type: 'warning' };
+            }
+
+            const ids = String(billids || '').split(',').map(s => s.trim()).filter(Boolean);
+            if (!ids.length) return { msg: 'Please tick at least one bill.', type: 'warning' };
+
             const approve = action === 'approve';
-            try {
-                const bill = search.lookupFields({
-                    type: search.Type.VENDOR_BILL, id,
-                    columns: ['tranid', FLD_VALIDATOR, FLD_VALIDATOR_APPR, 'approvalstatus']
-                });
-                const tranId = bill.tranid || id;
-                const validatorId = bill[FLD_VALIDATOR]?.[0]?.value;
-                const status = bill.approvalstatus?.[0]?.value;
+            let done = 0, skipped = 0, errors = 0;
 
-                if (status !== STATUS.PENDING) {
-                    return { msg: `Bill ${tranId} is no longer pending, so it was not changed.`, type: 'warning' };
-                }
+            ids.forEach((id) => {
+                try {
+                    const bill = search.lookupFields({
+                        type: search.Type.VENDOR_BILL, id,
+                        columns: [FLD_VALIDATOR, FLD_VALIDATOR_APPR, 'approvalstatus']
+                    });
+                    const validatorId = bill[FLD_VALIDATOR]?.[0]?.value;
+                    const status = bill.approvalstatus?.[0]?.value;
 
-                let values;
-                if (isFinal) {
-                    // Final approver: direct master decision, validator not required
-                    values = { approvalstatus: approve ? STATUS.APPROVED : STATUS.REJECTED };
-                } else if (String(validatorId) === userId) {
-                    if (bill[FLD_VALIDATOR_APPR] === true) {
-                        return { msg: `Bill ${tranId} is already validated and waiting for the final approver.`, type: 'warning' };
+                    if (status !== STATUS.PENDING) { skipped++; return; }
+
+                    let values;
+                    if (isFinal) {
+                        // Final approver: direct master decision, validator not required
+                        values = { approvalstatus: approve ? STATUS.APPROVED : STATUS.REJECTED };
+                    } else if (String(validatorId) === userId && bill[FLD_VALIDATOR_APPR] !== true) {
+                        // Validator: approve = tick checkbox (email script takes it to the final approver)
+                        values = approve ? { [FLD_VALIDATOR_APPR]: true } : { approvalstatus: STATUS.REJECTED };
+                    } else {
+                        skipped++;
+                        return;
                     }
-                    // Validator: approve = tick checkbox (email script takes it to final approver)
-                    values = approve ? { [FLD_VALIDATOR_APPR]: true } : { approvalstatus: STATUS.REJECTED };
-                } else {
-                    return { msg: `You are not the validator for bill ${tranId}.`, type: 'warning' };
+
+                    record.submitFields({
+                        type: record.Type.VENDOR_BILL, id, values,
+                        options: { enableSourcing: false, ignoreMandatoryFields: true }
+                    });
+                    done++;
+                } catch (e) {
+                    errors++;
+                    log.error({ title: 'Bill ' + id, details: e });
                 }
+            });
 
-                record.submitFields({
-                    type: record.Type.VENDOR_BILL, id, values,
-                    options: { enableSourcing: false, ignoreMandatoryFields: true }
-                });
+            const what = done === 1 ? 'bill' : 'bills';
+            let msg = `${approve ? 'Approved' : 'Rejected'} ${done} ${what}.`;
+            if (approve && !isFinal && done) msg += ' Sent to the final approver.';
+            if (skipped) msg += ` ${skipped} skipped (no longer pending or not yours).`;
+            if (errors) msg += ` ${errors} failed, see the script log.`;
 
-                let msg;
-                if (!approve) msg = `Bill ${tranId} rejected.`;
-                else if (isFinal) msg = `Bill ${tranId} approved.`;
-                else msg = `Bill ${tranId} approved and sent to the final approver.`;
-                return { msg, type: 'success' };
-            } catch (e) {
-                log.error({ title: 'Bill ' + id, details: e });
-                return { msg: `Bill ${id} could not be updated: ${e.message}`, type: 'error' };
-            }
+            return { msg, type: errors ? 'error' : (done ? 'success' : 'warning') };
         };
 
         // ==================================================================
@@ -148,41 +236,46 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+        // The field may hold a plain URL or a hyperlink; keep only an http(s) address
+        const pickUrl = (v) => {
+            const m = String(v == null ? '' : v).match(/https?:\/\/[^\s"'<>]+/);
+            return m ? m[0] : '';
+        };
+
         const money = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        const renderPage = ({ bills, isFinal, isAdmin, userId, slUrl, userName, msg, msgType }) => {
+        const renderPage = ({ bills, isFinal, isViewOnly, isAdmin, userId, slUrl, from, to, userName, msg, msgType }) => {
             const cntValidator = bills.filter(b => !b.validated).length;
             const cntFinal = bills.filter(b => b.validated).length;
-            const defaultFilter = (isFinal || isAdmin) ? 'all' : 'validator';
-            const roleLabel = isFinal ? 'Final approver' : isAdmin ? 'Administrator' : 'Validator';
+            const defaultFilter = (isFinal || isViewOnly || isAdmin) ? 'all' : 'validator';
+            const roleLabel = isFinal ? 'Final approver' : isViewOnly ? 'View only' : isAdmin ? 'Administrator' : 'Validator';
 
             const rows = bills.map((b) => {
                 const stage = b.validated ? 'final' : 'validator';
-                // Final approver: any stage. Others: only their own bills not yet validated.
-                const canAct = isFinal || (b.validatorId === userId && !b.validated);
+                const canAct = !isViewOnly && (isFinal || (b.validatorId === userId && !b.validated));
+                const why = isViewOnly ? 'View only access'
+                    : b.validated ? 'Waiting for the final approver'
+                    : 'You are not the validator';
 
-                const actions = canAct
-                    ? `<form method="POST" action="${esc(slUrl)}" class="act">
-                         <input type="hidden" name="billid" value="${esc(b.id)}">
-                         <button type="submit" name="bpaction" value="approve" class="btn approve"
-                                 data-confirm="Approve bill ${esc(b.tranId)}?"
-                                 onclick="return confirm(this.getAttribute('data-confirm'))">Approve</button>
-                         <button type="submit" name="bpaction" value="reject" class="btn reject"
-                                 data-confirm="Reject bill ${esc(b.tranId)}?"
-                                 onclick="return confirm(this.getAttribute('data-confirm'))">Reject</button>
-                       </form>`
-                    : `<span class="waiting">${b.validated ? 'With final approver' : 'Waiting for validator'}</span>`;
+                const pick = canAct
+                    ? `<input type="checkbox" class="pick" value="${esc(b.id)}" aria-label="Select bill ${esc(b.tranId)}">`
+                    : `<span class="muted lock" title="${esc(why)}">&mdash;</span>`;
 
                 return `
-                <tr data-stage="${stage}" data-search="${esc((b.tranId + ' ' + b.vendor + ' ' + b.validator).toLowerCase())}">
+                <tr data-stage="${stage}" data-search="${esc((b.tranId + ' ' + b.vendor + ' ' + b.validator + ' ' + b.note + ' ' + b.lineDesc).toLowerCase())}">
+                  <td class="pickcell">${pick}</td>
                   <td><a class="bill" href="${esc(b.link)}" target="_blank" rel="noopener">${esc(b.tranId)}</a></td>
                   <td>${esc(b.vendor)}</td>
+                  <td class="wide" title="${esc(b.note)}"><span class="clamp">${esc(b.note) || '<span class="muted">&mdash;</span>'}</span></td>
+                  <td class="wide" title="${esc(b.lineDesc)}"><span class="clamp">${esc(b.lineDesc) || '<span class="muted">&mdash;</span>'}</span></td>
+                  <td>${b.docUrl
+                        ? `<a class="doc" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Open</a>`
+                        : '<span class="muted">&mdash;</span>'}</td>
                   <td class="date">${esc(b.date)}</td>
                   <td class="num">${money(b.amount)}</td>
-                  <td>${esc(b.validator) || '<span class="muted">Not assigned</span>'}</td>
+                  <td class="nowrap">${esc(b.validator) || '<span class="muted">Not assigned</span>'}</td>
                   <td>${b.validated ? '<span class="tag yes">Yes</span>' : '<span class="tag no">No</span>'}</td>
                   <td><span class="tag pending">${esc(b.status)}</span></td>
-                  <td class="actions">${actions}</td>
                 </tr>`;
             }).join('');
 
@@ -192,6 +285,13 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
                      <button type="button" class="close" aria-label="Dismiss" onclick="this.parentNode.remove()">&times;</button>
                    </div>`
                 : '';
+
+            const bulkBar = isViewOnly ? '' : `
+      <div class="bulk">
+        <span class="picked" id="picked">No bills selected</span>
+        <button type="button" class="btn approve" id="bulkApprove" disabled>Approve selected</button>
+        <button type="button" class="btn reject" id="bulkReject" disabled>Reject selected</button>
+      </div>`;
 
             return `<!DOCTYPE html>
 <html lang="en">
@@ -230,11 +330,30 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
   .count[aria-pressed="true"] .l{color:var(--ink)}
 
   .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
-  .search{width:320px;max-width:100%;padding:8px 12px;border:1px solid var(--rule);border-radius:6px;font:inherit;background:var(--white)}
-  .shown{color:var(--muted)}
+  .tools{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .search{width:260px;max-width:100%;padding:8px 12px;border:1px solid var(--rule);border-radius:6px;font:inherit;background:var(--white)}
+  .dates{display:flex;align-items:center;gap:8px;margin:0;flex-wrap:wrap}
+  .dates label{color:var(--muted)}
+  .dates input[type=date]{padding:7px 10px;border:1px solid var(--rule);border-radius:6px;font:inherit;background:var(--white);color:inherit}
+  .dates .to{color:var(--muted)}
+  .clear{color:var(--muted);text-decoration:none;font-size:13px}
+  .clear:hover{text-decoration:underline}
+
+  .bulk{display:flex;align-items:center;gap:10px}
+  .picked{color:var(--muted)}
+  .btn{border:1px solid transparent;border-radius:6px;padding:7px 16px;font:inherit;font-weight:500;cursor:pointer}
+  .btn.plain{background:var(--white);border-color:var(--rule);color:var(--ink)}
+  .btn.plain:hover{background:#F0F3F6}
+  .btn.approve{background:var(--approve);color:#fff}
+  .btn.approve:hover{background:#18643F}
+  .btn.reject{background:var(--white);color:var(--reject);border-color:#E3B3AF}
+  .btn.reject:hover{background:var(--reject-bg)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.approve:disabled:hover{background:var(--approve)}
+  .btn.reject:disabled:hover{background:var(--white)}
 
   .table-box{background:var(--white);border:1px solid var(--rule);border-radius:8px;overflow-x:auto}
-  table{width:100%;border-collapse:collapse;min-width:960px}
+  table{width:100%;border-collapse:collapse;min-width:1240px}
   th{text-align:left;font-weight:500;color:var(--muted);font-size:13px;padding:10px 14px;border-bottom:1px solid var(--rule);background:#FAFBFC;white-space:nowrap}
   td{padding:11px 14px;border-bottom:1px solid #EEF1F4;vertical-align:middle}
   tbody tr:last-child td{border-bottom:0}
@@ -243,22 +362,23 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
   th.num{text-align:right}
   .date{white-space:nowrap}
   .muted{color:var(--muted)}
-  a.bill{color:var(--focus);font-weight:500;text-decoration:none}
+  .lock{cursor:help}
+  .pickcell{width:40px;text-align:center}
+  input[type=checkbox]{width:16px;height:16px;cursor:pointer}
+  td.wide{max-width:280px}
+  .clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+  .nowrap{white-space:nowrap}
+  a.bill{color:var(--focus);font-weight:500;text-decoration:none;white-space:nowrap}
   a.bill:hover{text-decoration:underline}
+  a.doc{display:inline-block;padding:2px 10px;border:1px solid var(--rule);border-radius:4px;
+        color:var(--focus);text-decoration:none;font-size:13px;white-space:nowrap}
+  a.doc:hover{background:#F0F3F6}
 
   .tag{display:inline-block;padding:1px 8px;border-radius:4px;font-size:12px;font-weight:500;white-space:nowrap}
   .tag.yes{background:var(--approve-bg);color:var(--approve)}
   .tag.no{background:#EEF1F4;color:var(--muted)}
   .tag.pending{background:var(--pending-bg);color:var(--pending)}
-
-  .actions{white-space:nowrap}
-  .act{display:flex;gap:6px;margin:0}
-  .btn{border:1px solid transparent;border-radius:6px;padding:5px 14px;font:inherit;font-weight:500;cursor:pointer}
-  .btn.approve{background:var(--approve);color:#fff}
-  .btn.approve:hover{background:#18643F}
-  .btn.reject{background:var(--white);color:var(--reject);border-color:#E3B3AF}
-  .btn.reject:hover{background:var(--reject-bg)}
-  .waiting{color:var(--muted);font-size:13px}
 
   .empty{padding:48px 20px;text-align:center;color:var(--muted)}
 
@@ -306,22 +426,41 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
   </div>
 
   <div class="toolbar">
-    <input type="search" class="search" id="q" placeholder="Search bill, vendor or validator" aria-label="Search bills">
-    <span class="shown" id="shown"></span>
+    <div class="tools">
+      <input type="search" class="search" id="q" placeholder="Search bill, vendor, note or description" aria-label="Search bills">
+      <div class="dates">
+        <label for="from">Bill date</label>
+        <input type="date" id="from" value="${esc(from)}" aria-label="From date">
+        <span class="to">to</span>
+        <input type="date" id="to" value="${esc(to)}" aria-label="To date">
+        <button type="button" class="btn plain" id="applyDates">Apply</button>
+        ${(from || to) ? `<a class="clear" href="${esc(slUrl)}">Clear</a>` : ''}
+      </div>
+    </div>
+    ${bulkBar}
   </div>
 
-  <div class="table-box">
-    <table>
-      <thead>
-        <tr>
-          <th>Bill</th><th>Vendor</th><th>Date</th><th class="num">Amount</th>
-          <th>Validator</th><th>Validator approved?</th><th>Approval status</th><th>Action</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div class="empty" id="empty" hidden>No bills match this view.</div>
-  </div>
+  <form method="POST" action="${esc(slUrl)}" id="bulkForm">
+    <input type="hidden" name="bpaction" id="bpaction" value="">
+    <input type="hidden" name="billids" id="billids" value="">
+    <input type="hidden" name="from" value="${esc(from)}">
+    <input type="hidden" name="to" value="${esc(to)}">
+
+    <div class="table-box">
+      <table>
+        <thead>
+          <tr>
+            <th class="pickcell"><input type="checkbox" id="pickAll" aria-label="Select all bills"></th>
+            <th>Bill</th><th>Vendor</th><th>Note to vendor</th><th>Item description</th>
+            <th>SharePoint document</th><th>Date</th><th class="num">Amount</th>
+            <th>Validator</th><th>Validator approved?</th><th>Approval status</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="empty" id="empty" hidden>No bills match this view.</div>
+    </div>
+  </form>
 
 </div>
 
@@ -331,8 +470,29 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
   var tabs = Array.prototype.slice.call(document.querySelectorAll('.count'));
   var q = document.getElementById('q');
   var empty = document.getElementById('empty');
-  var shown = document.getElementById('shown');
+  var pickAll = document.getElementById('pickAll');
+  var picked = document.getElementById('picked');
   var filter = '${defaultFilter}';
+
+  function boxes(visibleOnly) {
+    return rows.filter(function (r) { return !visibleOnly || !r.hidden; })
+               .map(function (r) { return r.querySelector('.pick'); })
+               .filter(Boolean);
+  }
+
+  function chosen() {
+    return boxes(true).filter(function (c) { return c.checked; }).map(function (c) { return c.value; });
+  }
+
+  function refresh() {
+    if (!picked) return;
+    var n = chosen().length;
+    picked.textContent = n ? n + (n === 1 ? ' bill selected' : ' bills selected') : 'No bills selected';
+    document.getElementById('bulkApprove').disabled = !n;
+    document.getElementById('bulkReject').disabled = !n;
+    var all = boxes(true);
+    pickAll.checked = all.length > 0 && n === all.length;
+  }
 
   function apply() {
     var term = q.value.trim().toLowerCase(), n = 0;
@@ -340,17 +500,61 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url'],
       var ok = (filter === 'all' || r.getAttribute('data-stage') === filter) &&
                (!term || r.getAttribute('data-search').indexOf(term) > -1);
       r.hidden = !ok;
+      if (!ok) { var c = r.querySelector('.pick'); if (c) c.checked = false; }
       if (ok) n++;
     });
     tabs.forEach(function (t) { t.setAttribute('aria-pressed', t.getAttribute('data-filter') === filter); });
     empty.hidden = n > 0;
-    shown.textContent = n + (n === 1 ? ' bill' : ' bills') + ' shown';
+    refresh();
   }
 
   tabs.forEach(function (t) {
     t.addEventListener('click', function () { filter = t.getAttribute('data-filter'); apply(); });
   });
   q.addEventListener('input', apply);
+
+  if (pickAll) {
+    pickAll.addEventListener('change', function () {
+      boxes(true).forEach(function (c) { c.checked = pickAll.checked; });
+      refresh();
+    });
+  }
+  rows.forEach(function (r) {
+    var c = r.querySelector('.pick');
+    if (c) c.addEventListener('change', refresh);
+  });
+
+  // Bulk approve / reject
+  function submit(action) {
+    var ids = chosen();
+    if (!ids.length) return;
+    var word = action === 'approve' ? 'Approve' : 'Reject';
+    if (!confirm(word + ' ' + ids.length + (ids.length === 1 ? ' bill?' : ' bills?'))) return;
+    document.getElementById('bpaction').value = action;
+    document.getElementById('billids').value = ids.join(',');
+    document.getElementById('bulkForm').submit();
+  }
+  if (picked) {
+    document.getElementById('bulkApprove').addEventListener('click', function () { submit('approve'); });
+    document.getElementById('bulkReject').addEventListener('click', function () { submit('reject'); });
+  }
+
+  // Date filter: reload the Suitelet with from / to, keeping the script and deploy params
+  var SL_URL = '${slUrl}';
+  var fromEl = document.getElementById('from');
+  var toEl = document.getElementById('to');
+
+  function applyDates() {
+    var u = SL_URL;
+    if (fromEl.value) u += '&from=' + encodeURIComponent(fromEl.value);
+    if (toEl.value) u += '&to=' + encodeURIComponent(toEl.value);
+    window.location.href = u;
+  }
+  document.getElementById('applyDates').addEventListener('click', applyDates);
+  [fromEl, toEl].forEach(function (el) {
+    el.addEventListener('keydown', function (e) { if (e.key === 'Enter') applyDates(); });
+  });
+
   apply();
 })();
 </script>
