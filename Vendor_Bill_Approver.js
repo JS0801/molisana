@@ -3,15 +3,16 @@
  * @NScriptType Suitelet
  *
  * Vendor Bill Approval Portal (single file, custom HTML page)
+ * - Opened ONLY from the Molisana employee portal (signed portal token, same as the other tools). Direct access -> redirected to the portal login.
+ * - Identity comes from the token (empid), not from a NetSuite login.
  * - Validator (all users): sees only pending bills where custbody_vendbill_validator = current user.
  *   Approve ticks custbody_vendbill_validator_check, bill stays Pending for the final approver.
  * - Final approvers (employees -5, 8, 12138): see ALL pending bills. Approve / Reject at any stage is final.
  * - View only (employees 12412, 11018, 11428): see ALL pending bills, no Approve / Reject.
- * - Administrator role: sees ALL pending bills. Can act only on bills where they are the validator.
  * - Bills are selected with checkboxes and approved / rejected in bulk from the buttons above the list.
  */
-define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format'],
-    (search, record, runtime, redirect, url, format) => {
+define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
+    (search, record, runtime, format, crypto) => {
 
         // ---- Field IDs (change here if yours differ) ----
         const FLD_VALIDATOR = 'custbody_vendbill_validator';
@@ -23,7 +24,13 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format'],
         // ---- Access ----
         const FINAL_APPROVERS = ['-5', '8', '12138'];                      // full rights: approve / reject any bill
         const VIEW_ONLY = ['12412', '11018', '11428'];                     // see every bill, cannot approve / reject
-        const ADMIN_ROLE = '3';                                            // Administrator role ID
+
+        // ---- Portal gate ----
+        const PARAM_SECRET = 'custscript_portal_secret';                   // same value as on the portal script
+        const TOKEN_TTL_MS = 30 * 60 * 1000;                               // 30 minutes, same as the portal
+        const LOGIN_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
+        const SELF_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=3597&deploy=1&compid=4975346&ns-at=AAEJ7tMQI72usOcKnZXjZTEWK6RnSYmy-rFCR124tEQ5npv7o2k';
+        const NS_BILL_BASE = 'https://4975346.app.netsuite.com/app/accounting/transactions/vendbill.nl?id=';
 
         // Line description column. The first one that works in this account is used.
         const LINE_DESC_COLUMNS = ['description', 'memo'];
@@ -35,40 +42,82 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format'],
         const onRequest = (context) => {
             const req = context.request;
             const script = runtime.getCurrentScript();
-            const user = runtime.getCurrentUser();
-            const userId = String(user.id);
 
+            // ---- Gate: valid signed token from the portal, else back to the login page ----
+            const empid = String(req.parameters.empid || '');
+            const ts = String(req.parameters.ts || '');
+            const sig = String(req.parameters.sig || '');
+            const secret = String(script.getParameter({ name: PARAM_SECRET }) || '');
+            if (!verifyToken(secret, empid, ts, sig)) {
+                denied(context, req.method === 'POST' ? 'Session expired. Please log in again.' : 'Login Required');
+                return;
+            }
+
+            const userId = empid;
             const paramApprover = String(script.getParameter({ name: PARAM_FINAL_APPROVER }) || '');
             const isFinal = FINAL_APPROVERS.includes(userId) || (paramApprover !== '' && userId === paramApprover);
             const isViewOnly = VIEW_ONLY.includes(userId) && !isFinal;
-            const isAdmin = String(user.role) === ADMIN_ROLE;
-            const seeAll = isFinal || isViewOnly || isAdmin;
+            const seeAll = isFinal || isViewOnly;
+
+            // Token travels on every link / form so the page keeps working (and stays gated)
+            const slUrl = SELF_URL + '&empid=' + encodeURIComponent(empid) + '&ts=' + encodeURIComponent(ts) + '&sig=' + encodeURIComponent(sig);
 
             // ---- Bulk Approve / Reject (POST) ----
             if (req.method === 'POST') {
                 const result = processBills(req.parameters.bpaction, req.parameters.billids, userId, isFinal, isViewOnly);
-                redirect.toSuitelet({
-                    scriptId: script.id,
-                    deploymentId: script.deploymentId,
-                    parameters: {
-                        msg: result.msg, msgtype: result.type,
-                        from: req.parameters.from || '', to: req.parameters.to || ''
-                    }
-                });
+                redirectTo(context, slUrl
+                    + '&msg=' + encodeURIComponent(result.msg) + '&msgtype=' + encodeURIComponent(result.type)
+                    + '&from=' + encodeURIComponent(req.parameters.from || '') + '&to=' + encodeURIComponent(req.parameters.to || ''));
                 return;
             }
 
             // ---- Page (GET) ----
-            const slUrl = url.resolveScript({ scriptId: script.id, deploymentId: script.deploymentId });
             const from = req.parameters.from || '';   // yyyy-mm-dd from the date pickers
             const to = req.parameters.to || '';
             const bills = getBills(userId, seeAll, from, to);
             context.response.write(renderPage({
-                bills, isFinal, isViewOnly, isAdmin, userId, slUrl, from, to,
-                userName: user.name,
+                bills, isFinal, isViewOnly, userId, slUrl, from, to,
+                userName: getUserName(userId),
                 msg: req.parameters.msg,
                 msgType: req.parameters.msgtype
             }));
+        };
+
+        // ==================================================================
+        // Portal gate helpers
+        // ==================================================================
+        const signToken = (secret, empid, ts) => {
+            const h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
+            h.update({ input: empid + '|' + ts + '|' + secret });
+            return h.digest({ outputEncoding: crypto.Encoding.HEX });
+        };
+
+        const verifyToken = (secret, empid, ts, sig) => {
+            if (!secret || !empid || !ts || !sig) return false;      // no secret configured = deny
+            const age = Math.abs(Date.now() - parseInt(ts, 10));
+            if (!(age <= TOKEN_TTL_MS)) return false;                // also catches NaN
+            try { return signToken(secret, empid, ts) === sig; }
+            catch (e) { log.error({ title: 'verifyToken', details: e }); return false; }
+        };
+
+        // Same "Login Required" bounce as the other portal tools
+        const denied = (context, message) => {
+            context.response.write(
+                '<html><head>' +
+                '<script>setTimeout(function(){ window.location.href = ' + JSON.stringify(LOGIN_URL) + '; }, 1200);</script>' +
+                '<style>body{display:flex;align-items:center;justify-content:center;height:100vh;font-family:Arial;background:#0b0b0b;color:#fff}.message{font-size:20px;font-weight:700}</style>' +
+                '</head><body><div class="message">' + esc(message) + '</div></body></html>'
+            );
+        };
+
+        const redirectTo = (context, target) => {
+            context.response.write('<html><body><script>window.location.href=' + JSON.stringify(target) + ';</script></body></html>');
+        };
+
+        const getUserName = (id) => {
+            try {
+                return search.lookupFields({ type: search.Type.EMPLOYEE, id, columns: ['entityid'] }).entityid || '';
+            } catch (e) { return ''; }
         };
 
         // ==================================================================
@@ -117,7 +166,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format'],
                     validatorId: String(r.getValue(FLD_VALIDATOR) || ''),
                     validated: v === true || v === 'T',
                     status: r.getText('approvalstatus') || 'Pending Approval',
-                    link: url.resolveRecord({ recordType: record.Type.VENDOR_BILL, recordId: r.id }),
+                    link: NS_BILL_BASE + r.id,
                     lineDesc: ''
                 });
                 return true;
@@ -244,11 +293,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format'],
 
         const money = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        const renderPage = ({ bills, isFinal, isViewOnly, isAdmin, userId, slUrl, from, to, userName, msg, msgType }) => {
+        const renderPage = ({ bills, isFinal, isViewOnly, userId, slUrl, from, to, userName, msg, msgType }) => {
             const cntValidator = bills.filter(b => !b.validated).length;
             const cntFinal = bills.filter(b => b.validated).length;
-            const defaultFilter = (isFinal || isViewOnly || isAdmin) ? 'all' : 'validator';
-            const roleLabel = isFinal ? 'Final approver' : isViewOnly ? 'View only' : isAdmin ? 'Administrator' : 'Validator';
+            const defaultFilter = (isFinal || isViewOnly) ? 'all' : 'validator';
+            const roleLabel = isFinal ? 'Final approver' : isViewOnly ? 'View only' : 'Validator';
 
             const rows = bills.map((b) => {
                 const stage = b.validated ? 'final' : 'validator';
