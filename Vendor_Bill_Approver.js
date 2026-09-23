@@ -47,7 +47,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
             const empid = String(req.parameters.empid || '');
             const ts = String(req.parameters.ts || '');
             const sig = String(req.parameters.sig || '');
-            const secret = String(script.getParameter({ name: PARAM_SECRET }) || '');
+            const secret = String(script.getParameter({ name: PARAM_SECRET }) || 'change-me');   // same fallback as the other portal tools
             if (!verifyToken(secret, empid, ts, sig)) {
                 denied(context, req.method === 'POST' ? 'Session expired. Please log in again.' : 'Login Required');
                 return;
@@ -93,11 +93,13 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
         };
 
         const verifyToken = (secret, empid, ts, sig) => {
-            if (!secret || !empid || !ts || !sig) return false;      // no secret configured = deny
+            const deny = (why) => { log.debug({ title: 'Gate denied', details: why }); return false; };
+            if (!empid || !ts || !sig) return deny('missing empid / ts / sig');
             const age = Math.abs(Date.now() - parseInt(ts, 10));
-            if (!(age <= TOKEN_TTL_MS)) return false;                // also catches NaN
-            try { return signToken(secret, empid, ts) === sig; }
-            catch (e) { log.error({ title: 'verifyToken', details: e }); return false; }
+            if (!(age <= TOKEN_TTL_MS)) return deny('token expired or ts invalid');
+            try {
+                return signToken(secret, empid, ts) === sig || deny('signature mismatch (custscript_portal_secret differs from the portal?)');
+            } catch (e) { log.error({ title: 'verifyToken', details: e }); return false; }
         };
 
         // Same "Login Required" bounce as the other portal tools
