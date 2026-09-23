@@ -30,6 +30,22 @@ function (ui, search, log, crypto, record, runtime) {
       try { return sign(empid, ts) === sig; } catch (e) { log.error('verify token', e); return false; }
     }
 
+    // Vendor Bill Approval tile (same shared token as the other tools)
+    const VB_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=3597&deploy=1&compid=4975346&ns-at=AAEJ7tMQI72usOcKnZXjZTEWK6RnSYmy-rFCR124tEQ5npv7o2k';
+    function vendorBillUrl(empid, ts, sig) {
+      return VB_URL + '&empid=' + encodeURIComponent(empid) + '&ts=' + ts + '&sig=' + sig;
+    }
+    const svgVendorBill = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 8h8M8 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M9 16.5l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    function vendorBillTile(empid, ts, sig) {
+      return `
+        <div class="tile">
+          <a class="tile-link" href="${vendorBillUrl(empid, ts, sig)}" target="_blank" rel="noopener">
+            <div class="tile-hero bill">${svgVendorBill}</div>
+            <div class="tile-body"><p class="tile-title">Vendor Bill Approval</p><p class="tile-desc">Review, approve or reject pending vendor bills.</p></div>
+          </a>
+        </div>`;
+    }
+
     // --- Base CSS/HTML (needed before any branch that appends) ---
     let html = `
       <style>
@@ -71,6 +87,7 @@ function (ui, search, log, crypto, record, runtime) {
         .tile-hero.price{ background:linear-gradient(135deg,#fee2e2 0%,#fff1f2 100%); }
         .tile-hero.reorder{ background:linear-gradient(135deg,#dcfce7 0%,#f0fdf4 100%); }
         .tile-hero.po{ background:linear-gradient(135deg,#ede9fe 0%,#f5f3ff 100%); }
+        .tile-hero.bill{ background:linear-gradient(135deg,#ffedd5 0%,#fff7ed 100%); }
         .tile-hero.profile{ background:linear-gradient(135deg,#fef9c3 0%,#fffbeb 100%); }
         .tile-hero svg{ width:84px; height:84px; color:#0b5cff; }
         .tile-body{ padding:14px 16px 16px; }
@@ -159,13 +176,6 @@ function (ui, search, log, crypto, record, runtime) {
             <div class="tile-body"><p class="tile-title">Planned PO Approval</p><p class="tile-desc">Review and approve planned purchase orders.</p></div>
           </a>
         </div>`; }
-     if (hasAny([5,6])) { tilesHtml += `
-        <div class="tile">
-          <a class="tile-link" href="${urlPlannedPO}" target="_blank" rel="noopener">
-            <div class="tile-hero po">${svgPO}</div>
-            <div class="tile-body"><p class="tile-title">Planned PO Approval</p><p class="tile-desc">Review and approve planned purchase orders.</p></div>
-          </a>
-        </div>`; }
       if (has(7)) { tilesHtml += `
         <div class="tile">
           <a class="tile-link" href="${urlAvailTool}" target="_blank" rel="noopener">
@@ -173,6 +183,8 @@ function (ui, search, log, crypto, record, runtime) {
             <div class="tile-body"><p class="tile-title">Item Availability Tool</p><p class="tile-desc">Check available-to-promise, on-order, and commited status by item.</p></div>
           </a>
         </div>`; }
+
+      if (has(8)) tilesHtml += vendorBillTile(loggedInId, ts, sig);
 
       // Always show Update Profile
       tilesHtml += `
@@ -353,7 +365,7 @@ function (ui, search, log, crypto, record, runtime) {
     if (!isGET) {
       const email = (params.email || '').trim();
       const password = (params.password || '').trim();
-      log.debug('Login Attempt', { params, email, password });
+      log.debug('Login Attempt', { email });
 
       let isValid = false;
       let loggedInId = '';
@@ -437,6 +449,7 @@ function (ui, search, log, crypto, record, runtime) {
           <div class="tile"><a class="tile-link" href="${urlPlannedPO6}" target="_blank" rel="noopener"><div class="tile-hero po">${svgPO}</div><div class="tile-body"><p class="tile-title">Planned PO Approval (Basic)</p><p class="tile-desc">Review and approve planned purchase orders.</p></div></a></div>`;
         if (has(7)) tilesHtml += `
           <div class="tile"><a class="tile-link" href="${urlAvailTool}" target="_blank" rel="noopener"><div class="tile-hero po">${svgAvail}</div><div class="tile-body"><p class="tile-title">Item Availability Tool</p><p class="tile-desc">Check available-to-promise, on-order, and commited status by item.</p></div></a></div>`;
+        if (has(8)) tilesHtml += vendorBillTile(loggedInId, ts, sig);
         tilesHtml += `
           <div class="tile">
             <a class="tile-link" href="${currentUrl + joiner}view=profile&empid=${encodeURIComponent(loggedInId)}&ts=${ts}&sig=${sig}">
