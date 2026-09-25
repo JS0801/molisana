@@ -116,7 +116,9 @@ function getRestrictionMap() {
         sort: search.Sort.ASC
       }),
       search.createColumn({ name: 'type' }),
-      search.createColumn({ name: RESTRICTION_FIELD })
+      search.createColumn({ name: RESTRICTION_FIELD }),
+      search.createColumn({ name: 'islotitem' }),
+     search.createColumn({ name: 'isserialitem' }),
     ]
   });
 
@@ -135,10 +137,32 @@ function getRestrictionMap() {
         ? ''
         : normalizeRestriction(String(Number(rawValue)));
 
-      itemMap[id] = {
-        value: savedValue,
-        recordType: ITEM_RECORD_TYPES[itemType] || ''
-      };
+     var lotFlag = result.getValue({ name: 'islotitem' });
+var serialFlag = result.getValue({ name: 'isserialitem' });
+
+var isLot = lotFlag === true || lotFlag === 'T';
+var isSerial = serialFlag === true || serialFlag === 'T';
+
+var recordType = ITEM_RECORD_TYPES[itemType] || '';
+
+if (itemType === 'InvtPart') {
+  recordType = isLot
+    ? 'lotnumberedinventoryitem'
+    : isSerial
+      ? 'serializedinventoryitem'
+      : 'inventoryitem';
+} else if (itemType === 'Assembly') {
+  recordType = isLot
+    ? 'lotnumberedassemblyitem'
+    : isSerial
+      ? 'serializedassemblyitem'
+      : 'assemblyitem';
+}
+
+itemMap[id] = {
+  value: savedValue,
+  recordType: recordType
+};
     });
   });
 
