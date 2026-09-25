@@ -2,8 +2,8 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  */
-define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/format'],
-(search, record, runtime, url, file, log, format) => {
+define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/format', 'N/crypto', 'N/encode'],
+(search, record, runtime, url, file, log, format, crypto, encode) => {
     const TITLE = 'Inbound Shipment Receipt Validation';
     const QC_FIELD = 'custrecord_mi_qc_status';
     const PARAM = 'custscript_ibs_validation_search';
@@ -17,19 +17,91 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
     const yes = value => value === true || value === 'T';
     const number = value => Number(value || 0);
 
+
+    // Shared employee portal session. Validate before every page, list and save request.
+    const PORTAL_ACCESS_ID = '9';
+    const LOGIN_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
+    const EXTERNAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=3495&deploy=1&compid=4975346&ns-at=AAEJ7tMQ8nTb-9Qu7pCoGOC_hbiFEQOotVbdudkFYvolLxZPpMA';
+    const TOKEN_TTL_MS = 30 * 60 * 1000;
+
+    function authenticate(context) {
+        const req = context.request;
+        const p = req.parameters || {};
+        const user = runtime.getCurrentUser();
+        const userId = text(user.id);
+        // External URL markers always require a token, even for a privileged execution identity.
+        const external = /\.extforms\.netsuite\.com(?:[/:?]|$)/i.test(text(req.url)) ||
+            !!p['ns-at'] || !!p.compid || !/^[1-9]\d*$/.test(userId) ||
+            p.empid !== undefined || p.ts !== undefined || p.sig !== undefined;
+        if (!external) return {userId, external:false};
+        const secret = text(runtime.getCurrentScript().getParameter({name:'custscript_portal_secret'}));
+        if (!secret || secret === 'change-me') {
+            denyAccess(context, 'Portal login is not configured. Contact your administrator.', false);
+            return null;
+        }
+        const empid = text(p.empid), ts = text(p.ts), sig = text(p.sig);
+        const age = Date.now() - Number(ts);
+        let valid = /^[1-9]\d*$/.test(empid) && /^\d+$/.test(ts) && /^[a-f0-9]{64}$/i.test(sig) &&
+            Number.isSafeInteger(Number(ts)) && age >= 0 && age <= TOKEN_TTL_MS;
+        if (valid) {
+            const hash = crypto.createHash({algorithm:crypto.HashAlg.SHA256});
+            hash.update({input:empid + '|' + ts + '|' + secret});
+            valid = hash.digest({outputEncoding:encode.Encoding.HEX}) === sig;
+        }
+        if (!valid) {
+            denyAccess(context, 'Session expired or login required. Please log in again.', true);
+            return null;
+        }
+        let employee;
+        try {
+            employee = search.lookupFields({type:search.Type.EMPLOYEE, id:empid,
+                columns:['isinactive', 'custentity_external_portal_access']});
+        } catch (_) {
+            denyAccess(context, 'Your employee portal access is unavailable.', false);
+            return null;
+        }
+        const access = employee.custentity_external_portal_access;
+        const ids = Array.isArray(access) ? access.map(v => text(v && v.value !== undefined ? v.value : v)) : text(access).split(',').map(v => v.trim());
+        if (yes(employee.isinactive) || !ids.includes(PORTAL_ACCESS_ID)) {
+            denyAccess(context, 'You do not have access to Inbound Shipment Receipt Validation.', false);
+            return null;
+        }
+        return {userId:empid, external:true, ts, sig};
+    }
+
+    function denyAccess(context, message, loginRequired) {
+        if (context.request.parameters.action) {
+            writeJson(context, {ok:false, error:message, code:loginRequired ? 'LOGIN_REQUIRED' : 'ACCESS_DENIED', loginUrl:LOGIN_URL});
+            return;
+        }
+        context.response.setHeader({name:'Cache-Control',value:'no-store'});
+        context.response.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Portal access</title></head><body><h2>' + esc(message) +
+            '</h2><p><a href="' + esc(LOGIN_URL) + '">Go to portal login</a></p>' +
+            (loginRequired ? '<script>setTimeout(function(){window.location.href=' + JSON.stringify(LOGIN_URL) + ';},1200);</script>' : '') + '</body></html>');
+    }
+
+    function sessionEndpoint(session) {
+        if (!session.external) return url.resolveScript({scriptId:runtime.getCurrentScript().id, deploymentId:runtime.getCurrentScript().deploymentId});
+        return EXTERNAL_URL + '&empid=' + encodeURIComponent(session.userId) + '&ts=' + encodeURIComponent(session.ts) + '&sig=' + encodeURIComponent(session.sig);
+    }
+
     function onRequest(context) {
         const action = context.request.parameters.action || '';
         const started = Date.now();
         lineMaps = new WeakMap();
         try {
+            const session = authenticate(context);
+            if (!session) return;
+            context.response.setHeader({name:'Cache-Control',value:'no-store'});
+            context.response.setHeader({name:'Referrer-Policy',value:'no-referrer'});
             if (!action) {
-                context.response.write(buildPage());
+                context.response.write(buildPage(sessionEndpoint(session)));
                 return;
             }
             let result;
             if (action === 'list') result = readSearch(context.request.parameters);
             else if (action === 'save' && context.request.method === 'POST') {
-                result = saveDetails(JSON.parse(context.request.body || '{}'));
+                result = saveDetails(JSON.parse(context.request.body || '{}'), session.userId);
             } else throw Error('Invalid request.');
             writeJson(context, {ok: true, data: result});
         } catch (error) {
@@ -456,7 +528,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         });
     }
 
-    function saveDetails(payload) {
+    function saveDetails(payload, actorId) {
         const shipmentId = validId(payload.shipmentId);
         if (!Array.isArray(payload.lines) || !payload.lines.length) throw Error('No changed item lines to submit.');
         const shipment = record.load({type: 'inboundshipment', id: shipmentId, isDynamic: false});
@@ -515,12 +587,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         }
         if (!changed.size) return {id:shipmentId,lines:0};
         const id = shipment.save({enableSourcing: true, ignoreMandatoryFields: false});
-        log.audit({title: 'IBS line changes saved', details: {shipmentId: id, lines: Array.from(changed), userId: runtime.getCurrentUser().id}});
+        log.audit({title: 'IBS line changes saved', details: {shipmentId: id, lines: Array.from(changed), userId: actorId}});
         return {id, lines: changed.size};
     }
 
-    function buildPage() {
-        const endpoint = url.resolveScript({scriptId: runtime.getCurrentScript().id, deploymentId: runtime.getCurrentScript().deploymentId});
+    function buildPage(endpoint) {
         return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + TITLE + '</title><style>' + styles() + '</style></head><body>' +
             '<main><header><div><h1>' + TITLE + '</h1><p>Review shipments and validate inventory details</p></div><div><button id="refresh">Refresh</button> <button id="submit" class="primary" disabled>Submit</button></div></header>' +
             '<section class="metrics"><div><b id="shipCount">0</b>Shipments</div><div><b id="lineCount">0</b>Item Lines</div><div><b id="editCount">0</b>Changed Lines</div></section>' +
@@ -551,6 +622,19 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             Object.entries(params || {}).forEach(([k,v]) => address.searchParams.set(k, v));
             const response = await fetch(address, payload ? {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)} : {credentials:'same-origin', cache:'no-store'});
             const result = await response.json();
+            if (result.code === 'LOGIN_REQUIRED') {
+                let login = $('portalLogin');
+                if (!login) {
+                    login = document.createElement('a');
+                    login.id = 'portalLogin';
+                    login.textContent = 'Log in again';
+                    login.href = result.loginUrl;
+                    login.target = '_blank';
+                    login.rel = 'noopener noreferrer';
+                    $('message').insertAdjacentElement('afterend', login);
+                }
+                throw Error(result.error + ' Your drafts remain on this page. Log in in the new tab, then reopen this tool from the dashboard; edits are not transferred automatically.');
+            }
             if (!result.ok) throw Error(result.error || 'Request failed.');
             return result.data;
         }
