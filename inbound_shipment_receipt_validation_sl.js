@@ -158,7 +158,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         const shipments = Array.from(groups.values()).map(s => Object.assign({}, s, {lines: Array.from(s.lines.values())}));
         preloadDetails(shipments, meta);
         log.debug({title: 'IBS search loaded', details: {searchId, resultRows: pages.count, shipments: shipments.length}});
-        return {columns: meta, shipments};
+        return {columns: meta, shipments, locations: options('location', [['isinactive','is','F']], 'name')};
     }
 
     function qcDefault(existing, issue) {
@@ -481,24 +481,24 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                     changed.add(index);
                     log.debug({title:'IBS QC Status changed',details:{shipmentId,itemId:lineId,previous:current,status:desired}});
                 }
-                // To Be Labelled: set the receiving location to 428.
-if (desired === '2') {
-    const currentLocation = text(shipment.getSublistValue({
-        sublistId: 'items',
-        fieldId: 'receivinglocation',
-        line: index
-    }));
-
-    if (currentLocation !== '428') {
-        shipment.setSublistValue({
-            sublistId: 'items',
-            fieldId: 'receivinglocation',
-            line: index,
-            value: 428
-        });
-        changed.add(index);
-    }
-}
+            }
+            if (change.locationId !== undefined) {
+                itemScope(shipmentId, lineId, poId);
+                const effectiveStatus = text(shipment.getSublistValue({sublistId:'items',fieldId:QC_FIELD,line:index}));
+                if (effectiveStatus !== '2') throw Error('Receiving Location can only be changed when QC Status is To Be Labelled.');
+                const desiredLocation = text(validId(change.locationId));
+                const currentLocation = text(shipment.getSublistValue({sublistId:'items',fieldId:'receivinglocation',line:index}));
+                if (currentLocation !== desiredLocation) {
+                    if (currentLocation !== text(change.locationOriginal)) throw Error('Receiving Location changed in NetSuite. Refresh before submitting.');
+                    const availableLocation = search.create({type:'location',filters:[['internalid','anyof',desiredLocation],'AND',['isinactive','is','F']],columns:['internalid']}).run().getRange({start:0,end:1});
+                    if (!availableLocation.length) throw Error('Select an active receiving location.');
+                    const detail = getDetail({shipmentId,lineId,inventoryId,poId}, shipment);
+                    const rowsToValidate = change.rows !== undefined ? change.rows : detail.inventory.rows;
+                    detail.bins = detail.rules.bins ? options('bin', [['location','anyof',desiredLocation],'AND',['inactive','is','F']], 'binnumber') : [];
+                    validateRows(rowsToValidate, detail);
+                    shipment.setSublistValue({sublistId:'items',fieldId:'receivinglocation',line:index,value:Number(desiredLocation)});
+                    changed.add(index);
+                }
             }
             if (change.rows === undefined) continue;
             const detail = getDetail({shipmentId, lineId, inventoryId, poId}, shipment);
@@ -611,6 +611,10 @@ if (desired === '2') {
                     if (target.qcStatus !== undefined && target.qcStatus !== line.qcStatus) throw Error('Conflicting QC Status values on rows for the same IBS item line.');
                     target.qcStatus = line.qcStatus; target.qcOriginal = line.qcOriginal;
                 }
+                if (line.locationId !== undefined) {
+                    if (target.locationId !== undefined && target.locationId !== line.locationId) throw Error('Conflicting receiving locations on rows for the same IBS item line.');
+                    target.locationId = line.locationId; target.locationOriginal = line.locationOriginal;
+                }
                 if (line.rows !== undefined) {
                     if (target.rows !== undefined && JSON.stringify(target.rows) !== JSON.stringify(line.rows)) throw Error('Conflicting inventory edits on rows for the same IBS item line.');
                     target.rows = line.rows; target.snapshot = line.snapshot;
@@ -622,6 +626,12 @@ if (desired === '2') {
             const shown = filteredShipments();
             const headers = data.columns.filter(c => c.section === 'header');
             const items = data.columns.filter(c => c.section === 'item');
+            const locationIndex = items.findIndex(c => !c.join && c.name === 'receivinglocation');
+            if (locationIndex >= 0) {
+                const locationColumn = items.splice(locationIndex, 1)[0];
+                const statusIndex = items.findIndex(c => c.name === 'custrecord_mi_qc_status');
+                items.splice(statusIndex >= 0 ? statusIndex : items.length, 0, locationColumn);
+            }
             const remaining = items.findIndex(c => c.name === 'quantityremaining');
             items.splice(remaining >= 0 ? remaining + 1 : items.length,0,{key:'inventoryButton',label:'Inventory Detail'});
             let html = '<thead><tr><th></th>' + headers.map(c => '<th>' + escape(c.label) + '</th>').join('') + '</tr></thead><tbody>';
@@ -633,6 +643,11 @@ if (desired === '2') {
                         const draft = edits[key(s.id,l.id)];
                         html += '<tr>' + items.map(c => {
                             if (c.key === 'inventoryButton') return '<td class="' + (draft ? 'dirty' : '') + '"><button class="detail-button ' + ((draft && draft.rows ? draft.rows.length : l.hasDetail) ? 'filled' : '') + '" title="View / Edit Inventory Detail" aria-label="View / Edit Inventory Detail" data-detail="' + s.id + ':' + l.id + '">' + '<img class="inventory-icon" alt="Inventory Detail" src="' + ((draft && draft.rows ? draft.rows.length : l.hasDetail) ? 'https://4382108.app.netsuite.com/core/media/media.nl?id=24230&c=4382108&h=IH_6SQ4VYeAu0pFkOMmf5qXj8CSBZWAU0A5XLbIcoYkJkseL' : 'https://4382108.app.netsuite.com/core/media/media.nl?id=24231&c=4382108&h=YnSYg6zHZBKBjFQ6yI7HCuuSDbzV1x356tga3ZAREJ8Ix3f3') + '">' + '</button></td>';
+                            if (!c.join && c.name === 'receivinglocation') {
+                                const status = draft && draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
+                                const value = draft && draft.locationId !== undefined ? draft.locationId : l.detail.locationId;
+                                return '<td class="' + (draft && draft.locationId !== undefined ? 'dirty' : '') + '"><select aria-label="Receiving Location" data-location="' + s.id + ':' + l.id + '"' + (busy || status !== '2' ? ' disabled' : '') + '>' + options(data.locations || [], value) + '</select></td>';
+                            }
                             if (c.name === 'custrecord_mi_qc_status') {
                                 const value = draft && draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
                                 return '<td><select aria-label="QC Status" data-qc="' + s.id + ':' + l.id + '"' + (busy ? ' disabled' : '') + '>' + options(qcOptions,value) + '</select></td>';
@@ -749,7 +764,7 @@ if (desired === '2') {
             const draft = edits[k] || {shipmentId:active.shipmentId,lineId:active.lineId,itemId:active.itemId,poId:active.poId,inventoryId:active.inventory.id};
             if (JSON.stringify(active.rows) === JSON.stringify(active.inventory.rows)) { delete draft.rows; delete draft.snapshot; }
             else { draft.rows = active.rows; draft.snapshot = active.snapshot; }
-            if (draft.rows !== undefined || draft.qcStatus !== undefined) edits[k] = draft;
+            if (draft.rows !== undefined || draft.qcStatus !== undefined || draft.locationId !== undefined) edits[k] = draft;
             else delete edits[k];
             closeDetail(); render();
         }
@@ -787,18 +802,32 @@ if (desired === '2') {
         $('clear').onclick = () => { Object.keys(selected).forEach(name => { selected[name] = ''; $('filter-'+name).value = ''; }); hideChoices(); render(); };
         $('submit').onclick = submit;
         $('shipments').onchange = event => {
-            const target = event.target.dataset.qc;
+            const isStatus = !!event.target.dataset.qc;
+            const target = event.target.dataset.qc || event.target.dataset.location;
             if (!target || busy) return;
             const [shipmentId,lineId] = target.split(':');
             const shipment = data.shipments.find(s => s.id === shipmentId);
             const line = shipment.lines.find(l => l.id === lineId);
+            const selectedValue = event.target.value;
             shipment.lines.filter(l => l.itemId === line.itemId && l.poId === line.poId && l.detail.inventory.id === line.detail.inventory.id).forEach(l => {
                 const k = key(shipmentId,l.id);
                 const draft = edits[k] || {shipmentId,lineId:l.id,itemId:l.itemId,poId:l.poId,inventoryId:l.detail.inventory.id};
-                l.qcInitial = event.target.value;
-                if (event.target.value === l.qcOriginal) { delete draft.qcStatus; delete draft.qcOriginal; }
-                else { draft.qcStatus = event.target.value; draft.qcOriginal = l.qcOriginal; }
-                if (draft.rows !== undefined || draft.qcStatus !== undefined) edits[k] = draft;
+                const stageLocation = value => {
+                    if (value === l.detail.locationId) { delete draft.locationId; delete draft.locationOriginal; }
+                    else { draft.locationId = value; draft.locationOriginal = l.detail.locationId; }
+                };
+                if (isStatus) {
+                    l.qcInitial = selectedValue;
+                    if (selectedValue === l.qcOriginal) { delete draft.qcStatus; delete draft.qcOriginal; }
+                    else { draft.qcStatus = selectedValue; draft.qcOriginal = l.qcOriginal; }
+                    if (selectedValue === '2') stageLocation('435');
+                    else { delete draft.locationId; delete draft.locationOriginal; }
+                } else {
+                    const status = draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
+                    if (status !== '2') return;
+                    stageLocation(selectedValue);
+                }
+                if (draft.rows !== undefined || draft.qcStatus !== undefined || draft.locationId !== undefined) edits[k] = draft;
                 else delete edits[k];
             });
             render();
