@@ -176,6 +176,13 @@ function (ui, search, log, crypto, record, runtime) {
             <div class="tile-body"><p class="tile-title">Planned PO Approval</p><p class="tile-desc">Review and approve planned purchase orders.</p></div>
           </a>
         </div>`; }
+     if (hasAny([5,6])) { tilesHtml += `
+        <div class="tile">
+          <a class="tile-link" href="${urlPlannedPO}" target="_blank" rel="noopener">
+            <div class="tile-hero po">${svgPO}</div>
+            <div class="tile-body"><p class="tile-title">Planned PO Approval</p><p class="tile-desc">Review and approve planned purchase orders.</p></div>
+          </a>
+        </div>`; }
       if (has(7)) { tilesHtml += `
         <div class="tile">
           <a class="tile-link" href="${urlAvailTool}" target="_blank" rel="noopener">
