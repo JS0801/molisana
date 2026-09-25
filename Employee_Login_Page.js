@@ -2,8 +2,8 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  */
-define(['N/ui/serverWidget', 'N/search', 'N/log', 'N/crypto', 'N/record', 'N/runtime'],
-function (ui, search, log, crypto, record, runtime) {
+define(['N/ui/serverWidget', 'N/search', 'N/log', 'N/crypto', 'N/record', 'N/runtime', 'N/encode'],
+function (ui, search, log, crypto, record, runtime, encode) {
 
   function onRequest(context) {
     const isGET = context.request.method === 'GET';
@@ -16,17 +16,22 @@ function (ui, search, log, crypto, record, runtime) {
     const joiner = currentUrl.indexOf('?') > -1 ? '&' : '?';
 
     // --- Signed session helpers (so GET can be "logged in") ---
-    const SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
+    const SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' });
+    if (!SECRET || SECRET === 'change-me') {
+      context.response.write('Portal login is not configured. Contact your administrator.');
+      return;
+    }
     const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
     function sign(empid, ts) {
       const h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
       h.update({ input: empid + '|' + ts + '|' + SECRET });
-      return h.digest({ outputEncoding: crypto.Encoding.HEX });
+      return h.digest({ outputEncoding: encode.Encoding.HEX });
     }
     function verify(empid, ts, sig) {
       if (!empid || !ts || !sig) return false;
-      if (Math.abs(Date.now() - parseInt(ts, 10)) > TOKEN_TTL_MS) return false;
+      const age = Date.now() - Number(ts);
+      if (!/^[1-9]\d*$/.test(String(empid)) || !/^\d+$/.test(String(ts)) || !Number.isSafeInteger(Number(ts)) || age < 0 || age > TOKEN_TTL_MS) return false;
       try { return sign(empid, ts) === sig; } catch (e) { log.error('verify token', e); return false; }
     }
 
@@ -44,6 +49,14 @@ function (ui, search, log, crypto, record, runtime) {
             <div class="tile-body"><p class="tile-title">Vendor Bill Approval</p><p class="tile-desc">Review, approve or reject pending vendor bills.</p></div>
           </a>
         </div>`;
+    }
+
+
+    const IBS_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=3495&deploy=1&compid=4975346&ns-at=AAEJ7tMQ8nTb-9Qu7pCoGOC_hbiFEQOotVbdudkFYvolLxZPpMA';
+    const IBS_ACCESS_ID = '9';
+    function inboundShipmentTile(empid, ts, sig) {
+      const link = IBS_URL + '&empid=' + encodeURIComponent(empid) + '&ts=' + encodeURIComponent(ts) + '&sig=' + encodeURIComponent(sig);
+      return `<div class="tile"><a class="tile-link" href="${link}" target="_blank" rel="noopener noreferrer"><div class="tile-hero inv">${svgVendorBill}</div><div class="tile-body"><p class="tile-title">Inbound Shipment Receipt Validation</p><p class="tile-desc">Review shipments, validate inventory details, and update QC status and receiving locations.</p></div></a></div>`;
     }
 
     // --- Base CSS/HTML (needed before any branch that appends) ---
@@ -192,6 +205,7 @@ function (ui, search, log, crypto, record, runtime) {
         </div>`; }
 
       if (has(8)) tilesHtml += vendorBillTile(loggedInId, ts, sig);
+        if (has(IBS_ACCESS_ID)) tilesHtml += inboundShipmentTile(loggedInId, ts, sig);
 
       // Always show Update Profile
       tilesHtml += `
@@ -215,10 +229,14 @@ function (ui, search, log, crypto, record, runtime) {
 
     // ---------------- PROFILE (GET/POST) ----------------
     if (view === 'profile') {
+      if (!verify(params.empid, params.ts, params.sig)) {
+        context.response.write('<h2>Login required or session expired.</h2><a href="' + currentUrl + '">Log in</a>');
+        return;
+      }
       if (isGET) {
         const empid = params.empid || '';
-        const ts = params.ts || Date.now().toString();
-        const sig = params.sig || sign(empid, ts);
+        const ts = params.ts;
+        const sig = params.sig;
 
         html += `
           <div class="profile-container">
@@ -260,8 +278,8 @@ function (ui, search, log, crypto, record, runtime) {
         const action = (params.action || '').toLowerCase();
         if (action === 'changepw') {
           const empid = params.empid;
-          const ts = params.ts || Date.now().toString();
-          const sig = params.sig || sign(empid, ts);
+          const ts = params.ts;
+          const sig = params.sig;
 
           const oldpw = (params.oldpw || '').trim();
           const newpw = (params.newpw || '').trim();
@@ -381,7 +399,7 @@ function (ui, search, log, crypto, record, runtime) {
 
       const empSearch = search.create({
         type: search.Type.EMPLOYEE,
-        filters: [['email','is',email]],
+        filters: [['email','is',email], 'AND', ['isinactive','is','F']],
         columns: ['internalid', 'custentity_mi_price_level', 'custentity_external_portal_access']
       });
 
@@ -457,6 +475,7 @@ function (ui, search, log, crypto, record, runtime) {
         if (has(7)) tilesHtml += `
           <div class="tile"><a class="tile-link" href="${urlAvailTool}" target="_blank" rel="noopener"><div class="tile-hero po">${svgAvail}</div><div class="tile-body"><p class="tile-title">Item Availability Tool</p><p class="tile-desc">Check available-to-promise, on-order, and commited status by item.</p></div></a></div>`;
         if (has(8)) tilesHtml += vendorBillTile(loggedInId, ts, sig);
+        if (has(IBS_ACCESS_ID)) tilesHtml += inboundShipmentTile(loggedInId, ts, sig);
         tilesHtml += `
           <div class="tile">
             <a class="tile-link" href="${currentUrl + joiner}view=profile&empid=${encodeURIComponent(loggedInId)}&ts=${ts}&sig=${sig}">
