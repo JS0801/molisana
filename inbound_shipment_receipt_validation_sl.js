@@ -9,7 +9,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
     const PARAM = 'custscript_ibs_validation_search';
     let lineMaps = new WeakMap();
     const EPSILON = 0.00000001;
-    const HEADER_FIELDS = ['internalid', 'shipmentnumber', 'custrecord157', 'custrecord158',
+    const HEADER_FIELDS = ['internalid', 'shipmentnumber', 'custrecord157', 'custrecord158', 'custrecord_seal_number_custom',
         'expectedshippingdate', 'custrecord_port_eta', 'memo', 'custrecord_mi_container_type', 'custrecord_conatiner_images'];
     const text = value => value == null ? '' : String(value);
     const join = column => text(column.join).toLowerCase();
@@ -63,12 +63,12 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         const unitColumn = columns.find(c => !join(c) && c.name === 'unit') || search.createColumn({name:'unit'});
         saved.columns = columns.concat([locationColumn, unitColumn].filter(c => !columns.includes(c)));
         const extra = [];
-        [['ibs', 'shipmentnumber'], ['container', 'custrecord157'], ['seal', 'custrecord158']].forEach(([key, field]) => {
+        [['ibs', 'shipmentnumber'], ['container', 'custrecord157'], ['seal', 'custrecord_seal_number_custom']].forEach(([key, field]) => {
             if (text(filters[key]).trim()) extra.push(search.createFilter({name: 'formulatext', formula: '{' + field + '}', operator: search.Operator.CONTAINS, values: text(filters[key]).trim()}));
         });
         if (filters.shipmentId) extra.push(search.createFilter({name: 'internalid', operator: search.Operator.ANYOF, values: validId(filters.shipmentId)}));
         saved.filters = saved.filters.concat(extra);
-        const visible = columns.filter(c => !((!join(c) || join(c) === 'itemreceipt') && c.name === 'internalid'));
+        const visible = columns.filter(c => !((!join(c) || join(c) === 'itemreceipt') && c.name === 'internalid') && !(!join(c) && c.name === 'custrecord_ds_receiving_location'));
         const meta = visible.map((c, i) => ({key: 'c' + i, name: c.name, join: join(c), label: c.label || c.name,
             section: join(c) === 'inventorydetail' ? 'inventory' : (!join(c) && HEADER_FIELDS.includes(c.name) ? 'header' : 'item')}));
         const groups = new Map();
@@ -484,8 +484,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             }
             if (change.locationId !== undefined) {
                 itemScope(shipmentId, lineId, poId);
-                const effectiveStatus = text(shipment.getSublistValue({sublistId:'items',fieldId:QC_FIELD,line:index}));
-                if (effectiveStatus !== '2') throw Error('Receiving Location can only be changed when QC Status is To Be Labelled.');
                 const desiredLocation = text(validId(change.locationId));
                 const currentLocation = text(shipment.getSublistValue({sublistId:'items',fieldId:'receivinglocation',line:index}));
                 if (currentLocation !== desiredLocation) {
@@ -543,7 +541,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         const qcOptions = [{id:'1',name:'Release'},{id:'2',name:'To Be Labelled'},{id:'3',name:'Pending QC Release'},{id:'4',name:'QC Released'},{id:'5',name:'QC DEVIATE'}];
         const selected = {ibs:'',container:'',seal:''};
-        const filterFields = {ibs:'shipmentnumber',container:'custrecord157',seal:'custrecord158'};
+        const filterFields = {ibs:'shipmentnumber',container:'custrecord157',seal:'custrecord_seal_number_custom'};
         let data = {columns: [], shipments: []}, expanded = new Set(), edits = {}, active = null, busy = false;
         const key = (shipmentId, lineId) => shipmentId + ':' + lineId;
         const message = (value, error) => { $('message').textContent = value; $('message').className = error ? 'error' : 'success'; };
@@ -644,9 +642,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                         html += '<tr>' + items.map(c => {
                             if (c.key === 'inventoryButton') return '<td class="' + (draft ? 'dirty' : '') + '"><button class="detail-button ' + ((draft && draft.rows ? draft.rows.length : l.hasDetail) ? 'filled' : '') + '" title="View / Edit Inventory Detail" aria-label="View / Edit Inventory Detail" data-detail="' + s.id + ':' + l.id + '">' + '<img class="inventory-icon" alt="Inventory Detail" src="' + ((draft && draft.rows ? draft.rows.length : l.hasDetail) ? 'https://4382108.app.netsuite.com/core/media/media.nl?id=24230&c=4382108&h=IH_6SQ4VYeAu0pFkOMmf5qXj8CSBZWAU0A5XLbIcoYkJkseL' : 'https://4382108.app.netsuite.com/core/media/media.nl?id=24231&c=4382108&h=YnSYg6zHZBKBjFQ6yI7HCuuSDbzV1x356tga3ZAREJ8Ix3f3') + '">' + '</button></td>';
                             if (!c.join && c.name === 'receivinglocation') {
-                                const status = draft && draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
                                 const value = draft && draft.locationId !== undefined ? draft.locationId : l.detail.locationId;
-                                return '<td class="' + (draft && draft.locationId !== undefined ? 'dirty' : '') + '"><select aria-label="Receiving Location" data-location="' + s.id + ':' + l.id + '"' + (busy || status !== '2' ? ' disabled' : '') + '>' + options(data.locations || [], value) + '</select></td>';
+                                return '<td class="' + (draft && draft.locationId !== undefined ? 'dirty' : '') + '"><select aria-label="Receiving Location" data-location="' + s.id + ':' + l.id + '"' + (busy ? ' disabled' : '') + '>' + options(data.locations || [], value) + '</select></td>';
                             }
                             if (c.name === 'custrecord_mi_qc_status') {
                                 const value = draft && draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
@@ -821,10 +818,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                     if (selectedValue === l.qcOriginal) { delete draft.qcStatus; delete draft.qcOriginal; }
                     else { draft.qcStatus = selectedValue; draft.qcOriginal = l.qcOriginal; }
                     if (selectedValue === '2') stageLocation('435');
-                    else { delete draft.locationId; delete draft.locationOriginal; }
                 } else {
-                    const status = draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
-                    if (status !== '2') return;
                     stageLocation(selectedValue);
                 }
                 if (draft.rows !== undefined || draft.qcStatus !== undefined || draft.locationId !== undefined) edits[k] = draft;
