@@ -481,7 +481,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                     changed.add(index);
                     log.debug({title:'IBS QC Status changed',details:{shipmentId,itemId:lineId,previous:current,status:desired}});
                 }
-                // To Be Labelled: set the receiving location to 435.
+                // To Be Labelled: set the receiving location to 428.
 if (desired === '2') {
     const currentLocation = text(shipment.getSublistValue({
         sublistId: 'items',
@@ -489,12 +489,12 @@ if (desired === '2') {
         line: index
     }));
 
-    if (currentLocation !== '435') {
+    if (currentLocation !== '428') {
         shipment.setSublistValue({
             sublistId: 'items',
             fieldId: 'receivinglocation',
             line: index,
-            value: 435
+            value: 428
         });
         changed.add(index);
     }
