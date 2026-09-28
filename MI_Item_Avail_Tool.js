@@ -2,8 +2,50 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  */
-define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/crypto', 'N/record'],
-function (ui, file, log, search, runtime, crypto, record) {
+define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/crypto', 'N/record', 'N/url', 'N/encode'], function (ui, file, log, search, runtime, crypto, record, url, encode) {
+  // Internal NetSuite sessions bypass portal login; external requests require the shared token.
+  function portalSession(context, cronAuthorized) {
+    var request = context.request;
+    var params = request.parameters || {};
+    var userId = String(runtime.getCurrentUser().id == null ? '' : runtime.getCurrentUser().id).trim();
+    var externalUrl = /\.extforms\.netsuite\.com(?:[/:?]|$)/i.test(String(request.url || '')) || !!params['ns-at'];
+    var internal = !externalUrl && ['', '0', '-4', 'null', 'undefined'].indexOf(userId) === -1;
+    if (internal) return {internal:true, employeeId:userId, ts:'', sig:''};
+    if (cronAuthorized) return {internal:false, cron:true, employeeId:'', ts:'', sig:''};
+    var post = request.method === 'POST';
+    var employeeId = String(post ? (params.custpage_sig_empid || params.custpage_empid || params.empid || '') : (params.empid || ''));
+    var ts = String(post ? (params.custpage_sig_ts || params.custpage_ts || params.ts || '') : (params.ts || ''));
+    var sig = String(post ? (params.custpage_sig_hmac || params.custpage_sig || params.sig || '') : (params.sig || ''));
+    var age = Math.abs(Date.now() - parseInt(ts, 10));
+    var valid = !!(employeeId && ts && sig) && age <= 30 * 60 * 1000;
+    if (valid) {
+      try {
+        var secret = runtime.getCurrentScript().getParameter({name:'custscript_portal_secret'}) || 'change-me';
+        var hash = crypto.createHash({algorithm:crypto.HashAlg.SHA256});
+        hash.update({input:employeeId + '|' + ts + '|' + secret});
+        valid = hash.digest({outputEncoding:encode.Encoding.HEX}) === sig;
+      } catch (error) { valid = false; }
+    }
+    if (!valid) {
+      var loginUrl = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
+      context.response.write('<html><body><script>window.location.replace(' + JSON.stringify(loginUrl) + ');</script><p>Login required. <a href="' + loginUrl + '">Open portal login</a></p></body></html>');
+      return null;
+    }
+    return {internal:false, employeeId:employeeId, ts:ts, sig:sig};
+  }
+
+  function portalReturnUrl(session, externalUrl, extra) {
+    var params = Object.assign({}, extra || {});
+    if (session.internal) {
+      var script = runtime.getCurrentScript();
+      return url.resolveScript({scriptId:script.id, deploymentId:script.deploymentId, returnExternalUrl:false, params:params});
+    }
+    params.empid = session.employeeId;
+    params.ts = session.ts;
+    params.sig = session.sig;
+    return externalUrl + Object.keys(params).map(function(key) {return '&' + encodeURIComponent(key) + '=' + encodeURIComponent(params[key]);}).join('');
+  }
+
 
   var PORTAL_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
 
@@ -66,7 +108,7 @@ function (ui, file, log, search, runtime, crypto, record) {
 
 
   var CHANGED_ROW_COLOR = '#cfe8ff';
-var RESTRICTION_FIELD = 'custitem_recommened_restriction_quanti';
+var RESTRICTION_FIELD = 'custitem_restriction_level';
 
 var ITEM_RECORD_TYPES = {
   InvtPart: 'inventoryitem',
@@ -264,7 +306,7 @@ function saveRestrictionChanges(payload, itemMap) {
     var SECRET = runtime.getCurrentScript().getParameter({ name: 'custscript_portal_secret' }) || 'change-me';
     var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
     h.update({ input: empid + '|' + ts + '|' + SECRET });
-    return h.digest({ outputEncoding: crypto.Encoding.HEX });
+    return h.digest({ outputEncoding: encode.Encoding.HEX });
   }
 
   function verify(empid, ts, sig) {
@@ -281,7 +323,7 @@ function saveRestrictionChanges(payload, itemMap) {
   function signCron(ts, secret) {
     var h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
     h.update({ input: 'CRON|' + ts + '|' + secret });
-    return h.digest({ outputEncoding: crypto.Encoding.HEX });
+    return h.digest({ outputEncoding: encode.Encoding.HEX });
   }
 
   function verifyCron(ts, sig) {
@@ -906,36 +948,16 @@ if (context.request.method !== 'GET' && !isPost) {
       return;
     }
 
+
+    var session = portalSession(context, false);
+    if (!session) return;
     var form = ui.createForm({ title: 'Availability Tool' });
 
-var empid = isPost
-  ? (q.custpage_empid || '')
-  : (q.empid || '');
-
-var ts = isPost
-  ? (q.custpage_ts || '')
-  : (q.ts || '');
-
-var sig = isPost
-  ? (q.custpage_sig || '')
-  : (q.sig || '');
-
-var validToken = verify(empid, ts, sig);
-
-// Saving requires a valid signed portal token.
-if (isPost && !validToken) {
-  context.response.write(
-    'Your login has expired or is invalid. ' +
-    'Reopen the availability tool from the portal before saving.'
-  );
-  return;
-}
-
-var selectedEmp = isPost ? '' : (q.custpage_id || '');
-
-if (validToken) {
-  selectedEmp = empid;
-}
+var empid = session.employeeId;
+var ts = session.ts;
+var sig = session.sig;
+var validToken = true; // portalSession already authorized this internal/external request.
+var selectedEmp = session.employeeId;
 
     if (!selectedEmp) {
       context.response.write(
