@@ -75,40 +75,48 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/cryp
   var IDX_CRITICAL_STOCK_RESTRICTION = 11;
   var IDX_WARNING_LT_2               = 12;
   var IDX_RECOMMENDED_RESTRICTION    = 13;
-  var IDX_AVAILABLE                  = 14;
-  var IDX_COMMITTED                  = 15;
-  var IDX_ON_HOLD                    = 16;
-  var IDX_RESERVED                   = 17;
-  var IDX_ON_HAND_AVAIL_GOOD         = 18;
-  var IDX_ON_HAND_TOTAL              = 19;
-  var IDX_IN_TRANSIT                 = 20;
-  var IDX_ON_HAND_TOTAL_TRANSIT      = 21;
-  var IDX_ON_ORDER                   = 22;
-  var IDX_TOTAL_STOCK                = 23;
-  var IDX_NEXT_ARRIVAL_QTY           = 24;
-  var IDX_NEXT_ARRIVAL_DATE          = 25;
-  var IDX_DAYS_TILL_NEXT_ARRIVAL     = 26;
-  var IDX_MONTHS_TILL_NEXT_ARRIVAL   = 27;
-  var IDX_ON_HAND_TOTAL_MONTHS       = 28;
-  var IDX_INSPECTION                 = 29;
-  var IDX_LABEL                      = 30;
-  var IDX_DEVIATION                  = 31;
-  var IDX_ON_HAND_TRANSIT_MONTHS     = 32;
-  var IDX_TOTAL_STOCK_MONTHS         = 33;
-  var IDX_30_DAYS                    = 34;
-  var IDX_60_DAYS                    = 35;
-  var IDX_90_DAYS                    = 36;
-  var IDX_120_DAYS                   = 37;
-  var IDX_4_MONTH_AVG                = 38;
-  var IDX_MAX_SHELF_LIFE             = 39;
-  var IDX_LAST_BILLED_DATE           = 40;
-  var IDX_EXPIRE_DATE                = 41;
-  var IDX_EXPIRY_STATUS              = 42;
+  var IDX_AVAILABLE_FOR_ORDER_TOOL = 14;
+  var IDX_AVAILABLE                  = 15;
+  var IDX_COMMITTED                  = 16;
+  var IDX_ON_HOLD                    = 17;
+  var IDX_RESERVED                   = 18;
+  var IDX_ON_HAND_AVAIL_GOOD         = 19;
+  var IDX_ON_HAND_TOTAL              = 20;
+  var IDX_IN_TRANSIT                 = 21;
+  var IDX_ON_HAND_TOTAL_TRANSIT      = 22;
+  var IDX_ON_ORDER                   = 23;
+  var IDX_TOTAL_STOCK                = 24;
+  var IDX_NEXT_ARRIVAL_QTY           = 25;
+  var IDX_NEXT_ARRIVAL_DATE          = 26;
+  var IDX_DAYS_TILL_NEXT_ARRIVAL     = 27;
+  var IDX_MONTHS_TILL_NEXT_ARRIVAL   = 28;
+  var IDX_ON_HAND_TOTAL_MONTHS       = 29;
+  var IDX_INSPECTION                 = 30;
+  var IDX_LABEL                      = 31;
+  var IDX_DEVIATION                  = 32;
+  var IDX_ON_HAND_TRANSIT_MONTHS     = 33;
+  var IDX_TOTAL_STOCK_MONTHS         = 34;
+  var IDX_30_DAYS                    = 35;
+  var IDX_60_DAYS                    = 36;
+  var IDX_90_DAYS                    = 37;
+  var IDX_120_DAYS                   = 38;
+  var IDX_4_MONTH_AVG                = 39;
+  var IDX_MAX_SHELF_LIFE             = 40;
+  var IDX_LAST_BILLED_DATE           = 41;
+  var IDX_EXPIRE_DATE                = 42;
+  var IDX_EXPIRY_STATUS              = 43;
 
 
 
   var CHANGED_ROW_COLOR = '#cfe8ff';
 var RESTRICTION_FIELD = 'custitem_restriction_level';
+var AVAILABLE_FOR_ORDER_FIELD = 'custitem_available_for_order_tool';
+
+function normalizeCheckbox(value) {
+  if (value === true || value === 'T') return true;
+  if (value === false || value === 'F') return false;
+  throw new Error('Invalid Available for Order checkbox value.');
+}
 
 var ITEM_RECORD_TYPES = {
   InvtPart: 'inventoryitem',
@@ -159,6 +167,7 @@ function getRestrictionMap() {
       }),
       search.createColumn({ name: 'type' }),
       search.createColumn({ name: RESTRICTION_FIELD }),
+      search.createColumn({ name: AVAILABLE_FOR_ORDER_FIELD }),
       search.createColumn({ name: 'islotitem' }),
      search.createColumn({ name: 'isserialitem' }),
     ]
@@ -203,6 +212,7 @@ if (itemType === 'InvtPart') {
 
 itemMap[id] = {
   value: savedValue,
+  availableForOrder: normalizeCheckbox(result.getValue({ name: AVAILABLE_FOR_ORDER_FIELD })),
   recordType: recordType
 };
     });
@@ -244,27 +254,38 @@ function saveRestrictionChanges(payload, itemMap) {
     }
     seen[id] = true;
 
-    var desired = normalizeRestriction(change.value);
-    var original = normalizeRestriction(change.original);
     var current = itemMap[id];
+    var values = {};
+    var desired = current.value;
+    var availableForOrder = current.availableForOrder;
 
-    // No write is needed when the item already has the desired value.
-    if (desired === current.value) return;
-
-    if (original !== current.value) {
-      throw new Error(
-        'Item ' + id +
-        ' was changed by another user. Reload the page before saving.'
-      );
+    if (Object.prototype.hasOwnProperty.call(change, 'value')) {
+      desired = normalizeRestriction(change.value);
+      if (desired !== current.value) {
+        if (normalizeRestriction(change.original) !== current.value) {
+          throw new Error('Item ' + id + ' was changed by another user. Reload the page before saving.');
+        }
+        values[RESTRICTION_FIELD] = desired === '' ? '' : Number(desired);
+      }
     }
-
-    if (!current.recordType) {
-      throw new Error('Unsupported record type for item ' + id);
+    // Check property presence: false is an intentional update, not a missing value.
+    if (Object.prototype.hasOwnProperty.call(change, 'availableForOrder')) {
+      availableForOrder = normalizeCheckbox(change.availableForOrder);
+      var originalAvailable = normalizeCheckbox(change.originalAvailableForOrder);
+      if (availableForOrder !== current.availableForOrder) {
+        if (originalAvailable !== current.availableForOrder) {
+          throw new Error('Item ' + id + ' was changed by another user. Reload the page before saving.');
+        }
+        values[AVAILABLE_FOR_ORDER_FIELD] = availableForOrder;
+      }
     }
-
+    if (!Object.keys(values).length) return;
+    if (!current.recordType) throw new Error('Unsupported record type for item ' + id);
     updates.push({
       id: id,
       value: desired,
+      availableForOrder: availableForOrder,
+      values: values,
       recordType: current.recordType
     });
   });
@@ -274,9 +295,7 @@ function saveRestrictionChanges(payload, itemMap) {
 
   updates.forEach(function (update) {
     try {
-      var values = {};
-      values[RESTRICTION_FIELD] =
-        update.value === '' ? '' : Number(update.value);
+      var values = update.values;
 
       record.submitFields({
         type: update.recordType,
@@ -289,6 +308,7 @@ function saveRestrictionChanges(payload, itemMap) {
       });
 
       itemMap[update.id].value = update.value;
+      itemMap[update.id].availableForOrder = update.availableForOrder;
       saved++;
     } catch (e) {
       log.error('Restriction save failed: item ' + update.id, e);
@@ -592,7 +612,8 @@ pagedData.pageRanges.forEach(function (pageRange) {
     return '';
   }
 
-  function generateCsvFile(isCron) {
+  function generateCsvFile(isCron, itemMap) {
+    itemMap = itemMap || getRestrictionMap();
     var fileIdItem     = null;
     var fileIdInv      = null;
     var fileIdAssembly = null;
@@ -736,6 +757,11 @@ pagedData.pageRanges.forEach(function (pageRange) {
         var availtoProm = onH - committedQty - bad;
 
         var txt = String(value || '').replace(/^"+|"+$/g, '');
+
+        if (cIdx === IDX_AVAILABLE_FOR_ORDER_TOOL && itemMap[itemid]) {
+          txt = itemMap[itemid].availableForOrder ? 'Yes' : 'No';
+          cleaned[cIdx] = txt;
+        }
 
         if (cIdx === IDX_ON_HOLD) {
           txt = bad;
@@ -1060,7 +1086,7 @@ if (validToken) {
 
     var result;
     try {
-      result = generateCsvFile(false);
+      result = generateCsvFile(false, restrictionMap);
     } catch (e) {
       log.error('generateCsvFile error', e);
       htmlField.defaultValue = '<p style="color:red;">' + escHtml(e.message || e.toString()) + '</p>';
@@ -1181,6 +1207,14 @@ if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
       'aria-label="Recommended Restriction" ' +
       'style="width:100%;box-sizing:border-box;" />' +
   '</td>';
+} else if (cIdx === IDX_AVAILABLE_FOR_ORDER_TOOL) {
+  var savedAvailable = restrictionMap[rowItemId] && restrictionMap[rowItemId].availableForOrder;
+  html += '<td><input type="checkbox" class="available-order-input" ' +
+    'data-item-id="' + escHtml(rowItemId) + '" ' +
+    'data-original="' + (savedAvailable ? 'T' : 'F') + '" ' +
+    (savedAvailable ? 'checked ' : '') +
+    (!restrictionMap[rowItemId] ? 'disabled ' : '') +
+    'aria-label="Available for Order Tool" /></td>';
 } else {
   html += '<td>' + escHtml(txt) + '</td>';
 }
@@ -1231,6 +1265,7 @@ if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
           'var cells=row.cells;' +
           'if(!cells||idx<0||idx>=cells.length) return "";' +
           'var input = cells[idx].querySelector("input");' +
+          'if(input && input.type==="checkbox") return input.checked ? "Yes" : "No";' +
           'if(input) return String(input.value||"").trim();' +
           'return String(cells[idx].textContent||"").trim();' +
         '}' +
@@ -1549,7 +1584,9 @@ if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
 
       var row = input.closest('tr');
       if (row) {
-        row.classList.toggle('row-changed', changed);
+        var checkbox = row.querySelector('.available-order-input');
+        var checkboxChanged = checkbox && checkbox.checked !== (checkbox.getAttribute('data-original') === 'T');
+        row.classList.toggle('row-changed', changed || checkboxChanged);
       }
 
       return !error;
@@ -1561,6 +1598,12 @@ if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
       if (!input.classList.contains('restriction-input')) return;
 
       updateRow(input);
+    });
+
+    table.addEventListener('change', function (event) {
+      if (!event.target.classList.contains('available-order-input')) return;
+      var restriction = event.target.closest('tr').querySelector('.restriction-input');
+      if (restriction) updateRow(restriction);
     });
 
     form.addEventListener('submit', function (event) {
@@ -1579,12 +1622,20 @@ if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
         var value = normalizeInput(input.value);
         var original = input.getAttribute('data-original') || '';
 
-        if (value !== original) {
-          changes.push({
-            id: input.getAttribute('data-item-id'),
-            original: original,
-            value: value
-          });
+        var checkbox = input.closest('tr').querySelector('.available-order-input');
+        var checkboxChanged = checkbox && !checkbox.disabled &&
+          checkbox.checked !== (checkbox.getAttribute('data-original') === 'T');
+        if (value !== original || checkboxChanged) {
+          var change = { id: input.getAttribute('data-item-id') };
+          if (value !== original) {
+            change.original = original;
+            change.value = value;
+          }
+          if (checkboxChanged) {
+            change.originalAvailableForOrder = checkbox.getAttribute('data-original') === 'T';
+            change.availableForOrder = checkbox.checked;
+          }
+          changes.push(change);
         }
       }
 
@@ -1600,7 +1651,7 @@ if (cIdx === IDX_RECOMMENDED_RESTRICTION) {
 
       if (!changes.length) {
         event.preventDefault();
-        alert('There are no restriction changes to save.');
+        alert('There are no changes to save.');
         return;
       }
 
