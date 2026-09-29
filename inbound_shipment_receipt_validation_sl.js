@@ -264,22 +264,41 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         return JSON.stringify({expected:state.expected,received:state.received,locationId:state.locationId,rows});
     }
 
-    function imageUrl(value, label) {
-        for (const candidate of [value, label]) {
-            let source = text(candidate).trim().replace(/&amp;/gi, '&');
-            if (!source) continue;
-            const attribute = source.match(/(?:src|href)\s*=\s*["']([^"']+)["']/i);
-            if (attribute) source = attribute[1];
-            const mediaId = source.match(/[?&]id=(\d+)/i);
-            const fileId = /^\d+$/.test(source) ? source : (mediaId ? mediaId[1] : '');
-            if (fileId) {
-                try { return file.load({id: fileId}).url; }
-                catch (error) { log.debug({title: 'Image file lookup failed', details: {fileId, message: error.message}}); }
-            }
-            if (/^(https?:\/\/|\/(?!\/))/i.test(source) && !/[<>"'\r\n]/.test(source)) return source;
+    // function imageUrl(value, label) {
+    //     for (const candidate of [value, label]) {
+    //         let source = text(candidate).trim().replace(/&amp;/gi, '&');
+    //         if (!source) continue;
+    //         const attribute = source.match(/(?:src|href)\s*=\s*["']([^"']+)["']/i);
+    //         if (attribute) source = attribute[1];
+    //         const mediaId = source.match(/[?&]id=(\d+)/i);
+    //         const fileId = /^\d+$/.test(source) ? source : (mediaId ? mediaId[1] : '');
+    //         if (fileId) {
+    //             try { return file.load({id: fileId}).url; }
+    //             catch (error) { log.debug({title: 'Image file lookup failed', details: {fileId, message: error.message}}); }
+    //         }
+    //         if (/^(https?:\/\/|\/(?!\/))/i.test(source) && !/[<>"'\r\n]/.test(source)) return source;
+    //     }
+    //     return '';
+    // }
+
+  function imageUrl(value, label) {
+    for (const candidate of [value, label]) {
+        let source = text(candidate).trim().replace(/&amp;/gi, '&');
+        if (!source) continue;
+
+        // Extract the URL if the search returns an HTML image or link.
+        const attribute = source.match(/(?:src|href)\s*=\s*["']([^"']+)["']/i);
+        if (attribute) source = attribute[1];
+
+        // Use the URL directly, without loading the file.
+        if (/^(https?:\/\/|\/(?!\/))/i.test(source) &&
+            !/[<>"'\r\n]/.test(source)) {
+            return source;
         }
-        return '';
     }
+
+    return '';
+}
 
     function validId(value) {
         if (!/^\d+$/.test(text(value))) throw Error('Invalid record or line ID.');
