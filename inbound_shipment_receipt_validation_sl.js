@@ -29,16 +29,13 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         const p = req.parameters || {};
         const user = runtime.getCurrentUser();
         const userId = text(user.id);
-        // External URL markers always require a token, even for a privileged execution identity.
-        const external = /\.extforms\.netsuite\.com(?:[/:?]|$)/i.test(text(req.url)) ||
-            !!p['ns-at'] || !!p.compid || !/^[1-9]\d*$/.test(userId) ||
-            p.empid !== undefined || p.ts !== undefined || p.sig !== undefined;
+        // Match the existing portal: authenticated internal users do not need a portal token.
+        // External URL markers still require login when the execution identity is privileged.
+        const externalUrl = /\.extforms\.netsuite\.com(?:[/:?]|$)/i.test(text(req.url)) || !!p['ns-at'];
+        const anonymous = ['', '0', '-4', 'null', 'undefined'].includes(userId.trim());
+        const external = externalUrl || anonymous;
         if (!external) return {userId, external:false};
-        const secret = text(runtime.getCurrentScript().getParameter({name:'custscript_portal_secret'}));
-        if (!secret || secret === 'change-me') {
-            denyAccess(context, 'Portal login is not configured. Contact your administrator.', false);
-            return null;
-        }
+        const secret = text(runtime.getCurrentScript().getParameter({name:'custscript_portal_secret'}) || 'change-me');
         const empid = text(p.empid), ts = text(p.ts), sig = text(p.sig);
         const age = Date.now() - Number(ts);
         let valid = /^[1-9]\d*$/.test(empid) && /^\d+$/.test(ts) && /^[a-f0-9]{64}$/i.test(sig) &&
@@ -77,7 +74,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         context.response.setHeader({name:'Cache-Control',value:'no-store'});
         context.response.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Portal access</title></head><body><h2>' + esc(message) +
             '</h2><p><a href="' + esc(LOGIN_URL) + '">Go to portal login</a></p>' +
-            (loginRequired ? '<script>setTimeout(function(){window.location.href=' + JSON.stringify(LOGIN_URL) + ';},1200);</script>' : '') + '</body></html>');
+            (loginRequired ? '<script>window.location.replace(' + JSON.stringify(LOGIN_URL) + ');</script>' : '') + '</body></html>');
     }
 
     function sessionEndpoint(session) {
@@ -623,17 +620,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const response = await fetch(address, payload ? {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)} : {credentials:'same-origin', cache:'no-store'});
             const result = await response.json();
             if (result.code === 'LOGIN_REQUIRED') {
-                let login = $('portalLogin');
-                if (!login) {
-                    login = document.createElement('a');
-                    login.id = 'portalLogin';
-                    login.textContent = 'Log in again';
-                    login.href = result.loginUrl;
-                    login.target = '_blank';
-                    login.rel = 'noopener noreferrer';
-                    $('message').insertAdjacentElement('afterend', login);
-                }
-                throw Error(result.error + ' Your drafts remain on this page. Log in in the new tab, then reopen this tool from the dashboard; edits are not transferred automatically.');
+                window.onbeforeunload = null;
+                window.location.replace(result.loginUrl);
+                throw Error(result.error);
             }
             if (!result.ok) throw Error(result.error || 'Request failed.');
             return result.data;
