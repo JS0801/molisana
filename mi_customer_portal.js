@@ -1218,8 +1218,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                 var rate = Number(ln.rate || 0);
                 totalAmt += qty * rate;
             });
-            if (totalAmt < 1500000 && !isAdmin(repId) && !isApprover(repId)) {
-                return json(res, { ok: false, msg: 'Order total $' + totalAmt.toFixed(2) + ' is below the minimum order amount of $1,500.00. Please submit this order as a draft opportunity for admin approval.' });
+            if (totalAmt < 5 && !isAdmin(repId) && !isApprover(repId)) {
+                return json(res, { ok: false, msg: 'Order total $' + totalAmt.toFixed(2) + ' is below the minimum order amount of $5.00. Please submit this order as a draft opportunity for admin approval.' });
             }
 
             /*
