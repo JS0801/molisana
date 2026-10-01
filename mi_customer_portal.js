@@ -1332,7 +1332,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                     catch (e) { log.error('line location', e); }
                 }
                 if (ln.rate != null && ln.rate !== '') {
-                    so.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: Number(ln.rate) });
+                    //so.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: Number(ln.rate) });
                 }
                 so.commitLine({ sublistId: 'item' });
             });
@@ -2643,7 +2643,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                         search.createColumn({ name: 'firstname', join: 'salesrep' }),
                         search.createColumn({ name: 'lastname', join: 'salesrep' }),
                         search.createColumn({ name: 'entityid', join: 'salesrep' }),
-                        search.createColumn({ name: 'memomain' })
+                        search.createColumn({ name: 'memo' })
                     ]
                 }).run().each(function (r) {
                     var oppId = r.getValue('internalid');
@@ -2653,7 +2653,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                     if (statusText.indexOf('Closed') >= 0 || statusText.indexOf('Won') >= 0 || statusText.indexOf('Lost') >= 0) {
                         return true;
                     }
-                    var notes = r.getValue({ name: 'memomain' });
+                    var notes = r.getValue({ name: 'memo' });
 
                     var custName = r.getValue({ name: 'companyname', join: 'customer' }) || r.getText('entity');
                     var repName = ((r.getValue({ name: 'firstname', join: 'salesrep' }) || '') + ' ' + (r.getValue({ name: 'lastname', join: 'salesrep' }) || '')).trim() || r.getValue({ name: 'entityid', join: 'salesrep' });
