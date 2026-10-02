@@ -1137,7 +1137,7 @@
             function hideProcessingOverlay() {
                 var overlay = document.getElementById('global-processing-overlay');
                 if (overlay) {
-                    try { document.body.removeChild(overlay); } catch(e) {}
+                    try { document.body.removeChild(overlay); } catch (e) { }
                 }
             }
 
@@ -1554,20 +1554,20 @@
                                 return;
                             }
                             CUSTOMER = r.customer;
-                            
+
                             var proceedWithBlank = function () {
-                                 var list = getDraftsForCustomer(CUSTOMER.id);
-                                 if (list.length >= 10) {
-                                     alert('You already have 10 draft orders in progress for ' + CUSTOMER.name + '. Please submit or discard some before starting a new draft.');
-                                     btn.disabled = false;
-                                     btn.innerHTML = originalText;
-                                     return;
-                                 }
-                                 ACTIVE_DRAFT_ID = null;
-                                 CART = [];
-                                 renderOrder();
-                             };
-                             proceedWithBlank();
+                                var list = getDraftsForCustomer(CUSTOMER.id);
+                                if (list.length >= 10) {
+                                    alert('You already have 10 draft orders in progress for ' + CUSTOMER.name + '. Please submit or discard some before starting a new draft.');
+                                    btn.disabled = false;
+                                    btn.innerHTML = originalText;
+                                    return;
+                                }
+                                ACTIVE_DRAFT_ID = null;
+                                CART = [];
+                                renderOrder();
+                            };
+                            proceedWithBlank();
                         }).catch(function (e) {
                             console.error(e);
                             alert('Network error loading customer.');
@@ -1696,15 +1696,8 @@
                         '  <div style="max-height:250px; overflow-y:auto; padding-right:4px;">';
 
                     draftsList.forEach(function (d) {
-                        var isBelowMin = d.total < 1500;
+                        // Approval flow commented out: All local drafts can be submitted directly as Sales Orders
                         var badgeHtml = '';
-                        if (isBelowMin) {
-                            if (IS_ADMIN || IS_APPROVER) {
-                                badgeHtml = ' <span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:12px; background-color:#e0f2fe; color:#0369a1; font-weight:600; margin-left:8px;">ℹ️ Under $1500 Min (Direct Submit Allowed)</span>';
-                            } else {
-                                badgeHtml = ' <span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:12px; background-color:#fee2e2; color:#b91c1c; font-weight:600; margin-left:8px;">⚠️ Under $1500 Min</span>';
-                            }
-                        }
                         var isDisabled = false;
                         draftsHtml +=
                             '    <div class="draft-row" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; border:1px solid var(--border-color); border-radius:8px; margin-bottom:8px; background-color:#ffffff;">' +
@@ -2216,7 +2209,7 @@
                         '  <h3 style="margin-top:0; margin-bottom:12px; font-size:16px; font-weight:600; color:var(--text-primary);">📝 Sales Order Overrides & Drafts</h3>';
 
                     if (opps.length === 0) {
-                        html += '  <div class="muted" style="padding:20px; text-align:center; background:#fafbfc; border-radius:8px; border:1px solid var(--border-color);">No draft opportunities found.</div>';
+                        html += '  <div class="muted" style="padding:20px; text-align:center; background:#fafbfc; border-radius:8px; border:1px solid var(--border-color);">ℹ️ Opportunity approval flow is currently disabled. All orders are submitted directly as Sales Orders.</div>';
                     } else {
                         html += '  <div class="table-responsive">' +
                             '    <table class="portal-table">' +
@@ -2253,21 +2246,21 @@
                                 }
                             }
 
-                             var rowStyle = '';
-                             if (BOOT.targetOppId && String(op.id) === String(BOOT.targetOppId)) {
-                                 rowStyle = 'style="background-color: #fef08a;"';
-                             }
+                            var rowStyle = '';
+                            if (BOOT.targetOppId && String(op.id) === String(BOOT.targetOppId)) {
+                                rowStyle = 'style="background-color: #fef08a;"';
+                            }
 
-                             html += '        <tr ' + rowStyle + '>' +
-                                 '          <td style="font-weight:700; color:var(--accent-primary);">' + esc(op.tranId) + '</td>' +
-                                 '          <td>' + esc(op.date) + '</td>' +
-                                 '          <td style="font-weight:600;">' + esc(op.customerName) + '</td>' +
-                                 (IS_ADMIN ? '          <td>' + esc(op.repName) + '</td>' : '') +
-                                 '          <td style="text-align: right; font-weight:600;">$' + op.amount.toFixed(2) + '</td>' +
-                                  '          <td style="text-align: right; font-weight:600;">' + esc(op.notes) + '</td>' +
-                                 '          <td style="text-align: center;">' + statusBadge + '</td>' +
-                                 '          <td style="text-align: center;">' + actionButtons + '</td>' +
-                                 '        </tr>';
+                            html += '        <tr ' + rowStyle + '>' +
+                                '          <td style="font-weight:700; color:var(--accent-primary);">' + esc(op.tranId) + '</td>' +
+                                '          <td>' + esc(op.date) + '</td>' +
+                                '          <td style="font-weight:600;">' + esc(op.customerName) + '</td>' +
+                                (IS_ADMIN ? '          <td>' + esc(op.repName) + '</td>' : '') +
+                                '          <td style="text-align: right; font-weight:600;">$' + op.amount.toFixed(2) + '</td>' +
+                                '          <td style="text-align: right; font-weight:600;">' + esc(op.notes) + '</td>' +
+                                '          <td style="text-align: center;">' + statusBadge + '</td>' +
+                                '          <td style="text-align: center;">' + actionButtons + '</td>' +
+                                '        </tr>';
                         });
 
                         html += '      </tbody>' +
@@ -2306,13 +2299,13 @@
                             var itemsSummary = '';
                             try {
                                 var items = JSON.parse(cr.itemsJson);
-                                itemsSummary = items.map(function(item) {
+                                itemsSummary = items.map(function (item) {
                                     return esc(item.itemName || ('Item #' + item.itemId)) + ' (x' + item.qty + ')';
                                 }).join(', ');
                                 if (itemsSummary.length > 50) {
                                     itemsSummary = itemsSummary.substring(0, 47) + '...';
                                 }
-                            } catch(e) {
+                            } catch (e) {
                                 itemsSummary = 'Error reading items';
                             }
 
@@ -2345,21 +2338,21 @@
                                 requestDateStr = cr.date.split(' ')[0];
                             }
 
-                             var rowStyle = '';
-                             if (BOOT.targetRequestId && (String(cr.id) === String(BOOT.targetRequestId) || String(cr.name) === String(BOOT.targetRequestId))) {
-                                 rowStyle = 'style="background-color: #fef08a;"';
-                             }
+                            var rowStyle = '';
+                            if (BOOT.targetRequestId && (String(cr.id) === String(BOOT.targetRequestId) || String(cr.name) === String(BOOT.targetRequestId))) {
+                                rowStyle = 'style="background-color: #fef08a;"';
+                            }
 
-                             html += '        <tr ' + rowStyle + '>' +
-                                 '          <td style="font-weight:700; color:var(--accent-primary);">' + esc(cr.name || ('Request #' + cr.id)) + '</td>' +
-                                 '          <td>' + esc(requestDateStr) + '</td>' +
-                                 '          <td style="font-weight:600;">' + esc(cr.customerName) + '</td>' +
-                                 (IS_ADMIN ? '          <td>' + esc(cr.repName) + '</td>' : '') +
-                                 '          <td style="font-size:12px; line-height:1.4;">' + docLinks + '</td>' +
-                                 '          <td style="font-size:12px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + esc(itemsSummary) + '">' + esc(itemsSummary) + '</td>' +
-                                 '          <td style="text-align: center;">' + statusBadge + '</td>' +
-                                 '          <td style="text-align: center;">' + actionButtons + '</td>' +
-                                 '        </tr>';
+                            html += '        <tr ' + rowStyle + '>' +
+                                '          <td style="font-weight:700; color:var(--accent-primary);">' + esc(cr.name || ('Request #' + cr.id)) + '</td>' +
+                                '          <td>' + esc(requestDateStr) + '</td>' +
+                                '          <td style="font-weight:600;">' + esc(cr.customerName) + '</td>' +
+                                (IS_ADMIN ? '          <td>' + esc(cr.repName) + '</td>' : '') +
+                                '          <td style="font-size:12px; line-height:1.4;">' + docLinks + '</td>' +
+                                '          <td style="font-size:12px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="' + esc(itemsSummary) + '">' + esc(itemsSummary) + '</td>' +
+                                '          <td style="text-align: center;">' + statusBadge + '</td>' +
+                                '          <td style="text-align: center;">' + actionButtons + '</td>' +
+                                '        </tr>';
                         });
 
                         html += '      </tbody>' +
@@ -2518,7 +2511,7 @@
                 });
             }
 
-                        /* ---------- CUSTOMER / ORDER SCREEN ---------- */
+            /* ---------- CUSTOMER / ORDER SCREEN ---------- */
             var CART = [];
             var CUSTOMER = null;
 
@@ -3337,23 +3330,23 @@
                 }
             }
 
-function checkMinAmount(total) {
-    var warningEl = root.querySelector('#min-order-warning');
-    var submitBtn = root.querySelector('#b-submit');
-    var overrideContainer = root.querySelector('#override-container');
+            function checkMinAmount(total) {
+                var warningEl = root.querySelector('#min-order-warning');
+                var submitBtn = root.querySelector('#b-submit');
+                var overrideContainer = root.querySelector('#override-container');
+                var chkOverride = root.querySelector('#chk-override-limit');
 
-    if (warningEl) warningEl.style.display = 'none';
-    if (overrideContainer) overrideContainer.style.display = 'none';
-
-    if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.style.opacity = '';
-        submitBtn.style.cursor = '';
-        submitBtn.textContent = 'Submit order';
-    }
-
-    checkQuantityRestrictions();
-}
+                if (warningEl && submitBtn) {
+                    // Approval flow commented out per client request - all orders submitted directly as Sales Orders
+                    warningEl.style.display = 'none';
+                    if (overrideContainer) overrideContainer.style.display = 'none';
+                    submitBtn.disabled = false;
+                    submitBtn.style.opacity = '';
+                    submitBtn.style.cursor = '';
+                    submitBtn.textContent = 'Submit order';
+                }
+                checkQuantityRestrictions();
+            }
 
             function renderOrder() {
                 var draft = getDraftCart(CUSTOMER.id);
@@ -3509,7 +3502,7 @@ function checkMinAmount(total) {
                         } else {
                             acl.innerHTML = '<div class="ac-row d" style="font-size:12px; color:var(--text-secondary); text-align:center; padding:16px;">No matches</div>';
                         }
-                        
+
                         acl.className = 'ac-list open';
 
                         // Toggle checkbox on row click
@@ -3553,7 +3546,7 @@ function checkMinAmount(total) {
                                     var qtyInput = acl.querySelector('.ac-qty[data-id="' + itemId + '"]');
                                     var qty = qtyInput ? parseInt(qtyInput.value, 10) : 1;
                                     if (isNaN(qty)) qty = 1;
-                                    
+
                                     var match = (r.items || []).filter(function (it) { return String(it.id) === String(itemId); })[0];
                                     if (match) {
                                         // Batch add to CART
@@ -3621,7 +3614,7 @@ function checkMinAmount(total) {
                     acl.innerHTML = '<div class="ac-row d" style="font-size:12px; color:var(--text-secondary); text-align:center; padding:16px;"><span class="spin" style="display:inline-block; margin-right:8px;"></span>Loading promotions...</div>';
                     api('itemsearch', { onlyPromos: true, customerId: CUSTOMER.id }).then(function (r) {
                         if (!r.ok) { acl.innerHTML = '<div class="ac-row d" style="font-size:12px; color:var(--text-secondary); text-align:center; padding:16px;">Error loading promos.</div>'; return; }
-                        
+
                         var itemsHtml = (r.items || []).map(function (it) {
                             var isOOS = it.isOutOfStock || (it.restrictionLevel === 0);
                             var subLabel = esc(it.name) + (it.upc ? ' | UPC: ' + esc(it.upc) : '') + ' | ID: ' + it.id + ' | Loc Qty: ' + (it.qtyAvailable !== undefined ? it.qtyAvailable : 'N/A');
@@ -3766,7 +3759,7 @@ function checkMinAmount(total) {
                     if (!e.target.closest('.ac')) { acl.className = 'ac-list'; }
                 });
 
-                                root.querySelector('#b-submit').addEventListener('click', function () {
+                root.querySelector('#b-submit').addEventListener('click', function () {
                     var btn = this;
                     if (!CART.length) { msg(card, 'Add at least one item.'); return; }
 
@@ -3934,11 +3927,11 @@ function checkMinAmount(total) {
                     if (l.promoPrice !== undefined && l.promoPrice !== null && Number(l.promoPrice) > 0 && !isOOS) {
                         var promoUnitStr = l.innerQty > 0 ? (' ($' + (Number(l.promoPrice) / l.innerQty).toFixed(2) + '/pack)') : '';
                         var regUnitStr = l.innerQty > 0 ? (' ($' + (Number(l.regularPrice) / l.innerQty).toFixed(2) + '/pack)') : '';
-                        
+
                         var promoBg = l.isFeaturePrice ? '#fff' : 'transparent';
                         var promoColor = l.isFeaturePrice ? '#ef4444' : '#495057';
                         var promoShadow = l.isFeaturePrice ? '0 1px 3px rgba(0,0,0,0.1)' : 'none';
-                        
+
                         var regBg = !l.isFeaturePrice ? '#fff' : 'transparent';
                         var regColor = !l.isFeaturePrice ? 'var(--accent-primary)' : '#495057';
                         var regShadow = !l.isFeaturePrice ? '0 1px 3px rgba(0,0,0,0.1)' : 'none';
@@ -3958,9 +3951,9 @@ function checkMinAmount(total) {
                     } else if (l.isOutOfStock) {
                         oosBadge = ' <span style="background-color: #fee2e2; color: #dc2626; padding: 1px 5px; border-radius: 4px; font-size: 9px; font-weight: 700; margin-left: 6px; display: inline-block; vertical-align: middle; text-transform: uppercase; border: 1px solid #fca5a5;">Out of Stock</span>';
                     }
-                    
+
                     var lineStyle = (isOOS && !isChristmas) ? 'text-decoration: line-through; opacity: 0.6;' : '';
-                    
+
                     h += '      <tr>' +
                         '        <td>' +
                         '          <div style="display: flex; align-items: center; gap: 12px; ' + lineStyle + '">' +
@@ -4274,7 +4267,7 @@ function checkMinAmount(total) {
             function saveDraftCart(custId, cart, po, notes, orderType, editSoId, editSoNum, salesrepId, copiedFromSoId) {
                 var list = getDraftsForCustomer(custId);
                 var activeDraft = null;
-                
+
                 if (ACTIVE_DRAFT_ID) {
                     for (var i = 0; i < list.length; i++) {
                         if (list[i].id === ACTIVE_DRAFT_ID) {
@@ -4283,7 +4276,7 @@ function checkMinAmount(total) {
                         }
                     }
                 }
-                
+
                 if (!activeDraft) {
                     // Create a new draft
                     ACTIVE_DRAFT_ID = 'draft_' + Date.now();
@@ -4301,7 +4294,7 @@ function checkMinAmount(total) {
                         list.unshift(activeDraft);
                     }
                 }
-                
+
                 activeDraft.lines = cart;
                 activeDraft.po = po || '';
                 activeDraft.notes = notes || '';
@@ -4310,12 +4303,12 @@ function checkMinAmount(total) {
                 activeDraft.editSoNum = editSoNum || '';
                 activeDraft.salesrepId = salesrepId || '';
                 activeDraft.copiedFromSoId = copiedFromSoId || '';
-                
+
                 // Limit list to max 10 drafts
                 if (list.length > 10) {
                     list = list.slice(0, 10);
                 }
-                
+
                 saveDraftsListForCustomer(custId, list);
             }
 
@@ -4338,7 +4331,7 @@ function checkMinAmount(total) {
                 }
             }
 
-                        /* ---------- ADMIN MODAL ---------- */
+            /* ---------- ADMIN MODAL ---------- */
             function openRepsModal(force) {
                 var modal = document.getElementById('reps-modal');
                 if (!modal) return;
