@@ -1218,9 +1218,11 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                 var rate = Number(ln.rate || 0);
                 totalAmt += qty * rate;
             });
-            if (totalAmt < 5 && !isAdmin(repId) && !isApprover(repId)) {
-              //  return json(res, { ok: false, msg: 'Order total $' + totalAmt.toFixed(2) + ' is below the minimum order amount of $5.00. Please submit this order as a draft opportunity for admin approval.' });
+            /*
+            if (totalAmt < 1500 && !isAdmin(repId) && !isApprover(repId)) {
+                return json(res, { ok: false, msg: 'Order total $' + totalAmt.toFixed(2) + ' is below the minimum order amount of $1,500.00. Please submit this order as a draft opportunity for admin approval.' });
             }
+            */
 
             /*
             // Check customer threshold limit
@@ -1277,7 +1279,9 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                 so.setValue({ fieldId: 'entity', value: customerId });
             }
             so.setValue({ fieldId: 'salesrep', value: salesRepId });
-            so.setValue({ fieldId: 'orderstatus', value: 'A' });   // 'A' = Pending Approval
+            // Approval bypassed: set status directly to Pending Fulfillment ('B') instead of Pending Approval ('A')
+            // so.setValue({ fieldId: 'orderstatus', value: 'A' });   // 'A' = Pending Approval
+            so.setValue({ fieldId: 'orderstatus', value: 'B' });   // 'B' = Pending Fulfillment
             if (poNum) so.setValue({ fieldId: 'otherrefnum', value: poNum }); else so.setValue({ fieldId: 'otherrefnum', value: '' });
             if (locationId) {
                 try { so.setValue({ fieldId: 'location', value: locationId }); } catch (e) { log.error('header location', e); }
@@ -1332,7 +1336,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                     catch (e) { log.error('line location', e); }
                 }
                 if (ln.rate != null && ln.rate !== '') {
-                    //so.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: Number(ln.rate) });
+                    so.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: Number(ln.rate) });
                 }
                 so.commitLine({ sublistId: 'item' });
             });
@@ -1998,10 +2002,6 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                 req.headers.host.indexOf('system.netsuite.com') >= 0 ||
                 req.headers.host.indexOf('system.na3.netsuite.com') >= 0
             );
-            if (isInternal && nsUserId === 12138) {
-    nsUserId = 1972;
-    repId = null; // Override any existing portal cookie identity.
-}
 
             if (!repId && isInternal && nsUserId && nsUserId > 0) {
                 token = makeToken(nsUserId);
@@ -2629,64 +2629,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
             var repId = verifyToken(req.parameters.token);
             if (!repId) return json(res, { ok: false, msg: 'Session expired. Please log in again.' });
 
-            var admin = isAdmin(repId);
-
-            try {
-                var filters = [];
-                if (!admin) {
-                    filters.push(['salesrep', 'anyof', repId]);
-                }
-
-                var opps = [];
-                search.create({
-                    type: search.Type.OPPORTUNITY,
-                    filters: filters,
-                    columns: [
-                        'internalid', 'tranid', 'entity', 'salesrep', 'projectedtotal', 'custbody_approve_by_admin', 'custbody_po_num', 'memo', 'trandate', 'entitystatus',
-                        search.createColumn({ name: 'companyname', join: 'customer' }),
-                        search.createColumn({ name: 'firstname', join: 'salesrep' }),
-                        search.createColumn({ name: 'lastname', join: 'salesrep' }),
-                        search.createColumn({ name: 'entityid', join: 'salesrep' }),
-                        search.createColumn({ name: 'memo' })
-                    ]
-                }).run().each(function (r) {
-                    var oppId = r.getValue('internalid');
-                    var statusText = r.getText('entitystatus') || '';
-
-                    // Filter out already closed/won/lost opportunities
-                    if (statusText.indexOf('Closed') >= 0 || statusText.indexOf('Won') >= 0 || statusText.indexOf('Lost') >= 0) {
-                        return true;
-                    }
-                    var notes = r.getValue({ name: 'memo' });
-
-                    var custName = r.getValue({ name: 'companyname', join: 'customer' }) || r.getText('entity');
-                    var repName = ((r.getValue({ name: 'firstname', join: 'salesrep' }) || '') + ' ' + (r.getValue({ name: 'lastname', join: 'salesrep' }) || '')).trim() || r.getValue({ name: 'entityid', join: 'salesrep' });
-
-                    var isApproved = r.getValue('custbody_approve_by_admin') === true || r.getValue('custbody_approve_by_admin') === 'T';
-
-                    opps.push({
-                        id: oppId,
-                        tranId: r.getValue('tranid'),
-                        customerId: r.getValue('entity'),
-                        customerName: custName,
-                        repId: r.getValue('salesrep'),
-                        repName: repName,
-                        notes: notes,
-                        amount: Number(r.getValue('projectedtotal') || 0),
-                        isApproved: isApproved,
-                        po: r.getValue('custbody_po_num') || '',
-                        memo: r.getValue('memo') || '',
-                        date: r.getValue('trandate'),
-                        orderType: ''
-                    });
-                    return true;
-                });
-
-                return json(res, { ok: true, opportunities: opps });
-            } catch (e) {
-                log.error('Error fetching opportunities', e);
-                return json(res, { ok: false, msg: 'Failed to fetch draft opportunities: ' + (e.message || e) });
-            }
+            // Opportunity approval flow is commented down/bypassed as client requested direct Sales Order creation
+            return json(res, { ok: true, opportunities: [] });
         }
 
         function doApproveOpportunity(req, res) {
