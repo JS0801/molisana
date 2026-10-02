@@ -2630,13 +2630,134 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                 .replace(/'/g, '&#39;');
         }
 
-        function doGetOpportunities(req, res) {
-            var repId = verifyToken(req.parameters.token);
-            if (!repId) return json(res, { ok: false, msg: 'Session expired. Please log in again.' });
+        // function doGetOpportunities(req, res) {
+        //     var repId = verifyToken(req.parameters.token);
+        //     if (!repId) return json(res, { ok: false, msg: 'Session expired. Please log in again.' });
 
-            // Opportunity approval flow is commented down/bypassed as client requested direct Sales Order creation
-            return json(res, { ok: true, opportunities: [] });
+        //     // Opportunity approval flow is commented down/bypassed as client requested direct Sales Order creation
+        //     return json(res, { ok: true, opportunities: [] });
+        // }
+
+
+      function doGetOpportunities(req, res) {
+    var repId = verifyToken(req.parameters.token);
+    if (!repId) {
+        return json(res, {
+            ok: false,
+            msg: 'Session expired. Please log in again.'
+        });
+    }
+
+    var admin = isAdmin(repId);
+
+    try {
+        var filters = [];
+        if (!admin) {
+            filters.push(['salesrep', 'anyof', repId]);
         }
+
+        var opportunities = [];
+        var seen = {};
+
+        search.create({
+            type: search.Type.OPPORTUNITY,
+            filters: filters,
+            columns: [
+                'internalid',
+                'tranid',
+                'entity',
+                'salesrep',
+                'projectedtotal',
+                'custbody_approve_by_admin',
+                'custbody_po_num',
+                'memo',
+                'trandate',
+                'entitystatus',
+                search.createColumn({
+                    name: 'companyname',
+                    join: 'customer'
+                }),
+                search.createColumn({
+                    name: 'firstname',
+                    join: 'salesrep'
+                }),
+                search.createColumn({
+                    name: 'lastname',
+                    join: 'salesrep'
+                }),
+                search.createColumn({
+                    name: 'entityid',
+                    join: 'salesrep'
+                })
+            ]
+        }).run().each(function (r) {
+            var id = r.getValue('internalid');
+            if (seen[id]) return true;
+            seen[id] = true;
+
+            var status = String(
+                r.getText('entitystatus') || ''
+            ).toLowerCase();
+
+            if (
+                status.indexOf('closed') >= 0 ||
+                status.indexOf('won') >= 0 ||
+                status.indexOf('lost') >= 0
+            ) {
+                return true;
+            }
+
+            var approved = r.getValue('custbody_approve_by_admin');
+            var memo = r.getValue('memo') || '';
+
+            var repName = (
+                (r.getValue({
+                    name: 'firstname',
+                    join: 'salesrep'
+                }) || '') + ' ' +
+                (r.getValue({
+                    name: 'lastname',
+                    join: 'salesrep'
+                }) || '')
+            ).trim() || r.getValue({
+                name: 'entityid',
+                join: 'salesrep'
+            }) || '';
+
+            opportunities.push({
+                id: id,
+                tranId: r.getValue('tranid'),
+                customerId: r.getValue('entity'),
+                customerName: r.getValue({
+                    name: 'companyname',
+                    join: 'customer'
+                }) || r.getText('entity') || '',
+                repId: r.getValue('salesrep'),
+                repName: repName,
+                amount: Number(r.getValue('projectedtotal') || 0),
+                isApproved: approved === true || approved === 'T',
+                po: r.getValue('custbody_po_num') || '',
+                notes: memo,
+                memo: memo,
+                date: r.getValue('trandate'),
+                orderType: ''
+            });
+
+            return true;
+        });
+
+        return json(res, {
+            ok: true,
+            opportunities: opportunities
+        });
+    } catch (e) {
+        log.error('Error fetching opportunities', e);
+        return json(res, {
+            ok: false,
+            msg: 'Failed to fetch opportunities: ' + (e.message || e)
+        });
+    }
+}
 
         function doApproveOpportunity(req, res) {
             var repId = verifyToken(req.parameters.token);
