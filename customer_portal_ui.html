@@ -3830,8 +3830,8 @@
                         total += Number(l.qty || 0) * Number(l.rate || 0);
                     });
 
-                    var isDraftApproval = (total < 1500) && !IS_ADMIN && !IS_APPROVER;
-                    var actionName = isDraftApproval ? 'draftopportunity' : 'submitorder';
+                    var isDraftApproval = false;
+                    var actionName = 'submitorder';
 
                     var selectedSalesRep = '';
                     if (IS_ADMIN) {
