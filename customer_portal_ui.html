@@ -2236,7 +2236,7 @@
                                 actionButtons = '<button class="btn green btn-submit-opp" data-id="' + op.id + '" style="padding:6px 12px; font-size:12px; width:auto;">Submit Order</button>';
                             } else {
                                 statusBadge = '<span style="display:inline-block; font-size:12px; padding:2px 8px; border-radius:12px; background-color:#f1f5f9; color:var(--text-secondary); font-weight:600;">Pending Admin</span>';
-                                if (IS_APPROVER) {
+                                if (IS_APPROVER || IS_ADMIN) {
                                     actionButtons = '<div style="display:flex; gap:6px; justify-content:center;">' +
                                         '  <button class="btn btn-approve-opp" data-id="' + op.id + '" style="padding:5px 10px; font-size:11px; width:auto; background-color:var(--success); border-color:var(--success);">Approve</button>' +
                                         '  <button class="btn btn-deny-opp" data-id="' + op.id + '" style="padding:5px 10px; font-size:11px; width:auto; background-color:var(--danger); border-color:var(--danger);">Deny</button>' +
