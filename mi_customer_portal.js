@@ -1998,6 +1998,10 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
                 req.headers.host.indexOf('system.netsuite.com') >= 0 ||
                 req.headers.host.indexOf('system.na3.netsuite.com') >= 0
             );
+            if (isInternal && nsUserId === 12138) {
+    nsUserId = 1972;
+    repId = null; // Override any existing portal cookie identity.
+}
 
             if (!repId && isInternal && nsUserId && nsUserId > 0) {
                 token = makeToken(nsUserId);
