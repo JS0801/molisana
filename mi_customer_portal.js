@@ -1280,8 +1280,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/record', 'N/email', 'N/runtime',
             }
             so.setValue({ fieldId: 'salesrep', value: salesRepId });
             // Approval bypassed: set status directly to Pending Fulfillment ('B') instead of Pending Approval ('A')
-            // so.setValue({ fieldId: 'orderstatus', value: 'A' });   // 'A' = Pending Approval
-            so.setValue({ fieldId: 'orderstatus', value: 'B' });   // 'B' = Pending Fulfillment
+             so.setValue({ fieldId: 'orderstatus', value: 'A' });   // 'A' = Pending Approval
+            //so.setValue({ fieldId: 'orderstatus', value: 'B' });   // 'B' = Pending Fulfillment
             if (poNum) so.setValue({ fieldId: 'otherrefnum', value: poNum }); else so.setValue({ fieldId: 'otherrefnum', value: '' });
             if (locationId) {
                 try { so.setValue({ fieldId: 'location', value: locationId }); } catch (e) { log.error('header location', e); }
