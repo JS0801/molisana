@@ -1705,7 +1705,7 @@
                                 badgeHtml = ' <span style="display:inline-block; font-size:11px; padding:2px 8px; border-radius:12px; background-color:#fee2e2; color:#b91c1c; font-weight:600; margin-left:8px;">⚠️ Under $1500 Min</span>';
                             }
                         }
-                        var isDisabled = isBelowMin && !IS_ADMIN && !IS_APPROVER;
+                        var isDisabled = false;
                         draftsHtml +=
                             '    <div class="draft-row" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; border:1px solid var(--border-color); border-radius:8px; margin-bottom:8px; background-color:#ffffff;">' +
                             '      <div style="display:flex; align-items:center; gap:10px;">' +
@@ -3337,55 +3337,23 @@
                 }
             }
 
-            function checkMinAmount(total) {
-                var warningEl = root.querySelector('#min-order-warning');
-                var submitBtn = root.querySelector('#b-submit');
-                var overrideContainer = root.querySelector('#override-container');
-                var chkOverride = root.querySelector('#chk-override-limit');
+function checkMinAmount(total) {
+    var warningEl = root.querySelector('#min-order-warning');
+    var submitBtn = root.querySelector('#b-submit');
+    var overrideContainer = root.querySelector('#override-container');
 
-                if (warningEl && submitBtn) {
-                    if (total < 1500) {
-                        if (IS_ADMIN || IS_APPROVER) {
-                            warningEl.className = 'msg info mb-16';
-                            warningEl.innerHTML = 'ℹ️ <strong>Below Minimum Limit</strong><br>Total ($' + total.toFixed(2) + ') is below the minimum order amount of $1,500.00. As an Admin/Approver, you can submit this directly as a Sales Order.';
-                            warningEl.style.display = 'block';
-                            if (overrideContainer) overrideContainer.style.display = 'none';
-                            submitBtn.disabled = false;
-                            submitBtn.style.opacity = '';
-                            submitBtn.style.cursor = '';
-                            submitBtn.textContent = 'Submit order';
-                        } else {
-                            warningEl.className = 'msg warn mb-16';
-                            warningEl.innerHTML = '⚠️ <strong>Approval Draft Required</strong><br>Total ($' + total.toFixed(2) + ') is below the minimum order amount of $1,500.00. This order must be saved as an opportunity draft for admin approval.';
-                            warningEl.style.display = 'block';
-                            if (overrideContainer) overrideContainer.style.display = 'block';
+    if (warningEl) warningEl.style.display = 'none';
+    if (overrideContainer) overrideContainer.style.display = 'none';
 
-                            var isChecked = chkOverride ? chkOverride.checked : false;
-                            if (isChecked) {
-                                submitBtn.disabled = false;
-                                submitBtn.style.opacity = '';
-                                submitBtn.style.cursor = '';
-                            } else {
-                                submitBtn.disabled = true;
-                                submitBtn.style.opacity = '0.5';
-                                submitBtn.style.cursor = 'not-allowed';
-                            }
-                            submitBtn.textContent = 'Submit order';
-                        }
-                    } else {
-                        warningEl.style.display = 'none';
-                        if (overrideContainer) {
-                            overrideContainer.style.display = 'none';
-                            if (chkOverride) chkOverride.checked = false;
-                        }
-                        submitBtn.disabled = false;
-                        submitBtn.style.opacity = '';
-                        submitBtn.style.cursor = '';
-                        submitBtn.textContent = 'Submit order';
-                    }
-                }
-                checkQuantityRestrictions();
-            }
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '';
+        submitBtn.style.cursor = '';
+        submitBtn.textContent = 'Submit order';
+    }
+
+    checkQuantityRestrictions();
+}
 
             function renderOrder() {
                 var draft = getDraftCart(CUSTOMER.id);
