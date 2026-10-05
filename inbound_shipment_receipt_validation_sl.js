@@ -165,6 +165,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 line.poId = text(get('purchaseorder'));
                 const qcColumn = columns.find(c => c.name === QC_FIELD);
                 const issueColumn = columns.find(c => c.name === 'custrecord_mi_open_issue');
+                line.openIssueOriginal = text(issueColumn ? result.getValue(issueColumn) : '');
                 line.qcOriginal = text(qcColumn ? result.getValue(qcColumn) : '');
                 const issue = text(issueColumn ? result.getText(issueColumn) || result.getValue(issueColumn) : '').trim();
                 line.qcInitial = qcColumn ? qcDefault(line.qcOriginal, issue) : '';
@@ -558,6 +559,17 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const index = findLine(shipment, lineId, inventoryId, poId);
             if (seen.has(index)) throw Error('The same IBS line was edited through multiple search rows. Submit changes from one row for that IBS line.');
             seen.add(index);
+            if (change.openIssue !== undefined) {
+                itemScope(shipmentId, lineId, poId);
+                const desired = text(change.openIssue);
+                if (!['','1','2','3','4'].includes(desired)) throw Error('Invalid Open Issue.');
+                const current = text(shipment.getSublistValue({sublistId:'items',fieldId:'custrecord_mi_open_issue',line:index}));
+                if (current !== desired) {
+                    if (current !== text(change.openIssueOriginal)) throw Error('Open Issue changed in NetSuite. Refresh the page before submitting.');
+                    shipment.setSublistValue({sublistId:'items',fieldId:'custrecord_mi_open_issue',line:index,value:desired});
+                    changed.add(index);
+                }
+            }
             if (change.qcStatus !== undefined) {
                 itemScope(shipmentId, lineId, poId);
                 const desired = text(change.qcStatus);
@@ -627,6 +639,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         const $ = id => document.getElementById(id);
         const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         const qcOptions = [{id:'1',name:'Release'},{id:'2',name:'To Be Labelled'},{id:'3',name:'Pending QC Release'},{id:'4',name:'QC Released'},{id:'5',name:'QC DEVIATE'}];
+        const openIssueOptions = [{id:'1',name:'Pricing'},{id:'2',name:'Quantity'},{id:'3',name:'Freight'},{id:'4',name:'New Item'}];
         const selected = {ibs:'',container:'',seal:''};
         const filterFields = {ibs:'shipmentnumber',container:'custrecord157',seal:'custrecord_seal_number_custom'};
         let data = {columns: [], shipments: []}, expanded = new Set(), edits = {}, active = null, busy = false;
@@ -697,6 +710,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 const k = line.poId + ':' + line.itemId + ':' + line.inventoryId;
                 if (!merged[k]) { merged[k] = Object.assign({},line); return; }
                 const target = merged[k];
+                if (line.openIssue !== undefined) {
+                    if (target.openIssue !== undefined && target.openIssue !== line.openIssue) throw Error('Conflicting Open Issue values on rows for the same IBS item line.');
+                    target.openIssue = line.openIssue; target.openIssueOriginal = line.openIssueOriginal;
+                }
                 if (line.qcStatus !== undefined) {
                     if (target.qcStatus !== undefined && target.qcStatus !== line.qcStatus) throw Error('Conflicting QC Status values on rows for the same IBS item line.');
                     target.qcStatus = line.qcStatus; target.qcOriginal = line.qcOriginal;
@@ -736,6 +753,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                             if (!c.join && c.name === 'receivinglocation') {
                                 const value = draft && draft.locationId !== undefined ? draft.locationId : l.detail.locationId;
                                 return '<td class="' + (draft && draft.locationId !== undefined ? 'dirty' : '') + '"><select aria-label="Receiving Location" data-location="' + s.id + ':' + l.id + '"' + (busy ? ' disabled' : '') + '>' + options(data.locations || [], value) + '</select></td>';
+                            }
+                            if (c.name === 'custrecord_mi_open_issue') {
+                                const value = draft && draft.openIssue !== undefined ? draft.openIssue : l.openIssueOriginal;
+                                return '<td><select aria-label="Open Issue" data-issue="' + s.id + ':' + l.id + '"' + (busy ? ' disabled' : '') + '>' + options(openIssueOptions,value) + '</select></td>';
                             }
                             if (c.name === 'custrecord_mi_qc_status') {
                                 const value = draft && draft.qcStatus !== undefined ? draft.qcStatus : l.qcInitial;
@@ -853,7 +874,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const draft = edits[k] || {shipmentId:active.shipmentId,lineId:active.lineId,itemId:active.itemId,poId:active.poId,inventoryId:active.inventory.id};
             if (JSON.stringify(active.rows) === JSON.stringify(active.inventory.rows)) { delete draft.rows; delete draft.snapshot; }
             else { draft.rows = active.rows; draft.snapshot = active.snapshot; }
-            if (draft.rows !== undefined || draft.qcStatus !== undefined || draft.locationId !== undefined) edits[k] = draft;
+            if (draft.rows !== undefined || draft.qcStatus !== undefined || draft.locationId !== undefined || draft.openIssue !== undefined) edits[k] = draft;
             else delete edits[k];
             closeDetail(); render();
         }
@@ -892,7 +913,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         $('submit').onclick = submit;
         $('shipments').onchange = event => {
             const isStatus = !!event.target.dataset.qc;
-            const target = event.target.dataset.qc || event.target.dataset.location;
+            const isIssue = !!event.target.dataset.issue;
+            const target = event.target.dataset.qc || event.target.dataset.location || event.target.dataset.issue;
             if (!target || busy) return;
             const [shipmentId,lineId] = target.split(':');
             const shipment = data.shipments.find(s => s.id === shipmentId);
@@ -905,7 +927,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                     if (value === l.detail.locationId) { delete draft.locationId; delete draft.locationOriginal; }
                     else { draft.locationId = value; draft.locationOriginal = l.detail.locationId; }
                 };
-                if (isStatus) {
+                if (isIssue) {
+                    if (selectedValue === l.openIssueOriginal) { delete draft.openIssue; delete draft.openIssueOriginal; }
+                    else { draft.openIssue = selectedValue; draft.openIssueOriginal = l.openIssueOriginal; }
+                } else if (isStatus) {
                     l.qcInitial = selectedValue;
                     if (selectedValue === l.qcOriginal) { delete draft.qcStatus; delete draft.qcOriginal; }
                     else { draft.qcStatus = selectedValue; draft.qcOriginal = l.qcOriginal; }
@@ -913,7 +938,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 } else {
                     stageLocation(selectedValue);
                 }
-                if (draft.rows !== undefined || draft.qcStatus !== undefined || draft.locationId !== undefined) edits[k] = draft;
+                if (draft.rows !== undefined || draft.qcStatus !== undefined || draft.locationId !== undefined || draft.openIssue !== undefined) edits[k] = draft;
                 else delete edits[k];
             });
             render();
