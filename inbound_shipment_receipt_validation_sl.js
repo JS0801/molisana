@@ -180,7 +180,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                     const lotColumn = columns.find(c => c.name === 'inventorynumber' && join(c) === 'inventorydetail');
                     const expiry = get('expirationdate','inventorydetail');
                     const row = {number:text(lotColumn ? result.getText(lotColumn) || result.getValue(lotColumn) : ''),
-                        bin:text(get('binnumber','inventorydetail')), status:text(get('status','inventorydetail')),
+                        status:text(get('status','inventorydetail')),
                         expiry:expiry ? isoDate(format.parse({value:text(expiry),type:format.Type.DATE})) : '', quantity:Number(qty)};
                     if (!line.stored.inventory.rows.some(r => JSON.stringify(r) === JSON.stringify(row))) line.stored.inventory.rows.push(row);
                 }
@@ -260,10 +260,21 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         }));
     }
 
-    function snapshot(state) {
-        const rows = state.inventory.rows.map(r => JSON.stringify({number:text(r.number),bin:text(r.bin),status:text(r.status),expiry:text(r.expiry),quantity:Number(r.quantity)})).sort();
-        return JSON.stringify({expected:state.expected,received:state.received,locationId:state.locationId,rows});
-    }
+function snapshot(state) {
+    const rows = state.inventory.rows.map(r => JSON.stringify({
+        number: text(r.number),
+        status: text(r.status),
+        expiry: text(r.expiry),
+        quantity: Number(r.quantity)
+    })).sort();
+
+    return JSON.stringify({
+        expected: state.expected,
+        received: state.received,
+        locationId: state.locationId,
+        rows
+    });
+}
 
     // function imageUrl(value, label) {
     //     for (const candidate of [value, label]) {
@@ -388,7 +399,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 return text(detail.getSublistText({sublistId: 'inventoryassignment', fieldId: field, line: index}));
             };
             rows.push({number: text(label('receiptinventorynumber') || label('issueinventorynumber') || value('receiptinventorynumber')),
-                bin: text(value('binnumber')), status: text(value('inventorystatus')),
+                status: text(value('inventorystatus')),
                 expiry: isoDate(value('expirationdate')), quantity: number(value('quantity'))});
         }
         return {id: text(shipment.getSublistValue({sublistId: 'items', fieldId: 'inventorydetail', line})), rows};
@@ -409,11 +420,19 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         return values;
     }
 
-    function itemRules(itemId) {
-        const item = search.lookupFields({type: search.Type.ITEM, id: itemId, columns: ['islotitem', 'isserialitem', 'usebins']});
-        return {lot: yes(item.islotitem), serial: yes(item.isserialitem), bins: yes(item.usebins),
-            statuses: runtime.isFeatureInEffect({feature: 'INVENTORYSTATUS'})};
-    }
+function itemRules(itemId) {
+    const item = search.lookupFields({
+        type: search.Type.ITEM,
+        id: itemId,
+        columns: ['islotitem', 'isserialitem']
+    });
+    return {
+        lot: yes(item.islotitem),
+        serial: yes(item.isserialitem),
+        bins: false,
+        statuses: runtime.isFeatureInEffect({feature: 'INVENTORYSTATUS'})
+    };
+}
 
     function unitInfo(itemId, unitId) {
         if (!runtime.isFeatureInEffect({feature: 'MULTIPLEUNITS'}) || !unitId) return {rate: 1, name: ''};
@@ -465,9 +484,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 if (serials.has(row.number.toLowerCase())) throw Error(prefix + 'duplicate serial number.');
                 serials.add(row.number.toLowerCase());
             }
-            if (row.bin && !detail.bins.some(b => b.id === text(row.bin))) throw Error(prefix + 'bin must be active and belong to the receiving location.');
+            
             if (row.status && !detail.statuses.some(s => s.id === text(row.status))) throw Error(prefix + 'select an active inventory status.');
-            if (detail.rules.bins && !row.bin) throw Error(prefix + 'select a bin.');
+            
             if (detail.rules.statuses && !row.status) throw Error(prefix + 'select a status.');
             if (row.expiry && !detail.rules.lot) throw Error(prefix + 'expiration dates apply to lot items.');
             if (row.expiry) parseDate(row.expiry);
@@ -520,7 +539,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             }
             return;
         }
-        const identity = row => JSON.stringify([text(row.number),text(row.bin),text(row.status),text(row.expiry)]);
+const identity = row => JSON.stringify([
+    text(row.number),
+    text(row.status),
+    text(row.expiry)
+]);
         const pending = rows.slice();
         const retained = [];
         const removed = [];
@@ -539,7 +562,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const set = (fieldId,value) => subrecord.setSublistValue({sublistId:'inventoryassignment',fieldId,line,value});
             if (detail.rules.lot || detail.rules.serial) set('receiptinventorynumber',row.number);
             if (row.expiry) set('expirationdate',parseDate(row.expiry));
-            if (detail.rules.bins) set('binnumber',Number(row.bin));
+            
             if (detail.rules.statuses) set('inventorystatus',Number(row.status));
             set('quantity',Number(row.quantity));
         });
@@ -796,7 +819,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
                 case 'item': return escape(active.item);
                 case 'location': return escape(active.location);
                 case 'inventorynumber': return escape(row.number);
-                case 'binnumber': return escape((active.bins.find(b => b.id === row.bin) || {}).name || row.bin);
                 case 'status': return escape((active.statuses.find(v => v.id === row.status) || {}).name || row.status);
                 case 'expirationdate': return escape(row.expiry);
                 case 'quantity': return escape(row.quantity);
@@ -804,8 +826,13 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             }
         }
         function showDetail() {
-            const required = [['inventorynumber','Number'],['binnumber','Bin Number'],['expirationdate','Expiration Date'],['quantity','Quantity'],['status','Status']];
-            const columns = active.columns.slice();
+const required = [
+    ['inventorynumber','Number'],
+    ['expirationdate','Expiration Date'],
+    ['quantity','Quantity'],
+    ['status','Status']
+];
+const columns = active.columns.filter(c => c.name !== 'binnumber');
             required.forEach(([name,label]) => { if (!columns.some(c => c.name === name)) columns.push({name,label}); });
             const label = (name,fallback) => escape((columns.find(c => c.name === name) || {}).label || fallback);
             const numberField = active.rules.lot || active.rules.serial ? '<label>' + label('inventorynumber','Serial/Lot Number') + '<input id="inv-number"></label>' : '';
@@ -813,18 +840,23 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             const binField = active.rules.bins ? '<label>' + label('binnumber','Bin') + '<select id="inv-bin">' + options(active.bins,'') + '</select></label>' : '';
             const statusField = active.rules.statuses ? '<label>' + label('status','Status') + '<select id="inv-status">' + options(active.statuses,'') + '</select></label>' : '';
             $('detailBody').innerHTML = '<div class="hint">Quantities in ' + escape(active.units.name || 'base units') + '</div><div class="detail-summary"><div>Item<b>' + escape(active.item) + '</b></div><div>Qty Expected<b>' + active.expected + '</b></div><div>Qty Received<b>' + active.received + '</b></div><div>Maximum Quantity<b>' + active.max + '</b></div><div>Total Qty<b id="total"></b></div></div>' +
-                '<div class="inv-entry">' + numberField + expiryField + binField + statusField + '<label>' + label('quantity','Quantity') + '<input id="inv-qty" type="number" min="0" step="any"></label><button class="primary" id="addRow">Add Row</button></div>' +
+                '<div class="inv-entry">' + numberField + expiryField + statusField + '<label>' + label('quantity','Quantity') + '<input id="inv-qty" type="number" min="0" step="any"></label><button class="primary" id="addRow">Add Row</button></div>' +
                 '<div class="inventory-wrap"><table><thead><tr>' + columns.map(c => '<th>' + escape(c.label) + '</th>').join('') + '<th></th></tr></thead><tbody>' + active.rows.map((row,i) => '<tr>' + columns.map(c => '<td>' + inventoryCell(c,row) + '</td>').join('') + '<td><button data-edit="' + i + '">Edit</button> <button data-remove="' + i + '">Remove</button></td></tr>').join('') + '</tbody></table></div><div class="hint">Total Qty must not exceed Qty Expected − Qty Received. OK stages changes; Submit saves the shipment.</div><div id="detailError" class="error" role="alert"></div>';
             active.editIndex = null;
             updateTotal();
         }
         function addInventoryRow() {
             const value = id => $(id) ? $(id).value.trim() : '';
-            const row = {number:value('inv-number'),expiry:value('inv-expiry'),bin:value('inv-bin'),status:value('inv-status'),quantity:Number(value('inv-qty'))};
+            const row = {
+    number: value('inv-number'),
+    expiry: value('inv-expiry'),
+    status: value('inv-status'),
+    quantity: Number(value('inv-qty'))
+};
             let error = '';
             if (!Number.isFinite(row.quantity) || row.quantity <= 0) error = 'Enter Quantity greater than zero.';
             if ((active.rules.lot || active.rules.serial) && !row.number) error = 'Enter Serial/Lot Number.';
-            if (active.rules.bins && !row.bin) error = 'Select Bin.';
+         //   if (active.rules.bins && !row.bin) error = 'Select Bin.';
             if (active.rules.statuses && !row.status) error = 'Select Status.';
             if (active.rules.serial && row.quantity !== 1) error = 'Serial quantity must be 1.';
             if ($('inv-expiry') && !$('inv-expiry').checkValidity()) error = 'Enter a valid expiration date.';
@@ -833,7 +865,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             if (total-active.max > 0.00000001) error = 'Inventory detail quantity cannot be more than ' + active.max + '.';
             if (active.rules.serial && otherRows.some(r => r.number.toLowerCase() === row.number.toLowerCase())) error = 'This serial number already exists.';
             if (error) { $('detailError').textContent = error; return false; }
-            const duplicate = active.rules.lot && active.editIndex === null ? active.rows.find(r => r.number.toLowerCase() === row.number.toLowerCase() && r.bin === row.bin && r.status === row.status && r.expiry === row.expiry) : null;
+            const duplicate = active.rules.lot && active.editIndex === null ? active.rows.find(r => r.number.toLowerCase() === row.number.toLowerCase() && r.status === row.status && r.expiry === row.expiry) : null;
             if (duplicate) {
                 if (!confirm('This lot number already exists. Click OK to merge and add the quantity.')) return;
                 duplicate.quantity = Number(duplicate.quantity) + row.quantity;
@@ -856,14 +888,14 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         function closeDetail() { $('modal').hidden = true; active = null; }
         function stageDetail() {
             if (active.editIndex !== null && !addInventoryRow()) return;
-            if (['inv-number','inv-expiry','inv-bin','inv-status','inv-qty'].some(id => $(id) && $(id).value)) { $('detailError').textContent = 'Click Add Row / Update Row before OK, or clear the entry fields.'; return; }
+            if (['inv-number','inv-expiry','inv-status','inv-qty'].some(id => $(id) && $(id).value)) { $('detailError').textContent = 'Click Add Row / Update Row before OK, or clear the entry fields.'; return; }
             let total = 0; const serials = new Set();
             for (const row of active.rows) {
                 const q = Number(row.quantity);
                 let error = '';
                 if (!Number.isFinite(q) || q <= 0) error = 'Enter a quantity greater than zero on every row.';
                 if ((active.rules.lot || active.rules.serial) && !row.number.trim()) error = 'Enter each lot/serial number.';
-                if (active.rules.bins && !row.bin) error = 'Select each bin.';
+              //  if (active.rules.bins && !row.bin) error = 'Select each bin.';
                 if (active.rules.statuses && !row.status) error = 'Select each status.';
                 if (active.rules.serial && (q !== 1 || serials.has(row.number.trim().toLowerCase()))) error = 'Use unique serial numbers with quantity 1.';
                 serials.add(row.number.trim().toLowerCase()); total += q;
@@ -956,7 +988,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             if (event.target.dataset.remove !== undefined) { active.rows.splice(Number(event.target.dataset.remove),1); showDetail(); }
             if (event.target.dataset.edit !== undefined) {
                 active.editIndex = Number(event.target.dataset.edit); const row = active.rows[active.editIndex];
-                [['inv-number','number'],['inv-expiry','expiry'],['inv-bin','bin'],['inv-status','status'],['inv-qty','quantity']].forEach(([id,field]) => { if ($(id)) $(id).value = row[field]; });
+                [['inv-number','number'],['inv-expiry','expiry'],['inv-status','status'],['inv-qty','quantity']].forEach(([id,field]) => { if ($(id)) $(id).value = row[field]; });
                 $('addRow').textContent = 'Update Row';
             }
         };
