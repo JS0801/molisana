@@ -29,6 +29,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
 
       /** @NApiVersion 2.1 */
 const salesorderSearchObj = search.create({
+   title: 'MI | Xmas 2026 Orders Line Level',
    type: "salesorder",
    settings:[{"name":"consolidationtype","value":"ACCTTYPE"}],
    filters:
