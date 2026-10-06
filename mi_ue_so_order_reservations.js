@@ -24,47 +24,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
         return rate;
     }
 
-    function afterSubmit(context) {
-
-
-      /** @NApiVersion 2.1 */
-const salesorderSearchObj = search.create({
-   title: 'MI | Xmas 2026 Orders Line Level',
-   type: "salesorder",
-   settings:[{"name":"consolidationtype","value":"ACCTTYPE"}],
-   filters:
-   [
-      ["type","anyof","SalesOrd"], 
-      "AND", 
-      ["mainline","is","F"], 
-      "AND", 
-      [["custbody_order_type_cp","anyof","3"],"OR",["memomain","contains","Xmas"],"OR",["formulatext: {otherrefnum}","contains","CHRISTMAS"],"OR",["formulatext: {otherrefnum}","contains","Xmas"],"OR",["memomain","contains","CHRISTMAS"]], 
-      "AND", 
-      [["formulanumeric: CASE WHEN {item} LIKE '%XMAS%' OR {item} LIKE '%BACI%' THEN 1 ELSE 0 END","equalto","1"],"OR",["formulanumeric: CASE WHEN UPPER({item.displayname}) LIKE '%CHIOSTRO%' OR UPPER({item.displayname}) LIKE '%STREGA%' THEN 1 ELSE 0 END","equalto","1"]], 
-      "AND", 
-      ["datecreated","within","thisyear"]
-   ],
-   columns:
-   [
-      search.createColumn({name: "internalid", label: "Internal ID"}),
-      search.createColumn({name: "tranid", label: "Document Number"}),
-      search.createColumn({name: "otherrefnum", label: "PO/Check Number"}),
-      search.createColumn({name: "memomain", label: "Memo (Main)"}),
-      search.createColumn({name: "entity", label: "Name"}),
-      search.createColumn({name: "saleschannel", label: "Sales Channel"}),
-      search.createColumn({name: "custbody_order_type_cp", label: "Order Type [CP]"}),
-      search.createColumn({name: "item", label: "Item"}),
-      search.createColumn({
-         name: "internalid",
-         join: "item",
-         label: "Item Internal ID"
-      }),
-      search.createColumn({name: "quantity", label: "Quantity"}),
-      search.createColumn({name: "line", label: "Line ID"})
-   ]
-});
-salesorderSearchObj.save();
-      
+    function afterSubmit(context) {      
         if (context.type !== context.UserEventType.CREATE) return;
         const soId = String(context.newRecord.id);
         try {
