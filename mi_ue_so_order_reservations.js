@@ -3,8 +3,8 @@
  * @NScriptType UserEventScript
  * @NModuleScope SameAccount
  */
-define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
-(search, record, runtime, format, log) => {
+define(['N/search', 'N/record', 'N/runtime', 'N/log'],
+(search, record, runtime, log) => {
     // Converts SO units into reservation units when they differ.
     function conversionRate(item, units, cache) {
         if (!cache[item]) {
@@ -24,21 +24,16 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
         return rate;
     }
 
-    function afterSubmit(context) {      
+    function afterSubmit(context) {
         if (context.type !== context.UserEventType.CREATE) return;
         const soId = String(context.newRecord.id);
         try {
             const script = runtime.getCurrentScript();
             const soSearchId = script.getParameter({ name: 'custscript_mi_or_so_search' });
-            const reservationSearchId = script.getParameter({ name: 'custscript_mi_or_res_search' });
             const strategy = script.getParameter({ name: 'custscript_mi_or_strategy' });
             const prefix = script.getParameter({ name: 'custscript_mi_or_name_prefix' }) || 'SO Reservation';
-            const form = script.getParameter({ name: 'custscript_mi_or_form' });
-            const firm = script.getParameter({ name: 'custscript_mi_or_firm' });
-            const startParam = script.getParameter({ name: 'custscript_mi_or_start_date' });
-            const endParam = script.getParameter({ name: 'custscript_mi_or_end_date' });
-            if (!soSearchId || !reservationSearchId || !strategy) {
-                throw Error('Set SO search, reservation search, allocation strategy parameters.');
+            if (!soSearchId || !strategy) {
+                throw Error('Set SO search and allocation strategy parameters.');
             }
 
             // The search determines whether the SO qualifies, not which lines to reserve.
@@ -51,13 +46,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
             if (!matched) return;
 
             const today = new Date();
-            const start = startParam ? format.parse({ value: startParam, type: format.Type.DATE }) : new Date(today.getFullYear(), 0, 1);
-            const end = endParam ? format.parse({ value: endParam, type: format.Type.DATE }) : new Date(today.getFullYear(), 11, 31);
+            const start = new Date(today.getFullYear(), 0, 1);
+            const end = new Date(today.getFullYear(), 11, 31);
             const dateKey = date => date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate();
-            if (!(start instanceof Date) || !(end instanceof Date) ||
-                !(dateKey(start) <= dateKey(today) && dateKey(end) >= dateKey(today))) {
-                throw Error('Reservation dates must include today. Leave both dates blank for the current calendar year.');
-            }
             const so = record.load({ type: record.Type.SALES_ORDER, id: soId });
             const subsidiary = so.getValue({ fieldId: 'subsidiary' });
             const channel = so.getValue({ fieldId: 'saleschannel' });
@@ -89,16 +80,16 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
                 // Retry concurrent reservation saves.
                 for (let attempt = 0; attempt < 3; attempt++) {
                     try {
-                        const reservationSearch = search.load({ id: reservationSearchId });
                         const filters = [
                             ['mainline', 'is', 'T'], 'AND', ['item', 'anyof', group.item],
                             'AND', ['location', 'anyof', group.location],
                             'AND', ['saleschannel', 'anyof', channel]
                         ];
                         if (subsidiary) filters.push('AND', ['subsidiary', 'anyof', subsidiary]);
-                        reservationSearch.filterExpression = reservationSearch.filterExpression.length
-                            ? [reservationSearch.filterExpression, 'AND', filters] : filters;
-                        reservationSearch.columns = [search.createColumn({ name: 'internalid', sort: search.Sort.ASC })];
+                        const reservationSearch = search.create({
+                            type: 'orderreservation', filters,
+                            columns: [search.createColumn({ name: 'internalid', sort: search.Sort.ASC })]
+                        });
                         const results = reservationSearch.run().getRange({ start: 0, end: 1000 });
                         if (results.length === 1000) throw Error('Too much reservation history for immediate processing.');
                         let reservation = null, lastId = 0;
@@ -117,12 +108,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
                         if (isNew) {
                             reservation = record.create({ type: 'orderreservation', isDynamic: true });
                             const values = {
-                                ...(form ? { customform: Number(form) } : {}),
                                 ...(subsidiary ? { subsidiary } : {}),
                                 item: group.item, location: group.location, saleschannel: channel,
                                 name: `${prefix} ${today.getFullYear()} ${key}`,
                                 orderallocationstrategy: Number(strategy), startdate: start, enddate: end,
-                                transactiondate: today, commitmentfirm: firm === true || firm === 'T',
+                                transactiondate: today,
                                 ...(group.units ? { units: group.units } : {}),
                                 externalid: `MI_OR_${today.getFullYear()}_${key}_${lastId}`
                             };
