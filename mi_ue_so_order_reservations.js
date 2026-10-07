@@ -90,7 +90,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
             const reservationSearch = search.create({
                 type: 'orderreservation',
                 filters: [
-                    ['mainline', 'is', 'T'], 'AND',
                     ['item', 'anyof', itemIds], 'AND',
                     ['closed', 'is', 'F'] //, 'AND',
                     // ['startdate', 'on', format.format({ value: start, type: format.Type.DATE })], 'AND',
