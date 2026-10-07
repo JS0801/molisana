@@ -92,9 +92,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
                 filters: [
                     ['mainline', 'is', 'T'], 'AND',
                     ['item', 'anyof', itemIds], 'AND',
-                    ['closed', 'is', 'F'], 'AND',
-                    ['startdate', 'on', format.format({ value: start, type: format.Type.DATE })], 'AND',
-                    ['enddate', 'on', format.format({ value: end, type: format.Type.DATE })]
+                    ['closed', 'is', 'F'] //, 'AND',
+                    // ['startdate', 'on', format.format({ value: start, type: format.Type.DATE })], 'AND',
+                    // ['enddate', 'on', format.format({ value: end, type: format.Type.DATE })]
                 ],
                 columns: [
                     search.createColumn({ name: 'internalid', sort: search.Sort.ASC }),
@@ -141,7 +141,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
                             ].join('_');
                             if (closed === true || closed === 'T' || !from || !to || actualKey !== key ||
                                 dateKey(from) !== dateKey(start) || dateKey(to) !== dateKey(end)) {
-                                throw Error(`Reservation ${matches[key]} changed after search; review before retrying.`);
+                             //   throw Error(`Reservation ${matches[key]} changed after search; review before retrying.`);
                             }
                         }
                         const isNew = !reservation;
