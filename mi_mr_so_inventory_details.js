@@ -9,27 +9,6 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
     function loadSearch() {
         const searchId = runtime.getCurrentScript().getParameter({ name: 'custscript_mi_inv_so_search' });
         if (searchId) return search.load({ id: searchId });
-     // return
-         var searchobj = search.create({
-            type: 'salesorder',
-            title: "DS TestSC 123",
-            settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
-            filters: [
-                ['type', 'anyof', 'SalesOrd'], 'AND', ['mainline', 'is', 'F'], 'AND',
-                [['custbody_order_type_cp', 'anyof', '3'], 'OR', ['memomain', 'contains', 'Xmas'],
-                    'OR', ['formulatext: {otherrefnum}', 'contains', 'CHRISTMAS'],
-                    'OR', ['formulatext: {otherrefnum}', 'contains', 'Xmas'], 'OR', ['memomain', 'contains', 'CHRISTMAS']], 'AND',
-                [["formulanumeric: CASE WHEN {item} LIKE '%XMAS%' OR {item} LIKE '%BACI%' THEN 1 ELSE 0 END", 'equalto', '0'], 'OR',
-                    ["formulanumeric: CASE WHEN UPPER({item.displayname}) LIKE '%CHIOSTRO%' OR UPPER({item.displayname}) LIKE '%STREGA%' THEN 1 ELSE 0 END", 'equalto', '1']], 'AND',
-                ['datecreated', 'within', 'thisyear'], 'AND',
-                ['formulanumeric: {quantity} - NVL({quantitycommitted},0)', 'equalto', '0'], 'AND',
-                ['inventorydetail.internalidnumber', 'isempty', ''], 'AND',
-                ['status', 'anyof', 'SalesOrd:B'], 'AND', ['quantity', 'greaterthan', '0']
-            ], columns: ['internalid', 'line']
-        });
-      var d = searchobj.save();
-      log.debug('d', d)
-      return false;
     }
 
     function getInputData() {
