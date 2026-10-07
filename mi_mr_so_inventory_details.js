@@ -9,8 +9,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
     function loadSearch() {
         const searchId = runtime.getCurrentScript().getParameter({ name: 'custscript_mi_inv_so_search' });
         if (searchId) return search.load({ id: searchId });
-        return search.create({
+     // return
+         search.create({
             type: 'salesorder',
+            title: "DS TestSC",
             settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
             filters: [
                 ['type', 'anyof', 'SalesOrd'], 'AND', ['mainline', 'is', 'F'], 'AND',
@@ -25,6 +27,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
                 ['status', 'anyof', 'SalesOrd:B'], 'AND', ['quantity', 'greaterthan', '0']
             ], columns: ['internalid', 'line']
         });
+      search.save();
+      return false;
     }
 
     function getInputData() {
