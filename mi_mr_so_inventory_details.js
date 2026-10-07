@@ -49,6 +49,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
                 if (!location) throw Error(`Line ${line + 1}: no location.`);
                 if (!lots[item]) {
                     // Lot NUMBER text is the item internal ID; resolve its own internal ID.
+                    log.audit(' Item Details', {item})
                     const matches = search.create({
                         type: 'inventorynumber',
                         filters: [['item', 'anyof', item], 'AND', ['inventorynumber', 'is', item]],
@@ -56,7 +57,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
                     }).run().getRange({ start: 0, end: 2 });
                     if (matches.length !== 1) throw Error(`Item ${item}: expected one lot numbered "${item}", found ${matches.length}.`);
                     lots[item] = matches[0].getValue({ name: 'internalid' });
-                    log.debug('Lots', lots[item])
+                    log.debug('Lots', lots)
                 }
                 const detail = so.getSublistSubrecord({ sublistId: 'item', fieldId: 'inventorydetail', line });
                 // Never replace existing assignments, including on restarted map executions.
