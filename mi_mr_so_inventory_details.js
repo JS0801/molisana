@@ -56,6 +56,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
                     }).run().getRange({ start: 0, end: 2 });
                     if (matches.length !== 1) throw Error(`Item ${item}: expected one lot numbered "${item}", found ${matches.length}.`);
                     lots[item] = matches[0].getValue({ name: 'internalid' });
+                    log.debug('Lots', lots[item])
                 }
                 const detail = so.getSublistSubrecord({ sublistId: 'item', fieldId: 'inventorydetail', line });
                 // Never replace existing assignments, including on restarted map executions.
