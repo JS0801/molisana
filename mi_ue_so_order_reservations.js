@@ -3,8 +3,8 @@
  * @NScriptType UserEventScript
  * @NModuleScope SameAccount
  */
-define(['N/search', 'N/record', 'N/runtime', 'N/log'],
-(search, record, runtime, log) => {
+define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
+(search, record, runtime, format, log) => {
     // Converts SO units into reservation units when they differ.
     function conversionRate(item, units, cache) {
         if (!cache[item]) {
@@ -55,6 +55,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'],
             const headerLocation = so.getValue({ fieldId: 'location' });
             if (!channel) throw Error('SO has no sales channel.');
             const groups = {};
+            const reservationLineField = 'custcol_mi_related_order_reservation';
             const rates = {};
             for (let i = 0; i < so.getLineCount({ sublistId: 'item' }); i++) {
                 const get = fieldId => so.getSublistValue({ sublistId: 'item', fieldId, line: i });
@@ -71,38 +72,73 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'],
                 const units = get('units') || '';
                 if (!location) throw Error(`Missing location on line ${i + 1}.`);
                 const key = [subsidiary || 0, channel, location, item].join('_');
-                if (!groups[key]) groups[key] = { item, location, units, baseQty: 0 };
+                if (!groups[key]) groups[key] = { item, location, units, baseQty: 0, lines: [] };
                 groups[key].baseQty += quantity * conversionRate(item, units, rates);
+                groups[key].lines.push(i);
             }
+
+            if (Object.keys(groups).length && !so.getSublistFields({ sublistId: 'item' }).includes(reservationLineField)) {
+                throw Error(`Missing SO line field ${reservationLineField}.`);
+            }
+            const itemIds = [...new Set(Object.values(groups).map(group => String(group.item)))];
+            if (!itemIds.length) return;
+            // One search for all SO items. Match location/channel/subsidiary in results.
+            const reservationSearch = search.create({
+                type: 'orderreservation',
+                filters: [
+                    ['mainline', 'is', 'T'], 'AND',
+                    ['item', 'anyof', itemIds], 'AND',
+                    ['closed', 'is', 'F'], 'AND',
+                    ['startdate', 'on', format.format({ value: start, type: format.Type.DATE })], 'AND',
+                    ['enddate', 'on', format.format({ value: end, type: format.Type.DATE })]
+                ],
+                columns: [
+                    search.createColumn({ name: 'internalid', sort: search.Sort.ASC }),
+                    'item', 'location', 'saleschannel',
+                    ...(subsidiary ? ['subsidiary'] : [])
+                ]
+            });
+            const matches = {};
+            const results = reservationSearch.runPaged({ pageSize: 1000 });
+            for (const pageRange of results.pageRanges) {
+                const page = results.fetch({ index: pageRange.index });
+                for (const result of page.data) {
+                    const resultKey = [
+                        subsidiary ? result.getValue({ name: 'subsidiary' }) : 0,
+                        result.getValue({ name: 'saleschannel' }),
+                        result.getValue({ name: 'location' }),
+                        result.getValue({ name: 'item' })
+                    ].join('_');
+                    if (groups[resultKey] && !matches[resultKey]) {
+                        matches[resultKey] = result.getValue({ name: 'internalid' });
+                    }
+                }
+            }
+            log.debug({ title: 'Reservation search', details: {
+                soId, itemIds, start, end, resultCount: results.count, matches
+            } });
 
             for (const key of Object.keys(groups)) {
                 const group = groups[key];
-                // Retry concurrent reservation saves.
                 for (let attempt = 0; attempt < 3; attempt++) {
                     try {
-                        const filters = [
-                            ['mainline', 'is', 'T'], 'AND', ['item', 'anyof', group.item],
-                            'AND', ['location', 'anyof', group.location],
-                            'AND', ['saleschannel', 'anyof', channel]
-                        ];
-                        if (subsidiary) filters.push('AND', ['subsidiary', 'anyof', subsidiary]);
-                        const reservationSearch = search.create({
-                            type: 'orderreservation', filters,
-                            columns: [search.createColumn({ name: 'internalid', sort: search.Sort.ASC })]
-                        });
-                        const results = reservationSearch.run().getRange({ start: 0, end: 1000 });
-                        if (results.length === 1000) throw Error('Too much reservation history for immediate processing.');
-                        let reservation = null, lastId = 0;
-                        for (const result of results) {
-                            if (script.getRemainingUsage() < 100) throw Error('Low script usage; review completed reservation logs before retrying.');
-                            const reservationId = result.getValue({ name: 'internalid' });
-                            lastId = Math.max(lastId, Number(reservationId));
-                            const candidate = record.load({ type: 'orderreservation', id: reservationId });
-                            const closed = candidate.getValue({ fieldId: 'closed' });
-                            const from = candidate.getValue({ fieldId: 'startdate' });
-                            const to = candidate.getValue({ fieldId: 'enddate' });
-                            if (!reservation && closed !== true && closed !== 'T' && from && to &&
-                                dateKey(from) <= dateKey(today) && dateKey(to) >= dateKey(today)) reservation = candidate;
+                        if (script.getRemainingUsage() < 100) throw Error('Low script usage; review completed reservation logs before retrying.');
+                        let reservation = matches[key]
+                            ? record.load({ type: 'orderreservation', id: matches[key] }) : null;
+                        if (reservation) {
+                            const closed = reservation.getValue({ fieldId: 'closed' });
+                            const from = reservation.getValue({ fieldId: 'startdate' });
+                            const to = reservation.getValue({ fieldId: 'enddate' });
+                            const actualKey = [
+                                reservation.getValue({ fieldId: 'subsidiary' }) || 0,
+                                reservation.getValue({ fieldId: 'saleschannel' }),
+                                reservation.getValue({ fieldId: 'location' }),
+                                reservation.getValue({ fieldId: 'item' })
+                            ].join('_');
+                            if (closed === true || closed === 'T' || !from || !to || actualKey !== key ||
+                                dateKey(from) !== dateKey(start) || dateKey(to) !== dateKey(end)) {
+                                throw Error(`Reservation ${matches[key]} changed after search; review before retrying.`);
+                            }
                         }
                         const isNew = !reservation;
                         if (isNew) {
@@ -113,8 +149,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'],
                                 name: `${prefix} ${today.getFullYear()} ${key}`,
                                 orderallocationstrategy: Number(strategy), startdate: start, enddate: end,
                                 transactiondate: today,
-                                ...(group.units ? { units: group.units } : {}),
-                                externalid: `MI_OR_${today.getFullYear()}_${key}_${lastId}`
+                                ...(group.units ? { units: group.units } : {})
                             };
                             for (const fieldId of Object.keys(values)) reservation.setValue({ fieldId, value: values[fieldId] });
                         }
@@ -125,21 +160,25 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'],
                         if (!Number.isFinite(quantity) || quantity <= 0) throw Error('Invalid reservation quantity.');
                         reservation.setValue({ fieldId: 'quantity', value: quantity });
                         const reservationId = reservation.save({ enableSourcing: true, ignoreMandatoryFields: false });
+                        for (const line of group.lines) {
+                            so.setSublistValue({ sublistId: 'item', fieldId: reservationLineField, line, value: String(reservationId) });
+                        }
                         log.audit({ title: isNew ? 'Reservation created' : 'Reservation updated', details: {
-                            soId, reservationId, item: group.item, location: group.location, channel, previous, added, quantity
+                            soId, reservationId, item: group.item, location: group.location, channel, previous, added, quantity, soLines: group.lines.map(line => line + 1)
                         } });
                         break;
                     } catch (error) {
-                        const conflict = /RCRD_HAS_BEEN_CHANGED|DUP.*(EXTERNAL|RCRD|RECORD)|DUPLICATE/.test(error.name || '') ||
-                            /external id.*already|duplicate.*external id/i.test(error.message || '');
-                        if (!conflict || attempt === 2) throw error;
+                        if (error.name !== 'RCRD_HAS_BEEN_CHANGED' || attempt === 2) throw error;
                         log.debug({ title: 'Retrying reservation save', details: { soId, key, attempt: attempt + 1 } });
                     }
                 }
             }
+            // Save line links once. This is an EDIT, so the CREATE-only guard prevents reprocessing.
+            so.save({ enableSourcing: false, ignoreMandatoryFields: false });
+            log.audit({ title: 'SO reservation line links saved', details: { soId, fieldId: reservationLineField } });
             log.audit({ title: 'SO reservations complete', details: { soId, itemLocationGroups: Object.keys(groups).length } });
         } catch (error) {
-            log.error({ title: `Reservation error - SO ${soId}`, details: `${error.name}: ${error.message}. SO and earlier reservation saves remain saved.` });
+            log.error({ title: `Reservation error - SO ${soId}`, details: `${error.name}: ${error.message}. SO and earlier reservation saves remain saved. SO line links may not have been saved; review audit logs before recovery.` });
             throw error;
         }
     }
