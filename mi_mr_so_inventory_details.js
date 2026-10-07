@@ -12,7 +12,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
      // return
          var searchobj = search.create({
             type: 'salesorder',
-            title: "DS TestSC",
+            title: "DS TestSC 123",
             settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
             filters: [
                 ['type', 'anyof', 'SalesOrd'], 'AND', ['mainline', 'is', 'F'], 'AND',
@@ -27,7 +27,8 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
                 ['status', 'anyof', 'SalesOrd:B'], 'AND', ['quantity', 'greaterthan', '0']
             ], columns: ['internalid', 'line']
         });
-      searchobj.save();
+      var d = searchobj.save();
+      log.debug('d', d)
       return false;
     }
 
