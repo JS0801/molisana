@@ -228,9 +228,30 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
             });
         });
         const shipments = Array.from(groups.values()).map(s => Object.assign({}, s, {lines: Array.from(s.lines.values())}));
+        addPalletTotals(shipments, meta);
         preloadDetails(shipments, meta);
         log.debug({title: 'IBS search loaded', details: {searchId, resultRows: pages.count, shipments: shipments.length}});
         return {columns: meta, shipments, locations: options('location', [['isinactive','is','F']], 'name')};
+    }
+
+    // Count each shipment item state once; joined search rows can repeat its pallet quantity.
+    function addPalletTotals(shipments, columns) {
+        const palletColumn = columns.find(c => c.section === 'item' &&
+            text(c.label).trim().replace(/\s+/g, ' ').toLowerCase() === 'qty pallets expected');
+        columns.push({key:'totalPallets',name:'totalPallets',join:'',label:'Total Pallets',section:'header'});
+        shipments.forEach(shipment => {
+            const seen = new Set();
+            let total = 0;
+            shipment.lines.forEach(line => {
+                if (!palletColumn || seen.has(line.stored)) return;
+                seen.add(line.stored);
+                const cell = (line.cells[palletColumn.key] || [])[0];
+                const value = Number(text(cell && cell.value).replace(/,/g, '').trim());
+                if (Number.isFinite(value)) total += value;
+            });
+            const value = palletColumn ? text(Number(total.toFixed(8))) : '';
+            shipment.cells.totalPallets = [{value, text:palletColumn ? value : 'Unavailable'}];
+        });
     }
 
     function qcDefault(existing, issue) {
