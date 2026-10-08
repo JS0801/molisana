@@ -10,7 +10,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
     let lineMaps = new WeakMap();
     const EPSILON = 0.00000001;
     const HEADER_FIELDS = ['internalid', 'shipmentnumber', 'custrecord157', 'custrecord158', 'custrecord_seal_number_custom',
-        'expectedshippingdate', 'custrecord_port_eta', 'memo', 'custrecord_mi_container_type', 'custrecord_conatiner_images'];
+        'expectedshippingdate', 'custrecord_port_eta', 'vesselnumber', 'memo', 'custrecord_mi_container_type', 'custrecord_conatiner_images', 'custrecord_transit_status'];
     const text = value => value == null ? '' : String(value);
     const join = column => text(column.join).toLowerCase();
     const esc = value => text(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
