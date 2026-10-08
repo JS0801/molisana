@@ -3,29 +3,38 @@
  * @NScriptType Suitelet
  *
  * Vendor Bill Approval Portal (single file, custom HTML page)
- * - Opened ONLY from the Molisana employee portal (signed portal token, same as the other tools). Direct access -> redirected to the portal login.
- * - Identity comes from the token (empid), not from a NetSuite login.
+ * - INTERNAL access (a real NetSuite user is logged in): works as before, identity = the logged-in user, no token.
+ * - EXTERNAL access (no user / system user, i.e. the extforms URL): must come from the Molisana portal with a signed token,
+ *   otherwise the visitor is sent to the portal login. Identity = empid from the token.
  * - Validator (all users): sees only pending bills where custbody_vendbill_validator = current user.
  *   Approve ticks custbody_vendbill_validator_check, bill stays Pending for the final approver.
  * - Final approvers (employees -5, 8, 12138): see ALL pending bills. Approve / Reject at any stage is final.
  * - View only (employees 12412, 11018, 11428): see ALL pending bills, no Approve / Reject.
+ * - Administrator role (internal access only): sees ALL pending bills. Can act only on bills where they are the validator.
  * - Bills are selected with checkboxes and approved / rejected in bulk from the buttons above the list.
  */
-define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
-    (search, record, runtime, format, crypto) => {
+define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format', 'N/crypto'],
+    (search, record, runtime, redirect, url, format, crypto) => {
 
         // ---- Field IDs (change here if yours differ) ----
         const FLD_VALIDATOR = 'custbody_vendbill_validator';
         const FLD_VALIDATOR_APPR = 'custbody_vendbill_validator_check';   // checkbox "Validator Approved?"
         const FLD_NOTE = 'custbody_note_to_vendor';                        // "Note to Vendor"
         const FLD_DOC_URL = 'custbody_mi_sharepoint_document_url';         // SharePoint document link
+        const FLD_CLAIM_NO = 'custbody_mi_claim_no';                     
         const PARAM_FINAL_APPROVER = 'custscript_bill_final_approver';     // employee on the script
 
         // ---- Access ----
         const FINAL_APPROVERS = ['-5', '8', '12138'];                      // full rights: approve / reject any bill
         const VIEW_ONLY = ['12412', '11018', '11428'];                     // see every bill, cannot approve / reject
+        const ADMIN_ROLE = '3';                                            // Administrator role ID (internal access only)
 
-        // ---- Portal gate ----
+        // ---- Internal vs external ----
+        // getCurrentUser().id is one of these when nobody is logged in (extforms URL) -> external access.
+        // Any other id (including -5) is a real NetSuite user -> internal access.
+        const EXTERNAL_USER_IDS = ['', '0', '-4', 'null', 'undefined'];
+
+        // ---- Portal gate (external access only) ----
         const PARAM_SECRET = 'custscript_portal_secret';                   // same value as on the portal script
         const TOKEN_TTL_MS = 30 * 60 * 1000;                               // 30 minutes, same as the portal
         const LOGIN_URL = 'https://4975346.extforms.netsuite.com/app/site/hosting/scriptlet.nl?script=2110&deploy=1&compid=4975346&ns-at=AAEJ7tMQamzukv1WMqTK6i2c27bRetbrd2MDLjhDgPPFOawMxCo';
@@ -42,50 +51,82 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
         const onRequest = (context) => {
             const req = context.request;
             const script = runtime.getCurrentScript();
+            const user = runtime.getCurrentUser();
+            const internal = isInternalUser(user);
+            log.debug({ title: 'Access mode', details: 'user.id=' + user.id + ', role=' + user.role + ', internal=' + internal });
 
-            // ---- Gate: valid signed token from the portal, else back to the login page ----
-            const empid = String(req.parameters.empid || '');
-            const ts = String(req.parameters.ts || '');
-            const sig = String(req.parameters.sig || '');
-            const secret = String(script.getParameter({ name: PARAM_SECRET }) || 'change-me');   // same fallback as the other portal tools
-            if (!verifyToken(secret, empid, ts, sig)) {
-                denied(context, req.method === 'POST' ? 'Session expired. Please log in again.' : 'Login Required');
-                return;
+            let userId, userName, isAdmin, slUrl;
+
+            if (internal) {
+                // ---- Internal URL: real NetSuite login, works as before (no token) ----
+                userId = String(user.id);
+                userName = user.name;
+                isAdmin = String(user.role) === ADMIN_ROLE;
+                slUrl = url.resolveScript({ scriptId: script.id, deploymentId: script.deploymentId });
+            } else {
+                // ---- External URL: valid signed token from the portal, else back to the login page ----
+                const empid = String(req.parameters.empid || '');
+                const ts = String(req.parameters.ts || '');
+                const sig = String(req.parameters.sig || '');
+                const secret = String(script.getParameter({ name: PARAM_SECRET }) || 'change-me');   // same fallback as the other portal tools
+                if (!verifyToken(secret, empid, ts, sig)) {
+                    denied(context, req.method === 'POST' ? 'Session expired. Please log in again.' : 'Login Required');
+                    return;
+                }
+                userId = empid;
+                userName = getUserName(empid);
+                isAdmin = false;     // no role in a portal session
+                // Token travels on every link / form so the page keeps working (and stays gated)
+                slUrl = SELF_URL + '&empid=' + encodeURIComponent(empid) + '&ts=' + encodeURIComponent(ts) + '&sig=' + encodeURIComponent(sig);
             }
 
-            const userId = empid;
             const paramApprover = String(script.getParameter({ name: PARAM_FINAL_APPROVER }) || '');
             const isFinal = FINAL_APPROVERS.includes(userId) || (paramApprover !== '' && userId === paramApprover);
             const isViewOnly = VIEW_ONLY.includes(userId) && !isFinal;
-            const seeAll = isFinal || isViewOnly;
-
-            // Token travels on every link / form so the page keeps working (and stays gated)
-            const slUrl = SELF_URL + '&empid=' + encodeURIComponent(empid) + '&ts=' + encodeURIComponent(ts) + '&sig=' + encodeURIComponent(sig);
+            const seeAll = isFinal || isViewOnly || isAdmin;
 
             // ---- Bulk Approve / Reject (POST) ----
             if (req.method === 'POST') {
                 const result = processBills(req.parameters.bpaction, req.parameters.billids, userId, isFinal, isViewOnly);
-                redirectTo(context, slUrl
-                    + '&msg=' + encodeURIComponent(result.msg) + '&msgtype=' + encodeURIComponent(result.type)
-                    + '&from=' + encodeURIComponent(req.parameters.from || '') + '&to=' + encodeURIComponent(req.parameters.to || ''));
+                if (internal) {
+                    redirect.toSuitelet({
+                        scriptId: script.id,
+                        deploymentId: script.deploymentId,
+                        parameters: {
+                            msg: result.msg, msgtype: result.type,
+                            from: req.parameters.from || '', to: req.parameters.to || ''
+                        }
+                    });
+                } else {
+                    redirectTo(context, slUrl
+                        + '&msg=' + encodeURIComponent(result.msg) + '&msgtype=' + encodeURIComponent(result.type)
+                        + '&from=' + encodeURIComponent(req.parameters.from || '') + '&to=' + encodeURIComponent(req.parameters.to || ''));
+                }
                 return;
             }
 
             // ---- Page (GET) ----
             const from = req.parameters.from || '';   // yyyy-mm-dd from the date pickers
             const to = req.parameters.to || '';
-            const bills = getBills(userId, seeAll, from, to);
+            const bills = getBills(userId, seeAll, from, to, internal);
             context.response.write(renderPage({
-                bills, isFinal, isViewOnly, userId, slUrl, from, to,
-                userName: getUserName(userId),
+                bills, isFinal, isViewOnly, isAdmin, userId, slUrl, from, to,
+                userName,
                 msg: req.parameters.msg,
                 msgType: req.parameters.msgtype
             }));
+          
         };
 
         // ==================================================================
         // Portal gate helpers
         // ==================================================================
+        // Real NetSuite user logged in = internal. No user / system user (Online Form User) = external.
+        const isInternalUser = (user) => {
+            const id = (user && user.id != null) ? String(user.id).trim() : '';
+            return EXTERNAL_USER_IDS.indexOf(id) === -1;
+        };
+
         const signToken = (secret, empid, ts) => {
             const h = crypto.createHash({ algorithm: crypto.HashAlg.SHA256 });
             h.update({ input: empid + '|' + ts + '|' + secret });
@@ -134,7 +175,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
             return format.format({ value: new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])), type: format.Type.DATE });
         };
 
-        const getBills = (userId, seeAll, from, to) => {
+        const getBills = (userId, seeAll, from, to, internal) => {
             const filters = [['mainline', 'is', 'T'], 'AND', ['approvalstatus', 'anyof', STATUS.PENDING]];
             // Everyone except final approver / view only / admin: only bills where they are the validator
             if (!seeAll) filters.push('AND', [FLD_VALIDATOR, 'anyof', userId]);
@@ -151,7 +192,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
                 filters,
                 columns: [
                     search.createColumn({ name: 'trandate', sort: search.Sort.DESC }),
-                    'entity', 'tranid', 'amount', FLD_NOTE, FLD_DOC_URL,
+                    'entity', 'tranid', 'amount', FLD_NOTE, FLD_DOC_URL,FLD_CLAIM_NO,
                     FLD_VALIDATOR, FLD_VALIDATOR_APPR, 'approvalstatus'
                 ]
             }).run().each((r) => {
@@ -164,11 +205,12 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
                     date: r.getValue('trandate') || '',
                     note: r.getValue(FLD_NOTE) || '',
                     docUrl: pickUrl(r.getValue(FLD_DOC_URL)),
+                    claimNo: r.getText(FLD_CLAIM_NO) || r.getValue(FLD_CLAIM_NO) || '',
                     validator: r.getText(FLD_VALIDATOR) || '',
                     validatorId: String(r.getValue(FLD_VALIDATOR) || ''),
                     validated: v === true || v === 'T',
                     status: r.getText('approvalstatus') || 'Pending Approval',
-                    link: NS_BILL_BASE + r.id,
+                    link: internal ? url.resolveRecord({ recordType: record.Type.VENDOR_BILL, recordId: r.id }) : NS_BILL_BASE + r.id,
                     lineDesc: ''
                 });
                 return true;
@@ -295,11 +337,11 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
 
         const money = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        const renderPage = ({ bills, isFinal, isViewOnly, userId, slUrl, from, to, userName, msg, msgType }) => {
+        const renderPage = ({ bills, isFinal, isViewOnly, isAdmin, userId, slUrl, from, to, userName, msg, msgType }) => {
             const cntValidator = bills.filter(b => !b.validated).length;
             const cntFinal = bills.filter(b => b.validated).length;
-            const defaultFilter = (isFinal || isViewOnly) ? 'all' : 'validator';
-            const roleLabel = isFinal ? 'Final approver' : isViewOnly ? 'View only' : 'Validator';
+            const defaultFilter = (isFinal || isViewOnly || isAdmin) ? 'all' : 'validator';
+            const roleLabel = isFinal ? 'Final approver' : isViewOnly ? 'View only' : isAdmin ? 'Administrator' : 'Validator';
 
             const rows = bills.map((b) => {
                 const stage = b.validated ? 'final' : 'validator';
@@ -313,12 +355,13 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
                     : `<span class="muted lock" title="${esc(why)}">&mdash;</span>`;
 
                 return `
-                <tr data-stage="${stage}" data-search="${esc((b.tranId + ' ' + b.vendor + ' ' + b.validator + ' ' + b.note + ' ' + b.lineDesc).toLowerCase())}">
+                <tr data-stage="${stage}" data-search="${esc((b.tranId + ' ' + b.vendor + ' ' + b.validator + ' ' + b.note + ' ' + b.lineDesc + ' ' + b.claimNo).toLowerCase())}">
                   <td class="pickcell">${pick}</td>
                   <td><a class="bill" href="${esc(b.link)}" target="_blank" rel="noopener">${esc(b.tranId)}</a></td>
                   <td>${esc(b.vendor)}</td>
                   <td class="wide" title="${esc(b.note)}"><span class="clamp">${esc(b.note) || '<span class="muted">&mdash;</span>'}</span></td>
                   <td class="wide" title="${esc(b.lineDesc)}"><span class="clamp">${esc(b.lineDesc) || '<span class="muted">&mdash;</span>'}</span></td>
+                  <td class="nowrap">${esc(b.claimNo) || '<span class="muted">&mdash;</span>'}</td>
                   <td>${b.docUrl
                         ? `<a class="doc" href="${esc(b.docUrl)}" target="_blank" rel="noopener">Open</a>`
                         : '<span class="muted">&mdash;</span>'}</td>
@@ -404,7 +447,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
   .btn.reject:disabled:hover{background:var(--white)}
 
   .table-box{background:var(--white);border:1px solid var(--rule);border-radius:8px;overflow-x:auto}
-  table{width:100%;border-collapse:collapse;min-width:1240px}
+  table{width:100%;border-collapse:collapse;min-width:1360px}
   th{text-align:left;font-weight:500;color:var(--muted);font-size:13px;padding:10px 14px;border-bottom:1px solid var(--rule);background:#FAFBFC;white-space:nowrap}
   td{padding:11px 14px;border-bottom:1px solid #EEF1F4;vertical-align:middle}
   tbody tr:last-child td{border-bottom:0}
@@ -502,7 +545,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/crypto'],
         <thead>
           <tr>
             <th class="pickcell"><input type="checkbox" id="pickAll" aria-label="Select all bills"></th>
-            <th>Bill</th><th>Vendor</th><th>Note to vendor</th><th>Item description</th>
+            <th>Bill</th><th>Vendor</th><th>Note to vendor</th><th>Item description</th><th>Claim number</th>
             <th>SharePoint document</th><th>Date</th><th class="num">Amount</th>
             <th>Validator</th><th>Validator approved?</th><th>Approval status</th>
           </tr>
