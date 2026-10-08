@@ -706,6 +706,7 @@ const identity = row => JSON.stringify([
             $('submit').disabled = value || !Object.keys(edits).length;
             $('refresh').disabled = value;
             $('filters').querySelectorAll('button,input').forEach(e => e.disabled = value);
+            $('shipments').querySelectorAll('select,button').forEach(e => e.disabled = value);
         }
         function cell(values) {
             return (values || []).map(c => {
