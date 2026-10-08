@@ -25,7 +25,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format', 
         const PARAM_FINAL_APPROVER = 'custscript_bill_final_approver';     // employee on the script
 
         // ---- Access ----
-        const FINAL_APPROVERS = ['-5', '8', '12138'];                      // full rights: approve / reject any bill
+        const FINAL_APPROVERS = ['-5', '8' ];  //       '12138'             // full rights: approve / reject any bill
         const VIEW_ONLY = ['12412', '11018', '11428'];                     // see every bill, cannot approve / reject
         const ADMIN_ROLE = '3';                                            // Administrator role ID (internal access only)
 
