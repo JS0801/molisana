@@ -61,7 +61,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/redirect', 'N/url', 'N/format', 
                 // ---- Internal URL: real NetSuite login, works as before (no token) ----
                 userId = String(user.id);
                 userName = user.name;
-                isAdmin = String(user.role) === ADMIN_ROLE;
+                isAdmin = false; //String(user.role) === ADMIN_ROLE;
                 slUrl = url.resolveScript({ scriptId: script.id, deploymentId: script.deploymentId });
             } else {
                 // ---- External URL: valid signed token from the portal, else back to the login page ----
