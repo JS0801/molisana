@@ -5,6 +5,7 @@
 define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/format', 'N/crypto', 'N/encode'],
 (search, record, runtime, url, file, log, format, crypto, encode) => {
     const TITLE = 'Inbound Shipment Receipt Validation';
+    const TRANSIT_FIELD = 'custrecord_transit_status';
     const QC_FIELD = 'custrecord_mi_qc_status';
     const PARAM = 'custscript_ibs_validation_search';
     let lineMaps = new WeakMap();
@@ -124,6 +125,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
         if (text(saved.searchType).toLowerCase() !== 'inboundshipment') throw Error('The configured search must be an Inbound Shipment search.');
         if (saved.columns.some(c => c.summary)) throw Error('Use a detail saved search without summary/group columns.');
         const columns = saved.columns.filter(c => !(join(c) === 'inboundshipmentitem' && ['internalid', 'id'].includes(c.name)));
+        if (!columns.some(c => !join(c) && c.name === TRANSIT_FIELD)) columns.push(search.createColumn({name:TRANSIT_FIELD,label:'Transit Status'}));
         const baseId = columns.find(c => !join(c) && c.name === 'internalid');
         const itemColumn = columns.find(c => !join(c) && c.name === 'item');
         if (!baseId || !itemColumn) throw Error('The search needs Internal Id and Item columns.');
@@ -570,8 +572,24 @@ const identity = row => JSON.stringify([
 
     function saveDetails(payload, actorId) {
         const shipmentId = validId(payload.shipmentId);
-        if (!Array.isArray(payload.lines) || !payload.lines.length) throw Error('No changed item lines to submit.');
+        if (!Array.isArray(payload.lines) || (!payload.lines.length && payload.transitStatus === undefined)) throw Error('No changes to submit.');
         const shipment = record.load({type: 'inboundshipment', id: shipmentId, isDynamic: false});
+        let transitChanged = false;
+        if (payload.transitStatus !== undefined) {
+            const desired = text(payload.transitStatus);
+            if (!['','1','2','3','4'].includes(desired)) throw Error('Invalid Transit Status.');
+            const searchId = runtime.getCurrentScript().getParameter({name:PARAM});
+            if (!searchId) throw Error('Set the deployment parameter ' + PARAM + '.');
+            const scope = search.load({id:searchId});
+            scope.filters = scope.filters.concat(search.createFilter({name:'internalid',operator:search.Operator.ANYOF,values:shipmentId}));
+            if (!scope.run().getRange({start:0,end:1}).length) throw Error('This shipment is no longer included in the configured search.');
+            const current = text(shipment.getValue({fieldId:TRANSIT_FIELD}));
+            if (current !== desired) {
+                if (current !== text(payload.transitOriginal)) throw Error('Transit Status changed in NetSuite. Refresh the page before submitting.');
+                shipment.setValue({fieldId:TRANSIT_FIELD,value:desired});
+                transitChanged = true;
+            }
+        }
         const changed = new Set();
         const seen = new Set();
         for (const change of payload.lines) {
@@ -636,16 +654,16 @@ const identity = row => JSON.stringify([
             }
             log.debug({title: 'IBS line validated', details: {shipmentId, lineId, before:detail.inventory.rows.length, rows: change.rows.length, total, maximum: detail.max}});
         }
-        if (!changed.size) return {id:shipmentId,lines:0};
+        if (!changed.size && !transitChanged) return {id:shipmentId,lines:0};
         const id = shipment.save({enableSourcing: true, ignoreMandatoryFields: false});
-        log.audit({title: 'IBS line changes saved', details: {shipmentId: id, lines: Array.from(changed), userId: actorId}});
-        return {id, lines: changed.size};
+        log.audit({title: 'IBS line changes saved', details: {shipmentId: id, lines: Array.from(changed), transitChanged, userId: actorId}});
+        return {id, lines: changed.size, transitChanged};
     }
 
     function buildPage(endpoint) {
         return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + TITLE + '</title><style>' + styles() + '</style></head><body>' +
             '<main><header><div><h1>' + TITLE + '</h1><p>Review shipments and validate inventory details</p></div><div><button id="refresh">Refresh</button> <button id="submit" class="primary" disabled>Submit</button></div></header>' +
-            '<section class="metrics"><div><b id="shipCount">0</b>Shipments</div><div><b id="lineCount">0</b>Item Lines</div><div><b id="editCount">0</b>Changed Lines</div></section>' +
+            '<section class="metrics"><div><b id="shipCount">0</b>Shipments</div><div><b id="lineCount">0</b>Item Lines</div><div><b id="editCount">0</b>Pending Changes</div></section>' +
             '<form id="filters">' + [['ibs','Shipment Number'],['container','Container Number'],['seal','Seal Number']].map(([name,label]) =>
                 '<div class="filter-field"><label for="filter-' + name + '">' + label + '</label><input id="filter-' + name + '" name="' + name + '" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="choices-' + name + '" placeholder="Type to search"><div id="choices-' + name + '" class="filter-choices" hidden></div></div>').join('') + '<button type="button" id="clear">Clear</button></form>' +
             '<div id="message" role="status"></div><div class="table-wrap"><table id="shipments"></table></div><footer>Open + to view item lines. Click Inventory Detail to view or edit assignments.</footer></main>' +
@@ -661,6 +679,7 @@ const identity = row => JSON.stringify([
     function client(endpoint) {
         const $ = id => document.getElementById(id);
         const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const transitOptions = [{id:'1',name:'Ocean'},{id:'2',name:'Port'},{id:'3',name:'Terminal'},{id:'4',name:'Yard'}];
         const qcOptions = [{id:'1',name:'Release'},{id:'2',name:'To Be Labelled'},{id:'3',name:'Pending QC Release'},{id:'4',name:'QC Released'},{id:'5',name:'QC DEVIATE'}];
         const openIssueOptions = [{id:'1',name:'Pricing'},{id:'2',name:'Quantity'},{id:'3',name:'Freight'},{id:'4',name:'New Item'}];
         const selected = {ibs:'',container:'',seal:''};
@@ -766,7 +785,15 @@ const identity = row => JSON.stringify([
             items.splice(remaining >= 0 ? remaining + 1 : items.length,0,{key:'inventoryButton',label:'Inventory Detail'});
             let html = '<thead><tr><th></th>' + headers.map(c => '<th>' + escape(c.label) + '</th>').join('') + '</tr></thead><tbody>';
             shown.forEach(s => {
-                html += '<tr><td><button class="expander" aria-expanded="' + expanded.has(s.id) + '" data-expand="' + s.id + '">' + (expanded.has(s.id) ? '−' : '+') + '</button></td>' + headers.map(c => '<td>' + cell(s.cells[c.key]) + '</td>').join('') + '</tr>';
+                html += '<tr><td><button class="expander" aria-expanded="' + expanded.has(s.id) + '" data-expand="' + s.id + '">' + (expanded.has(s.id) ? '−' : '+') + '</button></td>' + headers.map(c => {
+                    if (!c.join && c.name === 'custrecord_transit_status') {
+                        const draft = edits[key(s.id,'header')];
+                        const original = ((s.cells[c.key] || [])[0] || {}).value || '';
+                        const value = draft ? draft.transitStatus : original;
+                        return '<td class="' + (draft ? 'dirty' : '') + '"><select aria-label="Transit Status" data-transit="' + escape(s.id) + '"' + (busy ? ' disabled' : '') + '>' + options(transitOptions,value) + '</select></td>';
+                    }
+                    return '<td>' + cell(s.cells[c.key]) + '</td>';
+                }).join('') + '</tr>';
                 if (expanded.has(s.id)) {
                     html += '<tr class="expanded"><td colspan="' + (headers.length + 1) + '"><div class="item-scroll"><table><thead><tr>' + items.map(c => '<th>' + escape(c.label) + '</th>').join('') + '</tr></thead><tbody>';
                     s.lines.forEach(l => {
@@ -801,7 +828,7 @@ const identity = row => JSON.stringify([
         }
         async function load(discard) {
             if (busy) return;
-            if (discard && Object.keys(edits).length && !confirm('Discard pending line changes and refresh?')) return;
+            if (discard && Object.keys(edits).length && !confirm('Discard pending changes and refresh?')) return;
             if (discard) edits = {};
             setBusy(true); message('Loading shipments…');
             try { data = await request('list'); defaultQcDrafts(); message(''); render(); }
@@ -912,19 +939,22 @@ const columns = active.columns.filter(c => c.name !== 'binnumber');
         }
         async function submit() {
             if (busy || !Object.keys(edits).length) return;
-            setBusy(true); message('Validating and saving changed lines…');
+            setBusy(true); message('Validating and saving changes…');
             const groups = {};
             Object.values(edits).forEach(e => { if (!groups[e.shipmentId]) groups[e.shipmentId] = []; groups[e.shipmentId].push(e); });
             let saved = 0;
             try {
                 for (const [shipmentId,lines] of Object.entries(groups)) {
-                    await request('save', {}, {shipmentId,lines:mergeChanges(lines)});
+                    const header = lines.find(l => l.lineId === 'header');
+                    const payload = {shipmentId,lines:mergeChanges(lines.filter(l => l.lineId !== 'header'))};
+                    if (header) { payload.transitStatus = header.transitStatus; payload.transitOriginal = header.transitOriginal; }
+                    await request('save', {}, payload);
                     lines.forEach(l => delete edits[key(shipmentId,l.lineId)]);
                     saved++;
                 }
                 data = await request('list');
                 defaultQcDrafts();
-                message('Line changes saved for ' + saved + ' shipment(s).');
+                message('Changes saved for ' + saved + ' shipment(s).');
             } catch(error) { message((saved ? saved + ' shipment(s) saved. ' : '') + error.message + ' Remaining drafts are retained. Refresh the page if the record changed.',true); }
             finally { setBusy(false); render(); }
         }
@@ -944,6 +974,18 @@ const columns = active.columns.filter(c => c.name !== 'binnumber');
         $('clear').onclick = () => { Object.keys(selected).forEach(name => { selected[name] = ''; $('filter-'+name).value = ''; }); hideChoices(); render(); };
         $('submit').onclick = submit;
         $('shipments').onchange = event => {
+            if (event.target.dataset.transit) {
+                if (busy) return;
+                const shipmentId = event.target.dataset.transit;
+                const shipment = data.shipments.find(s => s.id === shipmentId);
+                const column = data.columns.find(c => !c.join && c.name === 'custrecord_transit_status');
+                const original = ((shipment.cells[column.key] || [])[0] || {}).value || '';
+                const k = key(shipmentId,'header');
+                if (event.target.value === original) delete edits[k];
+                else edits[k] = {shipmentId,lineId:'header',transitStatus:event.target.value,transitOriginal:original};
+                render();
+                return;
+            }
             const isStatus = !!event.target.dataset.qc;
             const isIssue = !!event.target.dataset.issue;
             const target = event.target.dataset.qc || event.target.dataset.location || event.target.dataset.issue;
