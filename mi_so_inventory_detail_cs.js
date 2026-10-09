@@ -5,8 +5,8 @@
  */
 define(['N/currentRecord', 'N/url', 'N/https', 'N/ui/dialog'], (currentRecord, url, https, dialog) => {
     // Match these IDs to the Suitelet script and deployment records.
-    const SCRIPT_ID = 'customscript_mi_so_inventory_detail_sl';
-    const DEPLOYMENT_ID = 'customdeploy_mi_so_inventory_detail_sl';
+    const SCRIPT_ID = 'customscript_mi_sl_populate_inv_details_';
+    const DEPLOYMENT_ID = 'customdeploy_mi_sl_populate_inv_details_';
     let running = false;
     function pageInit() {}
     async function assignInventoryDetail() {
