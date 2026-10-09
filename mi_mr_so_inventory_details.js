@@ -47,18 +47,81 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
                 if (get('isclosed') === true || get('isclosed') === 'T' || !Number.isFinite(quantity) || quantity <= 0 || Math.abs(quantity - committed) > 0.00000001) continue;
                 const location = get('location') || so.getValue({ fieldId: 'location' });
                 if (!location) throw Error(`Line ${line + 1}: no location.`);
-                if (!lots[item]) {
-                    // Lot NUMBER text is the item internal ID; resolve its own internal ID.
-                    log.audit(' Item Details', {item})
-                    const matches = search.create({
-                        type: 'inventorynumber',
-                        filters: [['item', 'anyof', item], 'AND', ['inventorynumber', 'is', item]],
-                        columns: ['internalid']
-                    }).run().getRange({ start: 0, end: 2 });
-                    if (matches.length !== 1) throw Error(`Item ${item}: expected one lot numbered "${item}", found ${matches.length}.`);
-                    lots[item] = matches[0].getValue({ name: 'internalid' });
-                    log.debug('Lots', lots)
-                }
+                const lotKey = `${item}_${location}_${quantity}`;
+
+if (!lots[lotKey]) {
+    const lotSearch = search.create({
+        type: 'inventorynumber',
+        filters: [
+            ['item', 'anyof', item],
+            'AND',
+            ['location', 'anyof', location],
+            'AND',
+            ['quantityavailable', 'greaterthanorequalto', quantity]
+        ],
+        columns: [
+            search.createColumn({
+                name: 'internalid',
+                sort: search.Sort.ASC
+            }),
+            'inventorynumber'
+        ]
+    });
+
+    let selectedLotId = null;
+    let selectedLotName = '';
+    let preferredFound = false;
+
+    // Check beyond the first 10 results for the preferred lot.
+    const lotPages = lotSearch.runPaged({ pageSize: 1000 });
+
+    for (const pageRange of lotPages.pageRanges) {
+        const page = lotPages.fetch({ index: pageRange.index });
+
+        for (const result of page.data) {
+            const lotId = result.getValue({ name: 'internalid' });
+            const lotName = String(
+                result.getValue({ name: 'inventorynumber' }) || ''
+            );
+
+            // Keep the first available lot as the fallback.
+            if (!selectedLotId) {
+                selectedLotId = lotId;
+                selectedLotName = lotName;
+            }
+
+            if (lotName === String(item)) {
+                selectedLotId = lotId;
+                selectedLotName = lotName;
+                preferredFound = true;
+                break;
+            }
+        }
+
+        if (preferredFound) break;
+    }
+
+    if (!selectedLotId) {
+        throw Error(
+            `Item ${item}: no lot at location ${location} ` +
+            `has available quantity of at least ${quantity}.`
+        );
+    }
+
+    lots[lotKey] = selectedLotId;
+
+    log.debug({
+        title: 'Lot selected',
+        details: {
+            item,
+            location,
+            quantity,
+            lotId: selectedLotId,
+            lotName: selectedLotName,
+            preferredFound
+        }
+    });
+}
                 const detail = so.getSublistSubrecord({ sublistId: 'item', fieldId: 'inventorydetail', line });
                 // Never replace existing assignments, including on restarted map executions.
                 if (detail.getLineCount({ sublistId: 'inventoryassignment' }) > 0) {
@@ -66,10 +129,10 @@ define(['N/search', 'N/record', 'N/runtime', 'N/log'], (search, record, runtime,
                     continue;
                 }
                 detail.insertLine({ sublistId: 'inventoryassignment', line: 0 });
-                detail.setSublistValue({ sublistId: 'inventoryassignment', fieldId: 'issueinventorynumber', line: 0, value: lots[item] });
+                detail.setSublistValue({ sublistId: 'inventoryassignment', fieldId: 'issueinventorynumber', line: 0, value: lots[lotKey] });
                 detail.setSublistValue({ sublistId: 'inventoryassignment', fieldId: 'quantity', line: 0, value: quantity });
                 updated++;
-                log.debug({ title: 'Inventory detail prepared', details: { soId, line: line + 1, item, lotId: lots[item], quantity, location } });
+                log.debug({ title: 'Inventory detail prepared', details: { soId, line: line + 1, item, lotId: lots[lotKey], quantity, location } });
             }
             if (updated) {
                 so.save({ enableSourcing: false, ignoreMandatoryFields: false });
