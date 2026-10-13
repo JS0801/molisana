@@ -59,6 +59,49 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
             log.debug({ title: 'SO eligibility', details: { soId, search: soSearchId, matched } });
             if (!matched) return;
 
+
+          const soFields = search.lookupFields({
+    type: search.Type.SALES_ORDER,
+    id: soId,
+    columns: ['entity', 'saleschannel']
+});
+
+const getSelectValue = value =>
+    Array.isArray(value)
+        ? (value[0]?.value || '')
+        : (value?.value || value || '');
+
+if (!getSelectValue(soFields.saleschannel)) {
+    const customerId = getSelectValue(soFields.entity);
+
+    if (customerId) {
+        const customerFields = search.lookupFields({
+            type: search.Type.CUSTOMER,
+            id: customerId,
+            columns: ['custentity_default_shipping_channel']
+        });
+
+        const defaultChannel = getSelectValue(
+            customerFields.custentity_default_shipping_channel
+        );
+
+        if (defaultChannel) {
+            record.submitFields({
+                type: record.Type.SALES_ORDER,
+                id: soId,
+                values: {
+                    saleschannel: defaultChannel
+                },
+                options: {
+                    enableSourcing: false,
+                    ignoreMandatoryFields: false
+                }
+            });
+        }
+    }
+}
+          return; //change this later
+
             const today = new Date();
             const start = new Date(today.getFullYear(), 0, 1);
             const end = new Date(today.getFullYear(), 11, 31);
