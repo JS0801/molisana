@@ -2,137 +2,145 @@
  * @NApiVersion 2.1
  * @NScriptType UserEventScript
  * @NModuleScope SameAccount
+ *
+ * Sales Order - Expected Shipping Date & Sales Channel
+ *
+ * CREATE : Calculate header Expected Shipping Date from Customer delivery day
+ *          (or 2 business days lead time), set Sales Channel from Customer,
+ *          and push the date to every item line.
+ * EDIT   : If the header Expected Shipping Date changed, push it to every item line.
+ *          If unchanged, do nothing.
+ *
+ * Runs in beforeSubmit, so everything is written in the same save.
+ * No record.load, no submitFields, no second save.
  */
-define(['N/record', 'N/log'], function (record, log) {
+define(['N/search', 'N/log'], (search, log) => {
 
-    var CUSTOMER_DELIVERY_DAY_FIELD = 'custentity_mi_default_delivery_day';
-    var TRANDATE_FIELD = 'trandate';
-    var TARGET_FIELD = 'custbody_expected_shipping_date';
+    const CUSTOMER_DELIVERY_DAY_FIELD = 'custentity_mi_default_delivery_day';
+    const CUSTOMER_SALES_CHANNEL_FIELD = 'custentity_default_shipping_channel';
+    const TRANDATE_FIELD = 'trandate';
+    const TARGET_FIELD = 'custbody_expected_shipping_date';
+    const SO_SALES_CHANNEL_FIELD = 'saleschannel';
+    const LINE_FIELD = 'expectedshipdate';
+    const LEAD_TIME_BUSINESS_DAYS = 2;
 
-    function afterSubmit(context) {
-        try {
-            if (context.type !== context.UserEventType.EDIT && context.type !== context.UserEventType.CREATE) {
-                return;
-            }
-
-            var rec = context.newRecord;
-          
-            var tranDate = rec.getValue({ fieldId: TRANDATE_FIELD });
-            var custID = rec.getValue({ fieldId: 'entity' });
-            var Cust_loaded = record.load({ type: 'customer', id: custID, isDynamic: false });
-            var deliveryDayValue = Cust_loaded.getValue({ fieldId: CUSTOMER_DELIVERY_DAY_FIELD });
-
-            var baseDate = toDate(tranDate);
-            if (!baseDate) {
-                log.debug({
-                    title: 'Expected Shipping Date',
-                    details: 'No usable trandate found. trandate=' + tranDate
-                });
-                return;
-            }
-
-            // --- Decide which rule applies -----------------
-            var days = deliveryDayValueToDays(deliveryDayValue);
-            var expectedDate;
-
-            if (days.length > 0) {
-                // Path 1: next upcoming day from trandate
-                expectedDate = nextMatchingDay(baseDate, days);
-            } else {
-                // Path 2: trandate + 2 business days (weekends not counted)
-                expectedDate = addLeadTime(baseDate);
-            }
-
-            // --- Persist ---------------------------------------------------
-            var values = {};
-            values[TARGET_FIELD] = expectedDate;
-
-            record.submitFields({
-                type: rec.type,
-                id: rec.id,
-                values: values,
-                options: { enableSourcing: false, ignoreMandatoryFields: true }
-            });
-
-            log.audit({
-                title: 'Expected Shipping Date set',
-                details: 'SO ' + rec.id +
-                         ' | deliveryDayValue="' + (deliveryDayValue || '') + '"' +
-                         ' | days=[' + days.join(',') + ']' +
-                         ' | trandate=' + baseDate +
-                         ' -> ' + expectedDate
-            });
-
-        } catch (e) {
-            log.error({
-                title: 'Error populating ' + TARGET_FIELD,
-                details: (e.name || '') + ' : ' + (e.message || e)
-            });
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    // Helpers
-    // ---------------------------------------------------------------------
-
-    /** Normalizes a date-field value to a Date object. */
-    function toDate(value) {
-        if (!value) { return null; }
-        if (value instanceof Date) { return new Date(value.getTime()); }
-        var d = new Date(value);
-        return isNaN(d.getTime()) ? null : d;
-    }
-
-    /**
-     * Returns the next date strictly AFTER fromDate whose weekday is in
-     * dayNumbers. The earliest such day within the next 7 days wins.
-     */
-    function nextMatchingDay(fromDate, dayNumbers) {
-        var result = new Date(fromDate.getTime());
-        for (var i = 0; i < 7; i++) {
-            result.setDate(result.getDate() + 1);
-            if (dayNumbers.indexOf(result.getDay()) !== -1) {
-                return result;
-            }
-        }
-        return result; // safety fallback (shouldn't be reached)
-    }
-
-    function deliveryDayValueToDays(value) {
-    var map = {
-        '1': [1],    // Monday
-        '2': [2],    // Tuesday
-        '3': [3],    // Wednesday
-        '4': [4],    // Thursday
-        '5': [5],    // Friday
-        '6': [1, 4]  // Monday/Thursday
+    // Delivery day list value -> JS weekday numbers (0 = Sun ... 6 = Sat)
+    const DELIVERY_DAY_MAP = {
+        '1': [1],
+        '2': [2],
+        '3': [3],
+        '4': [4],
+        '5': [5],
+        '6': [1, 4]
     };
 
-    return map[String(value || '')] || [];
-}
+    const beforeSubmit = (context) => {
+        const UE = context.UserEventType;
+        if (context.type !== UE.CREATE && context.type !== UE.EDIT) return;
 
-    /**
-     * Adds 2 business days (48 working hours) to startDate by stepping forward
-     * one day at a time and counting only weekdays (Saturday and Sunday are
-     * skipped and do not count toward the total).
-     *
-     * Examples:
-     *   Mon -> Wed        Thu -> Mon (skip weekend)
-     *   Tue -> Thu        Fri -> Tue (skip weekend)
-     *   Wed -> Fri        Sat -> Tue   Sun -> Tue
-     */
-    function addLeadTime(startDate) {
-        var result = new Date(startDate.getTime());
-        var added = 0;
-        while (added < 2) {
-            result.setDate(result.getDate() + 1);
-            var dow = result.getDay();
-            if (dow !== 0 && dow !== 6) { // not Sunday and not Saturday
-                added++;
+        try {
+            const rec = context.newRecord;
+            let expectedDate;
+
+            if (context.type === UE.CREATE) {
+                const baseDate = toDate(rec.getValue({ fieldId: TRANDATE_FIELD }));
+                const custId = rec.getValue({ fieldId: 'entity' });
+
+                if (!baseDate || !custId) {
+                    log.debug('Expected Shipping Date', `Skipped. trandate=${baseDate} | customer=${custId}`);
+                    return;
+                }
+
+                // One lightweight lookup instead of loading the full customer record
+                const cust = search.lookupFields({
+                    type: search.Type.CUSTOMER,
+                    id: custId,
+                    columns: [CUSTOMER_DELIVERY_DAY_FIELD, CUSTOMER_SALES_CHANNEL_FIELD]
+                });
+
+                const deliveryDay = selectValue(cust[CUSTOMER_DELIVERY_DAY_FIELD]);
+                const salesChannel = selectValue(cust[CUSTOMER_SALES_CHANNEL_FIELD]);
+                const days = DELIVERY_DAY_MAP[deliveryDay] || [];
+
+                expectedDate = days.length
+                    ? nextMatchingDay(baseDate, days)
+                    : addBusinessDays(baseDate, LEAD_TIME_BUSINESS_DAYS);
+
+                // Header fields - both set in the same save
+                rec.setValue({ fieldId: TARGET_FIELD, value: expectedDate });
+                if (salesChannel) {
+                    rec.setValue({ fieldId: SO_SALES_CHANNEL_FIELD, value: salesChannel });
+                }
+
+                log.audit('Header set', `Customer ${custId} | deliveryDay="${deliveryDay}" | days=[${days}] | ` +
+                    `trandate=${baseDate.toDateString()} -> ${expectedDate.toDateString()} | salesChannel=${salesChannel}`);
+
+            } else {
+                // EDIT - only act when the header date actually changed
+                expectedDate = toDate(rec.getValue({ fieldId: TARGET_FIELD }));
+                const oldDate = toDate(context.oldRecord.getValue({ fieldId: TARGET_FIELD }));
+
+                if (!expectedDate || sameDay(oldDate, expectedDate)) return;
             }
+
+            const updated = setLineDates(rec, expectedDate);
+
+            log.audit('Line Expected Ship Date updated',
+                `SO ${rec.id || '(new)'} | ${context.type} | Date: ${expectedDate.toDateString()} | Lines changed: ${updated}`);
+
+        } catch (e) {
+            log.error(`Error populating ${TARGET_FIELD}`, `${e.name || ''} : ${e.message || e}`);
+        }
+    };
+
+    // Sets the line date only where it differs; returns number of lines changed
+    const setLineDates = (rec, date) => {
+        const lineCount = rec.getLineCount({ sublistId: 'item' });
+        let changed = 0;
+
+        for (let i = 0; i < lineCount; i++) {
+            const current = toDate(rec.getSublistValue({ sublistId: 'item', fieldId: LINE_FIELD, line: i }));
+            if (sameDay(current, date)) continue;
+
+            rec.setSublistValue({ sublistId: 'item', fieldId: LINE_FIELD, line: i, value: date });
+            changed++;
+        }
+        return changed;
+    };
+
+    // lookupFields returns select fields as [{ value, text }]
+    const selectValue = (v) => {
+        if (Array.isArray(v)) return v.length ? String(v[0].value) : '';
+        return v ? String(v) : '';
+    };
+
+    const toDate = (value) => {
+        if (!value) return null;
+        const d = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+        return isNaN(d.getTime()) ? null : d;
+    };
+
+    const sameDay = (a, b) => !!a && !!b && a.toDateString() === b.toDateString();
+
+    const nextMatchingDay = (fromDate, dayNumbers) => {
+        const result = new Date(fromDate.getTime());
+        for (let i = 0; i < 7; i++) {
+            result.setDate(result.getDate() + 1);
+            if (dayNumbers.includes(result.getDay())) return result;
         }
         return result;
-    }
+    };
 
-    return { afterSubmit: afterSubmit };
+    const addBusinessDays = (startDate, count) => {
+        const result = new Date(startDate.getTime());
+        let added = 0;
+        while (added < count) {
+            result.setDate(result.getDate() + 1);
+            const dow = result.getDay();
+            if (dow !== 0 && dow !== 6) added++;
+        }
+        return result;
+    };
+
+    return { beforeSubmit };
 });
