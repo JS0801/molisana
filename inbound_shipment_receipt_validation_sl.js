@@ -488,7 +488,13 @@ function itemRules(itemId) {
         const bins = rules.bins && state.locationId ? options('bin', [['location','anyof',state.locationId], 'AND', ['inactive','is','F']], 'binnumber') : [];
         const statuses = rules.statuses ? options('inventorystatus', [['isinactive','is','F']], 'name') : [];
         return Object.assign({}, state, {shipmentId, lineId, expected, received, units, rules, bins, statuses, snapshot: snapshot(state),
-            location: text(shipment.getSublistText({sublistId: 'items', fieldId: 'receivinglocation', line: index})),
+            location: location: state.locationId
+    ? text(search.lookupFields({
+        type: 'location',
+        id: state.locationId,
+        columns: ['name']
+    }).name)
+    : '',
             item: scope.item,
             max: Math.max(0, expected - received), columns: scope.columns});
     }
