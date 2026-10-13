@@ -238,7 +238,9 @@ define(['N/search', 'N/record', 'N/runtime', 'N/url', 'N/file', 'N/log', 'N/form
     function addPalletTotals(shipments, columns) {
         const palletColumn = columns.find(c => c.section === 'item' &&
             text(c.label).trim().replace(/\s+/g, ' ').toLowerCase() === 'qty pallets expected');
-        columns.push({key:'totalPallets',name:'totalPallets',join:'',label:'Total Pallets',section:'header'});
+        const memoIndex = columns.findIndex(c => c.section === 'header' && !c.join && c.name === 'memo');
+        columns.splice(memoIndex >= 0 ? memoIndex : columns.length, 0,
+            {key:'totalPallets',name:'totalPallets',join:'',label:'Total Pallets',section:'header'});
         shipments.forEach(shipment => {
             const seen = new Set();
             let total = 0;
