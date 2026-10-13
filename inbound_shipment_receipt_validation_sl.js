@@ -488,7 +488,7 @@ function itemRules(itemId) {
         const bins = rules.bins && state.locationId ? options('bin', [['location','anyof',state.locationId], 'AND', ['inactive','is','F']], 'binnumber') : [];
         const statuses = rules.statuses ? options('inventorystatus', [['isinactive','is','F']], 'name') : [];
         return Object.assign({}, state, {shipmentId, lineId, expected, received, units, rules, bins, statuses, snapshot: snapshot(state),
-            location: location: state.locationId
+            location: state.locationId
     ? text(search.lookupFields({
         type: 'location',
         id: state.locationId,
