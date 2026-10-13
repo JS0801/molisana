@@ -29,7 +29,7 @@ define(['N/search', 'N/record', 'N/runtime', 'N/format', 'N/log'],
 
     function afterSubmit(context) {
       
-        if (context.type == context.UserEventType.CREATE) return;
+        if (context.type !== context.UserEventType.CREATE) return;
         const soId = String(context.newRecord.id);
         try {
             const script = runtime.getCurrentScript();
