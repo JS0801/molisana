@@ -61,16 +61,31 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         }
         return { rec, fields, identity, rows, units: text(rec, 'units') || String(val(rec, 'units') || '') };
     }
-    function reservations(item, location) {
-        const list = search.create({ type: 'orderreservation', filters: [
-            ['mainline', 'is', 'T'], 'AND', ['item', 'anyof', item], 'AND', ['location', 'anyof', location]
-        ], columns: ['internalid', 'tranid'] }).run().getRange({ start: 0, end: 1000 });
-        if (list.length >= 1000) throw Error('Reservation search reached its limit; narrow the scope.');
+    function reservations(n) {
+        const candidates = n.rows.filter(row => /reserv|ordres/i.test(
+            String(row.values.transactiontype || '') + ' ' + String(row.values.transactiontypename || '')));
+        if (!candidates.length) {
+            const summary = n.rows.slice(0, 20).map(row => ({
+                row: row.line, orderid: row.values.orderid, ordernumber: row.values.ordernumber,
+                transactiontype: row.values.transactiontype, transactiontypename: row.values.transactiontypename,
+                saleschannel: row.values.saleschannel
+            }));
+            throw Error('The native reallocation record returned ' + n.rows.length +
+                ' rows, but none was identified as an Order Reservation. Native row sample: ' + JSON.stringify(summary));
+        }
         const seen = new Set();
-        return list.filter(r => { const id = String(r.id); if (seen.has(id)) return false; seen.add(id); return true; });
+        return candidates.map(row => {
+            const id = String(row.values.orderid || '');
+            if (!/^\d+$/.test(id)) throw Error('Reservation row ' + row.line + ' has no numeric orderid: ' + id);
+            if (seen.has(id)) throw Error('Multiple native rows refer to reservation ' + id + '; refusing ambiguous mapping.');
+            seen.add(id);
+            return { id, name: String(row.values.ordernumber || id), row };
+        });
     }
     function match(n, id, tranid) {
-        const matches = n.rows.filter(row => n.identity.some(f => {
+        const matches = n.fields.includes('orderid')
+            ? n.rows.filter(row => String(row.values.orderid) === String(id))
+            : n.rows.filter(row => n.identity.some(f => {
             const v = String(row.values[f] == null ? '' : row.values[f]);
             const t = String(row.labels[f] == null ? '' : row.labels[f]);
             // Numeric IDs only on identity fields; exact transaction numbers
@@ -207,7 +222,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         const p = ctx.request.parameters;
         const form = ui.createForm({ title: 'Move Commitment Between Order Reservations' });
         try {
-      //      if (runtime.envType !== runtime.EnvType.SANDBOX) throw Error('This initial operational version is restricted to sandbox until verified.');
+            if (runtime.envType !== runtime.EnvType.SANDBOX) throw Error('This initial operational version is restricted to sandbox until verified.');
             if (ctx.request.method === 'POST' && p.custpage_action === 'apply') {
                 const key = String(p.custpage_token || '');
                 const raw = store().get({ key });
@@ -249,14 +264,8 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                         form.addSubmitButton({ label: 'Load Reservations' });
                     } else {
                         const n = native(c.item, c.location);
-                        const found = reservations(c.item, c.location);
-                        const eligible = []; const skipped = [];
-                        for (const r of found) {
-                            const id = String(r.id), name = String(r.getValue('tranid') || '');
-                            try { const row = match(n, id, name); eligible.push({ id, name, row }); }
-                            catch (error) { skipped.push(name + ': ' + error.message); }
-                        }
-                        if (!eligible.length) throw Error('No reservations could be mapped uniquely to native rows. ' + skipped.join(' ') + ' Native fields: ' + n.fields.join(', '));
+                        const eligible = reservations(n);
+                        const skipped = [];
                         // Load at most 40 reservations for channel and protection details.
                         if (eligible.length > 40) throw Error('More than 40 reservations; narrow the scope before proceeding.');
                         const details = eligible.map(e => ({ ...e, info: reservation(e.id, c.item, c.location) }));
