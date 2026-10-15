@@ -13,7 +13,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
     const num = v => { const n = Number(v || 0); if (!Number.isFinite(n)) throw Error('Invalid quantity: ' + v); return n; };
     const round = n => Math.round(n * 1000000) / 1000000;
     const yes = v => v === true || v === 'T';
-    const store = () => cache.getCache({ name: 'reservation_reallocation_plans_v1', scope: cache.Scope.PRIVATE });
+    const store = () => cache.getCache({ name: 'order_reallocation_plans_v2', scope: cache.Scope.PRIVATE });
     const owner = () => String(runtime.getCurrentUser().id) + ':' + String(runtime.getCurrentUser().role);
     function text(rec, fieldId) { try { return rec.getText({ fieldId }) || ''; } catch (_) { return ''; } }
     function val(rec, fieldId) { return rec.getValue({ fieldId }); }
@@ -53,7 +53,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
             const values = {}, labels = {};
             fields.forEach(fieldId => {
                 values[fieldId] = rec.getSublistValue({ sublistId: 'order', fieldId, line });
-                if (identity.includes(fieldId)) {
+                if (identity.includes(fieldId) || fieldId === 'saleschannel') {
                     try { labels[fieldId] = rec.getSublistText({ sublistId: 'order', fieldId, line }); } catch (_) { /* value is sufficient */ }
                 }
             });
@@ -61,111 +61,91 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         }
         return { rec, fields, identity, rows, units: text(rec, 'units') || String(val(rec, 'units') || '') };
     }
-    function reservations(n) {
-        const candidates = n.rows.filter(row => /reserv|ordres/i.test(
-            String(row.values.transactiontype || '') + ' ' + String(row.values.transactiontypename || '')));
-        if (!candidates.length) {
-            const summary = n.rows.slice(0, 20).map(row => ({
-                row: row.line, orderid: row.values.orderid, ordernumber: row.values.ordernumber,
-                transactiontype: row.values.transactiontype, transactiontypename: row.values.transactiontypename,
-                saleschannel: row.values.saleschannel
-            }));
-            throw Error('The native reallocation record returned ' + n.rows.length +
-                ' rows, but none was identified as an Order Reservation. Native row sample: ' + JSON.stringify(summary));
-        }
+    function rowKey(row) {
+        const v = row.values;
+        if (!/^\d+$/.test(String(v.orderid || ''))) throw Error('Native row has no valid orderid.');
+        return [String(v.transactiontype || v.transactiontypename || ''), String(v.orderid), String(v.orderline == null ? '' : v.orderline)].join('|');
+    }
+    function orderRows(n) {
         const seen = new Set();
-        return candidates.map(row => {
-            const id = String(row.values.orderid || '');
-            if (!/^\d+$/.test(id)) throw Error('Reservation row ' + row.line + ' has no numeric orderid: ' + id);
-            if (seen.has(id)) throw Error('Multiple native rows refer to reservation ' + id + '; refusing ambiguous mapping.');
-            seen.add(id);
-            return { id, name: String(row.values.ordernumber || id), row };
+        return n.rows.map(row => {
+            const key = rowKey(row);
+            if (seen.has(key)) throw Error('Native order/line identity is ambiguous: ' + key);
+            seen.add(key);
+            const v = row.values;
+            return { key, id: String(v.orderid), name: String(v.ordernumber || v.orderid),
+                type: String(v.transactiontypename || v.transactiontype || ''),
+                isReservation: /reserv|ordres/i.test(String(v.transactiontype) + ' ' + String(v.transactiontypename)),
+                isSO: /sales.?order|salesord/i.test(String(v.transactiontype) + ' ' + String(v.transactiontypename)),
+                channel: String(v.saleschannel || ''), channelText: String(row.labels.saleschannel || v.saleschannel || ''),
+                committed: num(v.quantitycommitted), remaining: num(v.quantityremaining), picked: num(v.quantitypicked),
+                line: row.line, orderline: String(v.orderline == null ? '' : v.orderline), row };
         });
     }
-    function match(n, id, tranid) {
-        const matches = n.fields.includes('orderid')
-            ? n.rows.filter(row => String(row.values.orderid) === String(id))
-            : n.rows.filter(row => n.identity.some(f => {
-            const v = String(row.values[f] == null ? '' : row.values[f]);
-            const t = String(row.labels[f] == null ? '' : row.labels[f]);
-            // Numeric IDs only on identity fields; exact transaction numbers
-            // can also be exposed as the field's display text.
-            return v === String(id) || (tranid && (v === tranid || t === tranid));
-        }));
-        if (matches.length !== 1) throw Error('Expected one native row for reservation ' + tranid + ' (' + id + '), found ' + matches.length + '.');
-        return matches[0];
-    }
-    function reservation(id, item, location) {
-        const r = record.load({ type: 'orderreservation', id, isDynamic: false });
-        if (String(val(r, 'item')) !== String(item) || String(val(r, 'location')) !== String(location)) throw Error('Reservation item/location mismatch.');
-        return {
-            id: String(id), name: String(val(r, 'tranid') || val(r, 'name') || id),
-            channel: String(val(r, 'saleschannel') || ''), channelText: text(r, 'saleschannel'),
-            committed: num(val(r, 'quantitycommitted')), demand: num(val(r, 'allocateddemand')),
-            closed: yes(val(r, 'closed')), firm: yes(val(r, 'commitmentfirm')),
-            units: String(val(r, 'units') || ''), unitsText: text(r, 'units')
-        };
+    function getOrder(n, key) {
+        const rows = orderRows(n).filter(r => r.key === key);
+        if (rows.length !== 1) throw Error('Selected order line is no longer available: ' + key);
+        const r = rows[0], v = r.row.values;
+        r.demand = 0;
+        if (r.isReservation) {
+            const loaded = record.load({ type: 'orderreservation', id: r.id });
+            if (String(val(loaded, 'item')) !== String(val(n.rec, 'item')) ||
+                String(val(loaded, 'location')) !== String(val(n.rec, 'location'))) throw Error('Reservation item/location mismatch.');
+            // Do not mix reservation demand units with native units unless the
+            // native and reservation committed quantities agree.
+            if (Math.abs(num(val(loaded, 'quantitycommitted')) - r.committed) > EPS) throw Error('Reservation units/commitment differ from the native grid.');
+            r.demand = num(val(loaded, 'allocateddemand'));
+            if (yes(val(loaded, 'closed'))) throw Error('Reservation ' + r.name + ' is closed.');
+        }
+        r.available = Math.max(0, r.committed - r.picked - r.demand - num(v.quantityspecialcommitted));
+        if (yes(v.isspecialorder) || yes(v.specialorder)) r.available = 0;
+        delete r.row;
+        return r;
     }
     function snapshot(n) {
-        // Entire native grid, including unrelated orders, must remain unchanged
-        // between preview and apply. This is optimistic validation, not a lock.
-        return JSON.stringify(n.rows.map(r => r.values));
+        // sys_id and sys_parentid are transient UI row IDs, not transaction IDs.
+        return JSON.stringify(n.rows.map(r => {
+            const v = { ...r.values }; delete v.sys_id; delete v.sys_parentid;
+            return v;
+        }));
     }
-    function assertUnits(r, row) {
-        if (Math.abs(r.committed - num(row.values.quantitycommitted)) > EPS) {
-            throw Error('Reservation ' + r.name + ' and native row committed quantities differ. Reload or check units before transferring.');
-        }
-    }
-    function createPlan(c, targetId, sourceIds, requested) {
-        if (!sourceIds.length || sourceIds.length > 20) throw Error('Select between 1 and 20 source reservations.');
-        if (new Set(sourceIds).size !== sourceIds.length || sourceIds.includes(targetId)) throw Error('Source reservations must be distinct and different from the destination.');
+    function createPlan(c, targetKey, sourceKeys, requested) {
+        if (!sourceKeys.length || sourceKeys.length > 20) throw Error('Select between 1 and 20 source order lines.');
+        if (new Set(sourceKeys).size !== sourceKeys.length || sourceKeys.includes(targetKey)) throw Error('Sources must be distinct and different from the destination line.');
         const n = native(c.item, c.location);
-        const target = reservation(targetId, c.item, c.location);
-        if (target.closed || target.firm) throw Error('Destination reservation is closed or firm.');
-        if (c.channel && target.channel !== c.channel) throw Error('Destination reservation must match the SO sales channel.');
-        const destRow = match(n, target.id, target.name);
-        assertUnits(target, destRow);
-        const gap = Math.max(0, num(destRow.values.quantityremaining) - num(destRow.values.quantitycommitted));
+        const target = getOrder(n, targetKey);
+        if (!target.isSO) throw Error('Destination must be a sales order line.');
+        if (c.so && target.id !== c.so) throw Error('Destination must be the sales order from which this page was opened.');
+        const gap = Math.max(0, target.remaining - target.committed);
         const limit = requested === '' ? gap : num(requested);
-        if (limit <= 0) throw Error('The requested quantity must be greater than zero.');
+        if (limit <= 0) throw Error('Requested quantity must be greater than zero.');
         let needed = Math.min(gap, limit);
         const sources = [];
-        const usedRows = new Set([destRow.line]);
-        // Stable source order: ascending reservation internal ID, shown in preview.
-        sourceIds.sort((a, b) => Number(a) - Number(b));
-        for (const id of sourceIds) {
-            const src = reservation(id, c.item, c.location);
-            if (src.closed || src.firm) throw Error('Source ' + src.name + ' is closed or firm.');
-            if (src.channel === target.channel) throw Error('Source ' + src.name + ' belongs to the destination channel.');
-            if (src.units !== target.units) throw Error('Source and destination must use the same reservation units.');
-            const row = match(n, src.id, src.name);
-            if (usedRows.has(row.line)) throw Error('Native row identity is ambiguous; refusing to transfer.');
-            usedRows.add(row.line);
-            assertUnits(src, row);
-            const picked = num(row.values.quantitypicked);
-            // Conservative: do not take supply already allocated to demand or picked.
-            const available = Math.max(0, src.committed - src.demand - picked);
-            const taken = round(Math.min(needed, available));
+        // Native page order is the visible consumption order.
+        const selected = sourceKeys.map(key => getOrder(n, key)).sort((a, b) => a.line - b.line);
+        for (const src of selected) {
+            if (src.id === target.id) throw Error('Choose sources from another order, not another line of the destination order.');
+            const taken = round(Math.min(needed, src.available));
             needed = round(needed - taken);
-            sources.push({ ...src, line: row.line, available, taken, after: round(src.committed - taken) });
+            sources.push({ ...src, taken, after: round(src.committed - taken) });
         }
-        const moved = round(sources.reduce((sum, s) => sum + s.taken, 0));
-        if (moved <= EPS) throw Error('No releasable commitment in the selected reservations, or the destination has no shortfall.');
-        return { config: c, target: { ...target, line: destRow.line, after: round(target.committed + moved) }, sources,
+        const moved = round(sources.reduce((sum, src) => sum + src.taken, 0));
+        if (moved <= EPS) throw Error('No releasable commitment on selected sources, or destination has no shortfall.');
+        return { config: c, target: { ...target, after: round(target.committed + moved) }, sources,
             requested, moved, gap, unmet: round(Math.min(gap, limit) - moved), units: n.units,
             snapshot: snapshot(n), native: n };
     }
     function breakdown(p) {
         return '<p><b>Quantity to move: ' + esc(p.moved) + ' ' + esc(p.units) + '</b>. Unfilled portion of this request: ' + esc(p.unmet) + '.</p>' +
-            table(['Source reservation', 'Source channel', 'Before', 'Taken', 'After', 'Destination reservation', 'Destination channel'],
-                p.sources.map(s => [s.name, s.channelText || s.channel, s.committed, s.taken, s.after, p.target.name, p.target.channelText || p.target.channel])) +
+            table(['Source order / line', 'Type', 'Before', 'Taken', 'After', 'Destination SO / line', 'Destination channel'],
+                p.sources.map(s => [s.name + ' / ' + s.orderline, s.type, s.committed, s.taken, s.after, p.target.name + ' / ' + p.target.orderline, p.target.channelText || p.target.channel])) +
             '<p>Destination commitment: <b>' + esc(p.target.committed) + ' → ' + esc(p.target.after) + '</b>.</p>';
     }
     function apply(plan) {
-        const current = createPlan(plan.config, plan.target.id, plan.sources.map(s => s.id), plan.requested);
+        const current = createPlan(plan.config, plan.target.key, plan.sources.map(s => s.key), plan.requested);
         if (current.snapshot !== plan.snapshot || current.moved !== plan.moved ||
             JSON.stringify(current.sources) !== JSON.stringify(plan.sources) || JSON.stringify(current.target) !== JSON.stringify(plan.target)) {
-            throw Error('Allocations or reservation settings changed since preview. Reload and preview again.');
+            throw Error('Allocations or order settings changed since preview. Reload and preview again.');
         }
         const n = current.native;
         const changes = [...current.sources.filter(s => s.taken > EPS), current.target];
@@ -190,14 +170,15 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         const checks = [];
         let verified = true;
         try {
+            const reread = native(plan.config.item, plan.config.location);
             for (const r of changes) {
-                const fresh = reservation(r.id, plan.config.item, plan.config.location);
+                const fresh = getOrder(reread, r.key);
                 const ok = Math.abs(fresh.committed - r.after) <= EPS;
                 if (!ok) verified = false;
-                checks.push([r.name, r.after, fresh.committed, ok ? 'Verified' : 'Does not match']);
+                checks.push([r.name + ' / ' + r.orderline, r.after, fresh.committed, ok ? 'Verified' : 'Does not match']);
             }
         } catch (error) { verified = false; checks.push(['Verification error', '', '', error.message]); }
-        log.audit({ title: 'Reservation reallocation saved', details: JSON.stringify({ user: owner(), item: plan.config.item, location: plan.config.location, savedId, moved: plan.moved, target: plan.target.id, sources: plan.sources.map(s => ({ id: s.id, taken: s.taken })), verified }) });
+        log.audit({ title: 'Reservation reallocation saved', details: JSON.stringify({ user: owner(), item: plan.config.item, location: plan.config.location, savedId, moved: plan.moved, target: plan.target.key, sources: plan.sources.map(s => ({ key: s.key, taken: s.taken })), verified }) });
         return { savedId, verified, checks };
     }
     function config(p) {
@@ -205,7 +186,6 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         if (c.so) {
             const so = record.load({ type: 'salesorder', id: c.so });
             c.channel = String(val(so, 'saleschannel') || '');
-            if (!c.channel) throw Error('This SO has no sales channel.');
             if (c.item && c.location) {
                 let found = false;
                 for (let line = 0; line < so.getLineCount({ sublistId: 'item' }); line++) {
@@ -220,9 +200,9 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
     }
     function onRequest(ctx) {
         const p = ctx.request.parameters;
-        const form = ui.createForm({ title: 'Move Commitment Between Order Reservations' });
+        const form = ui.createForm({ title: 'Move Commitment to Sales Order' });
         try {
-           // if (runtime.envType !== runtime.EnvType.SANDBOX) throw Error('This initial operational version is restricted to sandbox until verified.');
+            if (runtime.envType !== runtime.EnvType.SANDBOX) throw Error('This initial operational version is restricted to sandbox until verified.');
             if (ctx.request.method === 'POST' && p.custpage_action === 'apply') {
                 const key = String(p.custpage_token || '');
                 const raw = store().get({ key });
@@ -234,8 +214,8 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                 store().remove({ key });
                 const result = apply(plan);
                 html(form, 'outcome', '<h2>' + (result.verified ? 'Transfer saved and verified' : 'Save returned — verification needs review') + '</h2>' +
-                    (result.verified ? '' : '<p>Do not repeat the transfer until you inspect the native reservation quantities.</p>') +
-                    breakdown(plan) + table(['Reservation', 'Expected commitment', 'Read-back commitment', 'Result'], result.checks));
+                    (result.verified ? '' : '<p>Do not repeat the transfer until you inspect the native order quantities.</p>') +
+                    breakdown(plan) + table(['Order / line', 'Expected commitment', 'Read-back commitment', 'Result'], result.checks));
             } else {
                 const c = config(p);
                 if (ctx.request.method === 'POST' && p.custpage_action === 'preview') {
@@ -260,34 +240,33 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                     input(form, 'location', 'Location', ui.FieldType.SELECT, c.location, 'location').isMandatory = true;
                     if (!c.item || !c.location) {
                         hidden(form, 'action', 'load');
-                        html(form, 'intro', '<p>Select an item and location to find its order reservations. Quantities move between reservations, not directly to the SO.</p>');
-                        form.addSubmitButton({ label: 'Load Reservations' });
+                        html(form, 'intro', '<p>Select an item and location. Choose the destination sales order line and the orders to take commitment from.</p>');
+                        form.addSubmitButton({ label: 'Load Orders' });
                     } else {
                         const n = native(c.item, c.location);
-                        const eligible = reservations(n);
-                        const skipped = [];
-                        // Load at most 40 reservations for channel and protection details.
-                        if (eligible.length > 40) throw Error('More than 40 reservations; narrow the scope before proceeding.');
-                        const details = eligible.map(e => ({ ...e, info: reservation(e.id, c.item, c.location) }));
-                        const target = input(form, 'target', 'Destination order reservation', ui.FieldType.SELECT);
-                        target.addSelectOption({ value: '', text: 'Select destination reservation' }); target.isMandatory = true;
-                        const targets = details.filter(e => !e.info.closed && !e.info.firm && (!c.channel || e.info.channel === c.channel) && num(e.row.values.quantityremaining) > num(e.row.values.quantitycommitted) + EPS);
-                        targets.forEach(e => target.addSelectOption({ value: e.id, text: e.name + ' — ' + (e.info.channelText || e.info.channel) }));
-                        if (targets.length === 1) target.defaultValue = targets[0].id;
-                        if (!targets.length) throw Error('No open, non-firm destination reservation with a shortfall for this selection/channel.');
-                        input(form, 'qty', 'Maximum quantity to move (blank = destination shortfall)', ui.FieldType.FLOAT).setHelpText({ help: 'In the displayed native reallocation units. Sources are consumed in ascending reservation ID order.' });
-                        const list = form.addSublist({ id: 'custpage_sources', type: ui.SublistType.LIST, label: 'Select source reservations' });
+                        const details = orderRows(n);
+                        const target = input(form, 'target', 'Destination sales order line', ui.FieldType.SELECT);
+                        target.addSelectOption({ value: '', text: 'Select destination sales order line' }); target.isMandatory = true;
+                        const targets = details.filter(e => e.isSO && (!c.so || e.id === c.so) && e.remaining > e.committed + EPS);
+                        targets.forEach(e => target.addSelectOption({ value: e.key, text: e.name + ' / line ' + e.orderline + ' — needs ' + round(e.remaining - e.committed) }));
+                        if (targets.length === 1) target.defaultValue = targets[0].key;
+                        if (!targets.length) throw Error('No destination sales order line with a shortfall was returned by NetSuite for this item/location.');
+                        input(form, 'qty', 'Maximum quantity to move (blank = SO line shortfall)', ui.FieldType.FLOAT).setHelpText({ help: 'In native reallocation units. Selected sources are consumed in the displayed order.' });
+                        const list = form.addSublist({ id: 'custpage_sources', type: ui.SublistType.LIST, label: 'Select orders to take commitment from' });
                         list.addField({ id: 'custpage_take', type: ui.FieldType.CHECKBOX, label: 'Take from' });
-                        ['resid', 'reservation', 'channel', 'committed', 'demand', 'protection'].forEach((id, i) => list.addField({ id: PREFIX + id, type: ui.FieldType.TEXT, label: ['Internal ID', 'Reservation', 'Channel', 'Committed', 'Allocated demand', 'Protection'][i] }));
-                        details.forEach((e, line) => {
-                            const r = e.info;
-                            const data = { resid: r.id, reservation: r.name, channel: r.channelText || r.channel || '(none)', committed: r.committed, demand: r.demand, protection: r.closed ? 'Closed — excluded' : r.firm ? 'Firm — excluded' : 'Open' };
+                        ['resid', 'reservation', 'type', 'orderline', 'channel', 'committed', 'picked'].forEach((id, i) => {
+                            const f = list.addField({ id: PREFIX + id, type: ui.FieldType.TEXT, label: ['Row identity', 'Order', 'Type', 'Order line', 'Channel', 'Committed', 'Picked'][i] });
+                            if (id === 'resid') f.updateDisplayType({ displayType: ui.FieldDisplayType.HIDDEN });
+                        });
+                        const candidates = details.filter(r => r.committed > EPS && (!c.so || r.id !== c.so));
+                        candidates.forEach((r, line) => {
+                            const data = { resid: r.key, reservation: r.name, type: r.type || '(unknown)', orderline: r.orderline || '-', channel: r.channelText || '(none)', committed: r.committed, picked: r.picked };
                             Object.keys(data).forEach(id => list.setSublistValue({ id: PREFIX + id, line, value: String(data[id]) }));
                         });
                         hidden(form, 'action', 'preview');
-                        html(form, 'instructions', '<p>Select sources in other channels. Closed/firm reservations and demand-backed quantities are protected. ' +
-                            'Quantities use ' + esc(n.units || 'native reallocation units') + '. The next screen shows exactly what will move.</p>' +
-                            (skipped.length ? '<details><summary>Reservations unavailable on this native grid</summary><pre>' + esc(skipped.join('\n')) + '</pre></details>' : ''));
+                        html(form, 'instructions', '<p>Select the orders to take commitment from. Any source order type exposed by this native grid may be selected, including reservations. ' +
+                            'Picked quantities, special-order supply and reservation supply already allocated to demand are excluded. ' +
+                            'Quantities use ' + esc(n.units || 'native reallocation units') + '. The next screen shows exactly what will move directly to the destination SO line.</p>');
                         form.addSubmitButton({ label: 'Calculate Allocation' });
                     }
                 }
