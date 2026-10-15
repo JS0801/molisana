@@ -207,7 +207,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         const p = ctx.request.parameters;
         const form = ui.createForm({ title: 'Move Commitment Between Order Reservations' });
         try {
-            if (runtime.envType !== runtime.EnvType.SANDBOX) throw Error('This initial operational version is restricted to sandbox until verified.');
+      //      if (runtime.envType !== runtime.EnvType.SANDBOX) throw Error('This initial operational version is restricted to sandbox until verified.');
             if (ctx.request.method === 'POST' && p.custpage_action === 'apply') {
                 const key = String(p.custpage_token || '');
                 const raw = store().get({ key });
