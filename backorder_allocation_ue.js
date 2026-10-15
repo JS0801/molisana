@@ -11,8 +11,8 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/url'], (ui, runtime, url) => {
     function beforeLoad(ctx) {
         if (ctx.type !== ctx.UserEventType.VIEW || runtime.executionContext !== runtime.ContextType.USER_INTERFACE) return;
         const script = runtime.getCurrentScript();
-        const scriptId = 'custscript_rr_suitelet_script'
-        const deploymentId = 'custscript_rr_suitelet_deploy'
+        const scriptId = 'customscript_sl_allocate_qty'
+        const deploymentId = 'customdeploy_reallocate_item_test'
         if (!scriptId || !deploymentId) return;
         const target = url.resolveScript({ scriptId, deploymentId, params: { soid: ctx.newRecord.id } });
         const f = ctx.form.addField({ id: 'custpage_rr_url', label: 'Reservation allocation URL', type: ui.FieldType.LONGTEXT });
