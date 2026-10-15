@@ -12,7 +12,7 @@ define(['N/ui/serverWidget', 'N/runtime', 'N/url'], (ui, runtime, url) => {
         if (ctx.type !== ctx.UserEventType.VIEW || runtime.executionContext !== runtime.ContextType.USER_INTERFACE) return;
         const script = runtime.getCurrentScript();
         const scriptId = 'customscript_sl_allocate_qty'
-        const deploymentId = 'customdeploy_reallocate_item_test'
+        const deploymentId = 'customdeploy_sl_allocate_qty'
         if (!scriptId || !deploymentId) return;
         const target = url.resolveScript({ scriptId, deploymentId, params: { soid: ctx.newRecord.id } });
         const f = ctx.form.addField({ id: 'custpage_rr_url', label: 'Reservation allocation URL', type: ui.FieldType.LONGTEXT });
