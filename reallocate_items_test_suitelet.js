@@ -3,17 +3,18 @@
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
  * Unsupported reallocateitem adapter. Requires sandbox validation before production.
- * No HTTP/page scraping. Saves one native reallocation record per operation.
+ * Native browser handoff: no record.save() calls. Self-contained Suitelet with browser-controlled native popup. No UE or separate client file.
  */
-define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/crypto/random', 'N/log'],
-(record, search, ui, runtime, cache, random, log) => {
+define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/crypto/random', 'N/log', 'N/url', 'N/redirect'],
+(record, search, ui, runtime, cache, random, log, url, redirect) => {
+    const HANDOFF_JS = "    const EPS = 0.000001;\n    let targetWindow;\n    let nativeDocument;\n    let running = false;\n    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));\n    const number = v => { const n = Number(v || 0); if (!Number.isFinite(n)) throw Error('Invalid native quantity.'); return n; };\n    const field = (name, line) => targetWindow.nlapiGetLineItemValue('order', name, line);\n    function rows() {\n        const result = [];\n        for (let line = 1; line <= targetWindow.nlapiGetLineItemCount('order'); line++) {\n            const key = [String(field('transactiontype', line) || field('transactiontypename', line) || ''),\n                String(field('orderid', line)), String(field('orderline', line) == null ? '' : field('orderline', line))].join('|');\n            if (result.some(r => r.key === key)) throw Error('Ambiguous native order line ' + key);\n            result.push({ key, line, committed: number(field('quantitycommitted', line)), remaining: number(field('quantityremaining', line)),\n                picked: number(field('quantitypicked', line)), reservation: number(field('quantityreservationcommitted', line)),\n                special: number(field('quantityspecialcommitted', line)), version: String(field('version', line) || '') });\n        }\n        return result;\n    }\n    function banner(message, error) {\n        let box = document.getElementById('rr_handoff_status');\n        if (!box) { box = document.createElement('div'); box.id = 'rr_handoff_status'; document.body.prepend(box); }\n        box.style.cssText = 'padding:16px;margin:12px;border:2px solid ' + (error ? '#a22' : '#267') + ';background:white;font:15px sans-serif;';\n        box.textContent = message;\n    }\n    async function request(endpoint, method = 'GET') {\n        const response = await fetch(endpoint, { method, credentials: 'same-origin', cache: 'no-store' });\n        if (!response.ok) throw Error('Handoff request failed: HTTP ' + response.status);\n        const body = await response.json();\n        if (!body.ok) throw Error(body.error || 'Handoff rejected.');\n        return body;\n    }\n    async function ready() {\n        for (let i = 0; i < 100; i++) {\n            if (targetWindow.NS && targetWindow.NS.form && targetWindow.NS.form.isInited() && targetWindow.NS.form.isValid()) return;\n            await wait(200);\n        }\n        throw Error('Native page did not finish loading. Nothing submitted.');\n    }\n    async function run(data) {\n        const sessionKey = 'rr_native_submit_' + data.token;\n        if (sessionStorage.getItem(sessionKey)) throw Error('This allocation already reached submission in this tab. Inspect commitments before retrying.');\n        targetWindow = window.open('/app/accounting/transactions/reallocitems.nl', '_blank');\n        if (!targetWindow) throw Error('Popup blocked. Allow popups for NetSuite, then click Open Native Page and Apply.');\n        let loaded = false;\n        for (let i = 0; i < 150; i++) {\n            if (targetWindow.closed) throw Error('Native window was closed.');\n            try {\n                nativeDocument = targetWindow.document;\n                if (nativeDocument.readyState === 'complete' && typeof targetWindow.orderSyncRow === 'function') { loaded = true; break; }\n            } catch (_) { /* navigation not ready */ }\n            await wait(200);\n        }\n        if (!loaded) throw Error('Native page did not load or the browser blocked access. Nothing submitted.');\n        const required = ['nlapiSetFieldValue', 'nlapiGetFieldValue', 'nlapiGetLineItemValue', 'nlapiGetLineItemCount',\n            'nlapiSelectLineItem', 'nlapiSetCurrentLineItemValue', 'orderSyncRow', 'orderRecalcMachine'];\n        required.forEach(name => { if (typeof targetWindow[name] !== 'function') throw Error('Native page function unavailable: ' + name); });\n        banner('Loading the approved allocation plan\u2026');\n        const response = await request(data.endpoint);\n        const plan = response.plan;\n        await ready();\n        // Use native field sourcing. Never fetch or replay the native POST body.\n        targetWindow.nlapiSetFieldValue('item', String(plan.config.item), true, true);\n        await ready();\n        targetWindow.nlapiSetFieldValue('location', String(plan.config.location), true, true);\n        await ready();\n        let before, previous = '';\n        for (let i = 0; i < 100; i++) {\n            await wait(200); await ready();\n            before = rows();\n            const signature = JSON.stringify(before);\n            if (signature === previous && before.some(r => r.key === plan.target.key)) break;\n            previous = signature;\n            if (i === 99) throw Error('Destination line did not finish loading. Nothing submitted.');\n        }\n        if (String(targetWindow.nlapiGetFieldValue('item')) !== String(plan.config.item) ||\n            String(targetWindow.nlapiGetFieldValue('location')) !== String(plan.config.location)) throw Error('Native item/location did not match the plan.');\n        const expectedGrid = JSON.parse(plan.snapshot);\n        if (before.length !== expectedGrid.length) throw Error('Native row count changed. Create a new preview.');\n        for (const v of expectedGrid) {\n            const key = [String(v.transactiontype || v.transactiontypename || ''), String(v.orderid), String(v.orderline == null ? '' : v.orderline)].join('|');\n            const r = before.find(x => x.key === key);\n            if (!r || Math.abs(r.committed - number(v.quantitycommitted)) > EPS ||\n                Math.abs(r.remaining - number(v.quantityremaining)) > EPS || Math.abs(r.picked - number(v.quantitypicked)) > EPS ||\n                Math.abs(r.reservation - number(v.quantityreservationcommitted)) > EPS || Math.abs(r.special - number(v.quantityspecialcommitted)) > EPS ||\n                r.version !== String(v.version || '')) throw Error('Native quantities or versions changed since preview. Nothing submitted.');\n        }\n        const changes = [...plan.sources.filter(s => s.taken > EPS), plan.target];\n        banner('Applying the approved quantities to the native page\u2026');\n        for (const change of changes) {\n            const r = before.find(x => x.key === change.key);\n            if (!r) throw Error('Selected row is missing. Nothing submitted.');\n            targetWindow.nlapiSelectLineItem('order', r.line);\n            targetWindow.nlapiSetCurrentLineItemValue('order', 'quantitycommitted', String(change.after), false);\n            // This is the same synchronization path called by native quantity edits.\n            targetWindow.orderSyncRow(r.line, false, false, 'quantitycommitted');\n            targetWindow.orderRecalcMachine();\n        }\n        const after = rows();\n        for (const r of before) {\n            const changed = changes.find(c => c.key === r.key);\n            const expected = changed ? changed.after : r.committed;\n            const actual = after.find(a => a.key === r.key);\n            if (!actual || Math.abs(expected - actual.committed) > EPS) throw Error('Native validation changed the requested quantity for ' + r.key + '. Nothing submitted; reload before proceeding.');\n        }\n        // Avoid native automatic allocation of additional free stock on submit.\n        if (number(targetWindow.nlapiGetFieldValue('quantityuncommitted')) > EPS) throw Error('Native page has uncommitted stock and may auto-allocate extra quantities. Review manually; automatic submission stopped.');\n        const submit = nativeDocument.getElementById('submitter');\n        const form = nativeDocument.forms.main_form;\n        if (!submit || !form || !form.elements.whence) throw Error('Native Submit/return controls are unavailable. Nothing submitted.');\n        // Claim once before clicking. Cache is not an atomic lock; do not run\n        // simultaneous submissions for the same item/location.\n        await request(response.armUrl, 'POST');\n        sessionStorage.setItem(sessionKey, 'submitted');\n        form.elements.whence.value = response.verifyUrl;\n        banner('Submitting through NetSuite. Complete any native validation prompt. If navigation stops, do not submit again without checking commitments.');\n        submit.click(); // Normal handler, validation, serialization, and native form POST.\n        banner('Native Submit was clicked. Check the native window for validation prompts and the final verification result.');\n    }\n\n    document.getElementById('rr_open_native').addEventListener('click', function () {\n        if (running) return;\n        running = true;\n        this.disabled = true;\n        run(HANDOFF_DATA).catch(error => {\n            banner('Allocation stopped: ' + error.message + ' Reload or close the native window before retrying.', true);\n            if (!targetWindow) { running = false; document.getElementById('rr_open_native').disabled = false; }\n            // No automatic resubmission after any failure.\n        });\n    });\n";
     const PREFIX = 'custpage_';
     const EPS = 0.000001;
     const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     const num = v => { const n = Number(v || 0); if (!Number.isFinite(n)) throw Error('Invalid quantity: ' + v); return n; };
     const round = n => Math.round(n * 1000000) / 1000000;
     const yes = v => v === true || v === 'T';
-    const store = () => cache.getCache({ name: 'order_reallocation_plans_v2', scope: cache.Scope.PRIVATE });
+    const store = () => cache.getCache({ name: 'single_suitelet_native_handoff_v1', scope: cache.Scope.PRIVATE });
     const owner = () => String(runtime.getCurrentUser().id) + ':' + String(runtime.getCurrentUser().role);
     function text(rec, fieldId) { try { return rec.getText({ fieldId }) || ''; } catch (_) { return ''; } }
     function val(rec, fieldId) { return rec.getValue({ fieldId }); }
@@ -141,45 +142,26 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                 p.sources.map(s => [s.name + ' / ' + s.orderline, s.type, s.committed, s.taken, s.after, p.target.name + ' / ' + p.target.orderline, p.target.channelText || p.target.channel])) +
             '<p>Destination commitment: <b>' + esc(p.target.committed) + ' → ' + esc(p.target.after) + '</b>.</p>';
     }
-    function apply(plan) {
+    function getPlan(key) {
+        if (!/^[a-f0-9-]{36}$/i.test(key)) throw Error('Invalid allocation token.');
+        const raw = store().get({ key });
+        if (!raw) throw Error('Allocation preview expired. Return to the Suitelet.');
+        const plan = JSON.parse(raw);
+        if (plan.owner !== owner() || Date.now() > plan.expires) throw Error('Allocation preview is expired or belongs to another user/role.');
+        return plan;
+    }
+    function validatePlan(plan) {
         const current = createPlan(plan.config, plan.target.key, plan.sources.map(s => s.key), plan.requested);
-        if (current.snapshot !== plan.snapshot || current.moved !== plan.moved ||
-            JSON.stringify(current.sources) !== JSON.stringify(plan.sources) || JSON.stringify(current.target) !== JSON.stringify(plan.target)) {
-            throw Error('Allocations or order settings changed since preview. Reload and preview again.');
-        }
-        const n = current.native;
-        const changes = [...current.sources.filter(s => s.taken > EPS), current.target];
-        function setQuantity(line, quantity) {
-            n.rec.selectLine({ sublistId: 'order', line });
-            n.rec.setCurrentSublistValue({ sublistId: 'order', fieldId: 'commit', value: quantity > EPS });
-            n.rec.setCurrentSublistValue({ sublistId: 'order', fieldId: 'quantitycommitted', value: quantity });
-            n.rec.commitLine({ sublistId: 'order' });
-        }
-        // Release source quantities first, then increase the destination, all
-        // in one native record. Never save separate partial source changes.
-        changes.forEach(r => setQuantity(r.line, r.after));
-        for (const row of n.rows) {
-            const change = changes.find(r => r.line === row.line);
-            const expected = change ? change.after : num(row.values.quantitycommitted);
-            const actual = num(n.rec.getSublistValue({ sublistId: 'order', fieldId: 'quantitycommitted', line: row.line }));
-            if (Math.abs(expected - actual) > EPS) throw Error('NetSuite changed an unexpected quantity on native row ' + row.line + '. Nothing saved.');
-        }
-        let savedId;
-        try { savedId = n.rec.save({ enableSourcing: true, ignoreMandatoryFields: false }); }
-        catch (error) { throw Error('Save did not return success. Inspect native commitments before retrying. NetSuite: ' + error.name + ': ' + error.message); }
-        const checks = [];
-        let verified = true;
-        try {
-            const reread = native(plan.config.item, plan.config.location);
-            for (const r of changes) {
-                const fresh = getOrder(reread, r.key);
-                const ok = Math.abs(fresh.committed - r.after) <= EPS;
-                if (!ok) verified = false;
-                checks.push([r.name + ' / ' + r.orderline, r.after, fresh.committed, ok ? 'Verified' : 'Does not match']);
-            }
-        } catch (error) { verified = false; checks.push(['Verification error', '', '', error.message]); }
-        log.audit({ title: 'Reservation reallocation saved', details: JSON.stringify({ user: owner(), item: plan.config.item, location: plan.config.location, savedId, moved: plan.moved, target: plan.target.key, sources: plan.sources.map(s => ({ key: s.key, taken: s.taken })), verified }) });
-        return { savedId, verified, checks };
+        if (current.snapshot !== plan.snapshot || JSON.stringify(current.target) !== JSON.stringify(plan.target) ||
+            JSON.stringify(current.sources) !== JSON.stringify(plan.sources)) throw Error('Allocation changed since preview. Create a new preview.');
+    }
+    function selfUrl(params) {
+        const script = runtime.getCurrentScript();
+        return url.resolveScript({ scriptId: script.id, deploymentId: script.deploymentId, params });
+    }
+    function jsonResponse(ctx, data) {
+        ctx.response.setHeader({ name: 'Content-Type', value: 'application/json; charset=utf-8' });
+        ctx.response.write(JSON.stringify(data));
     }
     function config(p) {
         const c = { item: String(p.custpage_item || ''), location: String(p.custpage_location || ''), so: String(p.soid || p.custpage_so || ''), channel: '' };
@@ -200,22 +182,51 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
     }
     function onRequest(ctx) {
         const p = ctx.request.parameters;
+        if (p.rr_api) {
+            try {
+                const key = String(p.rr_token || '');
+                const plan = getPlan(key);
+                if (plan.phase !== 'ready') throw Error('This plan has already reached submission. Do not replay it.');
+                if (p.rr_api === 'plan' && ctx.request.method === 'GET') {
+                    validatePlan(plan);
+                    jsonResponse(ctx, { ok: true, plan, verifyUrl: selfUrl({ rr_verify: key }),
+                        armUrl: selfUrl({ rr_api: 'arm', rr_token: key }) });
+                } else if (p.rr_api === 'arm' && ctx.request.method === 'POST') {
+                    validatePlan(plan);
+                    plan.phase = 'submitted';
+                    store().put({ key, value: JSON.stringify(plan), ttl: 900 });
+                    jsonResponse(ctx, { ok: true });
+                } else throw Error('Invalid handoff request.');
+            } catch (error) { jsonResponse(ctx, { ok: false, error: error.message }); }
+            return;
+        }
         const form = ui.createForm({ title: 'Move Commitment to Sales Order' });
         try {
-          //  if (runtime.envType !== runtime.EnvType.SANDBOX) throw Error('This initial operational version is restricted to sandbox until verified.');
-            if (ctx.request.method === 'POST' && p.custpage_action === 'apply') {
+            if (p.rr_verify) {
+                const plan = getPlan(String(p.rr_verify));
+                const n = native(plan.config.item, plan.config.location);
+                const changes = [...plan.sources.filter(r => r.taken > EPS), plan.target];
+                const checks = changes.map(r => {
+                    const fresh = getOrder(n, r.key);
+                    return [r.name + ' / ' + r.orderline, r.after, fresh.committed,
+                        Math.abs(fresh.committed - r.after) <= EPS ? 'Verified' : 'Does not match'];
+                });
+                const verified = checks.every(r => r[3] === 'Verified');
+                html(form, 'outcome', '<h2>' + (verified ? 'Commitments verified' : 'Transfer not verified — inspect native commitments') + '</h2>' +
+                    breakdown(plan) + table(['Order / line', 'Expected', 'Current', 'Result'], checks));
+                log.audit({ title: verified ? 'Native reallocation verified' : 'Native reallocation not verified', details: JSON.stringify({ checks }) });
+            } else if (ctx.request.method === 'POST' && p.custpage_action === 'apply') {
                 const key = String(p.custpage_token || '');
-                const raw = store().get({ key });
-                if (!raw) throw Error('Preview expired or was already used. Open the Suitelet again to reload.');
-                const plan = JSON.parse(raw);
-                if (plan.owner !== owner()) throw Error('This preview belongs to another user or role.');
-                // Consume before save; refresh will not replay this plan.
-                // N/cache is not an atomic distributed lock. Do not run concurrent submissions.
-                store().remove({ key });
-                const result = apply(plan);
-                html(form, 'outcome', '<h2>' + (result.verified ? 'Transfer saved and verified' : 'Save returned — verification needs review') + '</h2>' +
-                    (result.verified ? '' : '<p>Do not repeat the transfer until you inspect the native order quantities.</p>') +
-                    breakdown(plan) + table(['Order / line', 'Expected commitment', 'Read-back commitment', 'Result'], result.checks));
+                const plan = getPlan(key);
+                if (plan.phase !== 'preview') throw Error('This preview has already been opened. Reload the Suitelet.');
+                validatePlan(plan);
+                plan.phase = 'ready';
+                store().put({ key, value: JSON.stringify(plan), ttl: 900 });
+                const data = JSON.stringify({ token: key, endpoint: selfUrl({ rr_api: 'plan', rr_token: key }) }).replace(/</g, '\\u003c');
+                html(form, 'native_handoff', '<h2>Apply through native Reallocate Items</h2>' + breakdown(plan) +
+                    '<p>Open the native page to apply the reviewed allocation. Allow the NetSuite popup. Native validation prompts remain visible.</p>' +
+                    '<button id="rr_open_native" type="button" style="padding:10px 18px">Open Native Page and Apply</button>' +
+                    '<script>(function(){const HANDOFF_DATA=' + data + ';' + HANDOFF_JS + '})();</script>');
             } else {
                 const c = config(p);
                 if (ctx.request.method === 'POST' && p.custpage_action === 'preview') {
@@ -228,11 +239,13 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                     const plan = createPlan(c, String(p.custpage_target || ''), ids, String(p.custpage_qty || '').trim());
                     delete plan.native;
                     plan.owner = owner();
+                    plan.phase = 'preview';
+                    plan.expires = Date.now() + 15 * 60 * 1000;
                     const key = random.generateUUID();
-                    store().put({ key, value: JSON.stringify(plan), ttl: 300 });
+                    store().put({ key, value: JSON.stringify(plan), ttl: 900 });
                     hidden(form, 'action', 'apply'); hidden(form, 'token', key);
                     html(form, 'preview', '<h2>Review proposed transfer</h2>' + breakdown(plan) +
-                        '<p>Apply saves these quantities to NetSuite. This preview expires in five minutes. Submit once and wait for the result.</p>');
+                        '<p>Apply prepares a native-page handoff. On the next screen, Open Native Page and Apply opens a browser window, fills these quantities and clicks its Submit button. Native validation prompts remain visible. This plan expires in fifteen minutes.</p>');
                     form.addSubmitButton({ label: 'Apply Allocation' });
                 } else {
                     hidden(form, 'so', c.so);
