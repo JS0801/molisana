@@ -117,6 +117,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         const target = getOrder(n, targetKey);
         if (!target.isSO) throw Error('Destination must be a sales order line.');
         if (c.so && target.id !== c.so) throw Error('Destination must be the sales order from which this page was opened.');
+        if (c.targetLine && target.orderline !== c.targetLine) throw Error('Destination line does not match the selected backordered line.');
         const gap = Math.max(0, target.remaining - target.committed);
         const limit = requested === '' ? gap : num(requested);
         if (limit <= 0) throw Error('Requested quantity must be greater than zero.');
@@ -138,8 +139,9 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
     }
     function breakdown(p) {
         return '<p><b>Quantity to move: ' + esc(p.moved) + ' ' + esc(p.units) + '</b>. Unfilled portion of this request: ' + esc(p.unmet) + '.</p>' +
-            table(['Source order / line', 'Type', 'Before', 'Taken', 'After', 'Destination SO / line', 'Destination channel'],
-                p.sources.map(s => [s.name + ' / ' + s.orderline, s.type, s.committed, s.taken, s.after, p.target.name + ' / ' + p.target.orderline, p.target.channelText || p.target.channel])) +
+            table(['Source order / line', 'Type', 'Source channel', 'Before', 'Taken', 'After', 'Destination SO / line', 'Destination channel'],
+                p.sources.map(s => [s.name + ' / ' + s.orderline, s.type, s.channelText || '(none)', s.committed, s.taken, s.after, p.target.name + ' / ' + p.target.orderline, p.target.channelText || p.target.channel])) +
+            '<p>Item: <b>' + esc(p.config.item) + '</b>; location: ' + esc(p.config.location) + '.</p>' +
             '<p>Destination commitment: <b>' + esc(p.target.committed) + ' → ' + esc(p.target.after) + '</b>.</p>';
     }
     function getPlan(key) {
@@ -164,7 +166,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
         ctx.response.write(JSON.stringify(data));
     }
     function config(p) {
-        const c = { item: String(p.custpage_item || ''), location: String(p.custpage_location || ''), so: String(p.soid || p.custpage_so || ''), channel: '' };
+        const c = { item: String(p.custpage_item || ''), location: String(p.custpage_location || ''), so: String(p.soid || p.custpage_so || ''), channel: '', targetLine: String(p.rr_line || p.custpage_line || '') };
         if (c.so) {
             const so = record.load({ type: 'salesorder', id: c.so });
             c.channel = String(val(so, 'saleschannel') || '');
@@ -179,6 +181,31 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
             }
         }
         return c;
+    }
+    function backorderDashboard(form, soid) {
+        const so = record.load({ type: 'salesorder', id: soid });
+        const rows = [];
+        for (let line = 0; line < so.getLineCount({ sublistId: 'item' }); line++) {
+            const get = fieldId => so.getSublistValue({ sublistId: 'item', fieldId, line });
+            if (yes(get('isclosed'))) continue;
+            const backordered = Math.max(0, num(get('quantitybackordered')));
+            if (backordered <= EPS) continue;
+            const item = String(get('item'));
+            const location = String(get('location') || val(so, 'location') || '');
+            const orderline = String(get('line'));
+            let itemName = item, locationName = location, units = '';
+            try { itemName = so.getSublistText({ sublistId: 'item', fieldId: 'item', line }) || item; } catch (_) {}
+            try { locationName = so.getSublistText({ sublistId: 'item', fieldId: 'location', line }) || text(so, 'location') || location; } catch (_) {}
+            try { units = so.getSublistText({ sublistId: 'item', fieldId: 'units', line }) || ''; } catch (_) {}
+            const link = selfUrl({ soid, custpage_item: item, custpage_location: location, rr_line: orderline });
+            rows.push('<tr>' + [orderline, itemName, locationName, units, get('quantity'), get('quantitycommitted') || 0, backordered].map(v => '<td>' + esc(v) + '</td>').join('') +
+                '<td>' + (location ? '<a href="' + esc(link) + '">Select sources / view breakdown</a>' : 'Location missing') + '</td></tr>');
+        }
+        html(form, 'backorders', '<style> .rr-table{border-collapse:collapse;width:100%}.rr-table th,.rr-table td{padding:10px;border:1px solid #ddd;text-align:left}.rr-table th{background:#eef3f8} </style>' +
+            '<h2>' + esc(val(so, 'tranid')) + ' — Backordered items</h2>' +
+            '<p>' + rows.length + ' open backordered line(s). Select sources for each line, review the source quantities, then apply. Reopen this list after each transfer to read current quantities.</p>' +
+            '<p><a href="' + esc(selfUrl({ soid })) + '">Refresh backorders</a></p>' +
+            (rows.length ? '<div style="overflow:auto"><table class="rr-table"><tr>' + ['SO line','Item','Location','Units','Ordered','Committed','Backordered','Sources'].map(v => '<th>' + v + '</th>').join('') + '</tr>' + rows.join('') + '</table></div>' : '<p>No open backordered items were found.</p>'));
     }
     function onRequest(ctx) {
         const p = ctx.request.parameters;
@@ -200,9 +227,11 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
             } catch (error) { jsonResponse(ctx, { ok: false, error: error.message }); }
             return;
         }
-        const form = ui.createForm({ title: 'Move Commitment to Sales Order' });
+        const form = ui.createForm({ title: 'Allocate Backordered Items', hideNavBar: true });
         try {
-            if (p.rr_verify) {
+            if (ctx.request.method === 'GET' && p.soid && !p.custpage_item && !p.rr_verify) {
+                backorderDashboard(form, String(p.soid));
+            } else if (p.rr_verify) {
                 const plan = getPlan(String(p.rr_verify));
                 const n = native(plan.config.item, plan.config.location);
                 const changes = [...plan.sources.filter(r => r.taken > EPS), plan.target];
@@ -249,6 +278,8 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                     form.addSubmitButton({ label: 'Apply Allocation' });
                 } else {
                     hidden(form, 'so', c.so);
+                    hidden(form, 'line', c.targetLine);
+                    if (c.so) html(form, 'backlink', '<p><a href="' + esc(selfUrl({ soid: c.so })) + '">Back to all backordered lines / refresh</a></p>');
                     input(form, 'item', 'Item', ui.FieldType.SELECT, c.item, 'item').isMandatory = true;
                     input(form, 'location', 'Location', ui.FieldType.SELECT, c.location, 'location').isMandatory = true;
                     if (!c.item || !c.location) {
@@ -260,7 +291,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                         const details = orderRows(n);
                         const target = input(form, 'target', 'Destination sales order line', ui.FieldType.SELECT);
                         target.addSelectOption({ value: '', text: 'Select destination sales order line' }); target.isMandatory = true;
-                        const targets = details.filter(e => e.isSO && (!c.so || e.id === c.so) && e.remaining > e.committed + EPS);
+                        const targets = details.filter(e => e.isSO && (!c.so || e.id === c.so) && (!c.targetLine || e.orderline === c.targetLine) && e.remaining > e.committed + EPS);
                         targets.forEach(e => target.addSelectOption({ value: e.key, text: e.name + ' / line ' + e.orderline + ' — needs ' + round(e.remaining - e.committed) }));
                         if (targets.length === 1) target.defaultValue = targets[0].key;
                         if (!targets.length) throw Error('No destination sales order line with a shortfall was returned by NetSuite for this item/location.');
@@ -279,7 +310,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/runtime', 'N/cache', 'N/
                         hidden(form, 'action', 'preview');
                         html(form, 'instructions', '<p>Select the orders to take commitment from. Any source order type exposed by this native grid may be selected, including reservations. ' +
                             'Picked quantities, special-order supply and reservation supply already allocated to demand are excluded. ' +
-                            'Quantities use ' + esc(n.units || 'native reallocation units') + '. The next screen shows exactly what will move directly to the destination SO line.</p>');
+                            'Existing lot assignments are not moved by this tool; lot-assigned sources need inventory-detail review. Quantities use ' + esc(n.units || 'native reallocation units') + '. The next screen shows exactly what will move directly to the destination SO line.</p>');
                         form.addSubmitButton({ label: 'Calculate Allocation' });
                     }
                 }
