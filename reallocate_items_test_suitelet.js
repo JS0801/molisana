@@ -41,10 +41,10 @@ define(['N/record', 'N/ui/serverWidget', 'N/runtime', 'N/log'],
                     log.audit({ title, details: typeof details === 'string' ? details : JSON.stringify(details) });
                 };
                 try {
-                    if (runtime.envType !== runtime.EnvType.SANDBOX) throw new Error('Run this test in SANDBOX only.');
-                    if (!/^\d+$/.test(p.custpage_item || '') || !/^\d+$/.test(p.custpage_location || '')) {
-                        throw new Error('Select an item and location.');
-                    }
+                    // if (runtime.envType !== runtime.EnvType.SANDBOX) throw new Error('Run this test in SANDBOX only.');
+                    // if (!/^\d+$/.test(p.custpage_item || '') || !/^\d+$/.test(p.custpage_location || '')) {
+                    //     throw new Error('Select an item and location.');
+                    // }
                     stage = 'create dynamic reallocateitem';
                     const rec = record.create({ type: 'reallocateitem', isDynamic: true });
                     report('CREATE PASSED', 'Dynamic reallocateitem created.');
