@@ -80,35 +80,35 @@ define(['N/ui/serverWidget', 'N/file', 'N/log', 'N/search', 'N/runtime', 'N/cryp
   var IDX_COMMITTED                  = 16;
   var IDX_ON_HOLD                    = 17;
   var IDX_RESERVED                   = 18;
-  var IDX_ON_HAND_AVAIL_GOOD         = 19;
-  var IDX_ON_HAND_TOTAL              = 20;
-  var IDX_IN_TRANSIT                 = 21;
-  var IDX_ON_HAND_TOTAL_TRANSIT      = 22;
-  var IDX_ON_ORDER                   = 23;
-  var IDX_TOTAL_STOCK                = 24;
-  var IDX_NEXT_ARRIVAL_QTY           = 25;
-  var IDX_NEXT_ARRIVAL_DATE          = 26;
-  var IDX_DAYS_TILL_NEXT_ARRIVAL     = 27;
-  var IDX_MONTHS_TILL_NEXT_ARRIVAL   = 28;
-  var IDX_ON_HAND_TOTAL_MONTHS       = 29;
-  var IDX_INSPECTION                 = 30;
-  var IDX_LABEL                      = 31;
-  var IDX_DEVIATION                  = 32;
-  var IDX_ON_HAND_TRANSIT_MONTHS     = 33;
-  var IDX_TOTAL_STOCK_MONTHS         = 34;
-  var IDX_30_DAYS                    = 35;
-  var IDX_60_DAYS                    = 36;
-  var IDX_90_DAYS                    = 37;
-  var IDX_120_DAYS                   = 38;
-  var IDX_4_MONTH_AVG                = 39;
-  var IDX_MAX_SHELF_LIFE             = 40;
-  var IDX_LAST_BILLED_DATE           = 41;
-  var IDX_EXPIRE_DATE                = 42;
-  var IDX_EXPIRY_STATUS              = 43;
+  var IDX_PENDING_RESERVED           = 19;
+  var IDX_ON_HAND_AVAIL_GOOD         = 20;
+  var IDX_ON_HAND_TOTAL              = 21;
+  var IDX_IN_TRANSIT                 = 22;
+  var IDX_ON_HAND_TOTAL_TRANSIT      = 23;
+  var IDX_ON_ORDER                   = 24;
+  var IDX_TOTAL_STOCK                = 25;
+  var IDX_NEXT_ARRIVAL_QTY           = 26;
+  var IDX_NEXT_ARRIVAL_DATE          = 27;
+  var IDX_DAYS_TILL_NEXT_ARRIVAL     = 28;
+  var IDX_MONTHS_TILL_NEXT_ARRIVAL   = 29;
+  var IDX_ON_HAND_TOTAL_MONTHS       = 30;
+  var IDX_INSPECTION                 = 31;
+  var IDX_LABEL                      = 32;
+  var IDX_DEVIATION                  = 33;
+  var IDX_ON_HAND_TRANSIT_MONTHS     = 34;
+  var IDX_TOTAL_STOCK_MONTHS         = 35;
+  var IDX_30_DAYS                    = 36;
+  var IDX_60_DAYS                    = 37;
+  var IDX_90_DAYS                    = 38;
+  var IDX_120_DAYS                   = 39;
+  var IDX_4_MONTH_AVG                = 40;
+  var IDX_MAX_SHELF_LIFE             = 41;
+  var IDX_LAST_BILLED_DATE           = 42;
+  var IDX_EXPIRE_DATE                = 43;
+  var IDX_EXPIRY_STATUS              = 44;
 
 
-
-  var CHANGED_ROW_COLOR = '#cfe8ff';
+var CHANGED_ROW_COLOR = '#cfe8ff';
 var RESTRICTION_FIELD = 'custitem_restriction_level';
 var AVAILABLE_FOR_ORDER_FIELD = 'custitem_available_for_order_tool';
 
@@ -473,6 +473,37 @@ pagedData.pageRanges.forEach(function (pageRange) {
       return resultMap;
     }
 
+  function getPendingReservedMap() {
+    var resultMap = {};
+    var itemColumn = search.createColumn({
+      name: 'item', summary: 'GROUP', sort: search.Sort.ASC
+    });
+    var quantityColumn = search.createColumn({
+      name: 'formulanumeric',
+      summary: 'SUM',
+      formula: '{quantity} - NVL({quantitycommitted},0) - NVL({quantityshiprecv},0)'
+    });
+    var reservationSearch = search.create({
+      type: 'orderreservation',
+      settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }],
+      filters: [
+        ['type', 'anyof', 'OrdResv'], 'AND',
+        ['closed', 'is', 'F'], 'AND',
+        ['mainline', 'is', 'F'], 'AND',
+        ['formulanumeric: {quantity} - NVL({quantitycommitted},0)', 'greaterthan', '0']
+      ],
+      columns: [itemColumn, quantityColumn]
+    });
+    var paged = reservationSearch.runPaged({ pageSize: 1000 });
+    paged.pageRanges.forEach(function (pageRange) {
+      paged.fetch({ index: pageRange.index }).data.forEach(function (result) {
+        var itemId = String(result.getValue(itemColumn) || '').trim();
+        if (itemId) resultMap[itemId] = toNumber(result.getValue(quantityColumn));
+      });
+    });
+    return resultMap;
+  }
+
   function getInventoryBalanceMap() {
     var resultMap = {};
 
@@ -680,6 +711,7 @@ pagedData.pageRanges.forEach(function (pageRange) {
     var headersClean = headers.map(cleanHeader);
 
     var newHeaders = headersClean.slice(0);
+    newHeaders.splice(IDX_PENDING_RESERVED, 0, 'Pending reserved');
     newHeaders.push('Last Billed Date');
     newHeaders.push('Expire Date');
     newHeaders.push('Expiry Status');
@@ -691,6 +723,7 @@ pagedData.pageRanges.forEach(function (pageRange) {
     var rowObjs = [];
     var balances = getInventoryBalanceMap();
     var commMap = getCommBackMap();
+    var pendingReservedMap = getPendingReservedMap();
     log.debug('Commited Qty Map', commMap);
 
     allRows.slice(1).forEach(function (line) {
@@ -705,6 +738,8 @@ pagedData.pageRanges.forEach(function (pageRange) {
       seenItemIds[rawItemId] = true;
 
       var cleaned = colsRaw.map(function (v) { return cleanCsvValue(v); });
+      // Source CSVs retain their original layout; insert before indexed calculations.
+      cleaned.splice(IDX_PENDING_RESERVED, 0, pendingReservedMap[rawItemId] || 0);
       var itemIdNum = parseInt(rawItemId, 10);
       if (!isFinite(itemIdNum)) itemIdNum = 0;
 
