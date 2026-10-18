@@ -176,9 +176,7 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
             const found = search.create({
                 type: 'file',
                 filters: [
-                    ['folder', 'anyof', String(CONFIG.MASTER_FOLDER_ID)], 'AND',
-                    ['name', 'endswith', '.csv'],
-                    'AND', ['name', 'doesnotcontain', '~$']
+                    ['folder', 'anyof', String(CONFIG.MASTER_FOLDER_ID)]
                 ], columns: cols
             }).run().getRange({ start: 0, end: 1 });
             if (!found.length) throw new Error('No .csv file found directly in master folder ' + CONFIG.MASTER_FOLDER_ID + '.');
