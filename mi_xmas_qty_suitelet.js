@@ -3,18 +3,16 @@
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
  *
- * Read-only Christmas quantities dashboard. Upload the companion Excel library
- * into the SAME File Cabinet folder as this script. No JSON config is needed.
+ * Read-only Christmas quantities dashboard. Standalone CSV version.
+ * No JSON configuration or third-party library is needed.
  */
-define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime', './xlsx.full.min'],
-    (search, file, serverWidget, log, runtime, XLSX) => {
+define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
+    (search, file, serverWidget, log, runtime) => {
         'use strict';
 
         const CONFIG = {
-            // File Cabinet folder containing master workbook uploads.
+            // File Cabinet folder containing master CSV uploads.
             MASTER_FOLDER_ID: 493530,
-            // Empty = first worksheet. Set a name if your workbook needs it.
-            MASTER_SHEET_NAME: '',
             // Newest upload = Created DESC, then Internal ID DESC.
             // Change to 'modified' only if overwriting existing files is preferred.
             MASTER_DATE_FIELD: 'created',
@@ -179,29 +177,55 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime', './xlsx
                 type: 'file',
                 filters: [
                     ['folder', 'anyof', String(CONFIG.MASTER_FOLDER_ID)], 'AND',
-                    [['name', 'endswith', '.xlsx'], 'OR', ['name', 'endswith', '.xls'], 'OR', ['name', 'endswith', '.csv']],
+                    ['name', 'endswith', '.csv'],
                     'AND', ['name', 'doesnotcontain', '~$']
                 ], columns: cols
             }).run().getRange({ start: 0, end: 1 });
-            if (!found.length) throw new Error('No .xlsx, .xls or .csv file found directly in master folder ' + CONFIG.MASTER_FOLDER_ID + '.');
+            if (!found.length) throw new Error('No .csv file found directly in master folder ' + CONFIG.MASTER_FOLDER_ID + '.');
             const f = file.load({ id: found[0].getValue(cols[1]) });
             if (f.size > CONFIG.MAX_FILE_BYTES) throw new Error('Newest master file exceeds the configured 9 MB limit: ' + f.name);
             return { file: f, date: found[0].getValue(cols[0]) };
         }
 
+        // Comma-delimited CSV: quoted commas, escaped quotes and embedded
+        // newlines are supported. Malformed quoting fails rather than shifts data.
+        function parseCsv(contents) {
+            const text = String(contents).replace(/^\uFEFF/, '');
+            if (text.includes('\u0000')) throw new Error('Save the master CSV as UTF-8, comma-delimited.');
+            const rows = [];
+            let row = [], value = '', quoted = false, closed = false;
+            const pushCell = () => {
+                row.push(value); value = ''; closed = false;
+                if (row.length > 301) throw new Error('Master CSV exceeds 301 columns.');
+            };
+            const pushRow = () => {
+                pushCell(); rows.push(row); row = [];
+                if (rows.length > CONFIG.MAX_MASTER_ROWS + 1) throw new Error('Master CSV exceeds ' + CONFIG.MAX_MASTER_ROWS + ' data rows.');
+            };
+            for (let i = 0; i < text.length; i++) {
+                const c = text[i];
+                if (quoted) {
+                    if (c === '"') {
+                        if (text[i + 1] === '"') { value += '"'; i++; }
+                        else { quoted = false; closed = true; }
+                    } else value += c;
+                } else if (c === ',') pushCell();
+                else if (c === '\r' || c === '\n') {
+                    pushRow(); if (c === '\r' && text[i + 1] === '\n') i++;
+                } else if (c === '"' && !value && !closed) quoted = true;
+                else {
+                    if (closed || c === '"') throw new Error('Malformed CSV quoting near record ' + (rows.length + 1) + '.');
+                    value += c;
+                }
+            }
+            if (quoted) throw new Error('Master CSV contains an unclosed quoted field.');
+            if (value || row.length || closed) pushRow();
+            return rows;
+        }
+
         function parseMaster(f) {
-            const isCsv = /\.csv$/i.test(f.name);
-            const wb = XLSX.read(f.getContents(), {
-                type: isCsv ? 'string' : 'base64', cellFormula: true,
-                cellHTML: false, cellStyles: false, sheetRows: CONFIG.MAX_MASTER_ROWS + 2
-            });
-            const sheetName = CONFIG.MASTER_SHEET_NAME || wb.SheetNames[0];
-            const sheet = wb.Sheets[sheetName];
-            if (!sheet || !sheet['!ref']) throw new Error('Master worksheet is missing or empty: ' + sheetName);
-            const range = XLSX.utils.decode_range(sheet['!fullref'] || sheet['!ref']);
-            if (range.e.r > CONFIG.MAX_MASTER_ROWS) throw new Error('Master worksheet exceeds ' + CONFIG.MAX_MASTER_ROWS + ' data rows.');
-            if (range.e.c > 300) throw new Error('Master worksheet has more than 301 columns; remove unused columns.');
-            const table = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true, blankrows: true, range: 0 });
+            if (!/\.csv$/i.test(f.name)) throw new Error('Master file must be a .csv file.');
+            const table = parseCsv(f.getContents());
             const index = Object.create(null);
             (table[0] || []).forEach((h, i) => {
                 if (!clean(h)) return;
@@ -215,6 +239,7 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime', './xlsx
             for (let r = 1; r < table.length; r++) {
                 const values = table[r] || [];
                 if (values.every(v => v == null || clean(v) === '')) continue;
+                if (values.length !== table[0].length) throw new Error('Master CSV record ' + (r + 1) + ' has ' + values.length + ' fields; expected ' + table[0].length + '.');
                 const rawId = clean(values[index[key('Item ID')]]);
                 if (['total', 'grand total'].includes(key(rawId))) continue;
                 if (!/^\d+$/.test(rawId) || Number(rawId) <= 0 || !Number.isSafeInteger(Number(rawId))) {
@@ -226,16 +251,13 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime', './xlsx
                 MASTER_MAP.forEach(m => {
                     const quantities = m.slice(1).map(h => {
                         const col = index[key(h)];
-                        const cell = sheet[XLSX.utils.encode_cell({ r, c: col })];
-                        if (cell && cell.t === 'e') throw new Error('Excel error in ' + h + ', row ' + (r + 1) + '. Recalculate and save the workbook.');
-                        if (cell && cell.f && cell.v == null) throw new Error('Formula has no saved value in ' + h + ', row ' + (r + 1) + '. Recalculate and save the workbook.');
                         return numberValue(values[col], h + ', row ' + (r + 1), null);
                     });
                     parsed.push({ id, channel: m[0], quantities });
                 });
             }
             if (!seen.size) throw new Error('Master file contains no item rows.');
-            return { parsed, sheetName, itemCount: seen.size };
+            return { parsed, itemCount: seen.size };
         }
 
         function loadMaster(rows, itemId) {
@@ -247,7 +269,7 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime', './xlsx
             result.parsed.forEach(r => {
                 if (!itemId || r.id === itemId) getRow(rows, r.id, '', r.channel).master = r.quantities;
             });
-            return { name: newest.file.name, id: newest.file.id, date: newest.date, sheet: result.sheetName, itemCount: result.itemCount };
+            return { name: newest.file.name, id: newest.file.id, date: newest.date, itemCount: result.itemCount };
         }
 
         function fillItemNames(rows, warnings) {
@@ -273,7 +295,7 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime', './xlsx
                 group(r.so, 3, 'mi-so') + group(r.reservation, 4, 'mi-or') + group(r.master, 3, 'mi-master') + '</tr>').join('');
             const notice = warnings.map(w => '<div class="mi-warning">' + h(w) + '</div>').join('');
             const source = masterInfo ? 'Master: ' + h(masterInfo.name) + ' (File ID ' + h(masterInfo.id) + ') · ' +
-                h(CONFIG.MASTER_DATE_FIELD === 'created' ? 'Uploaded' : 'Modified') + ': ' + h(masterInfo.date) + ' · Sheet: ' + h(masterInfo.sheet) : 'Master Excel Qty is unavailable.';
+                h(CONFIG.MASTER_DATE_FIELD === 'created' ? 'Uploaded' : 'Modified') + ': ' + h(masterInfo.date) : 'Master Excel Qty is unavailable.';
             return `<style>
                 .mi-dashboard{font:13px Arial,sans-serif;color:#172b4d;margin:16px 0;max-width:100%}
                 .mi-meta{padding:12px 0;line-height:1.7}.mi-warning{background:#fff4d5;border-left:4px solid #d59b15;padding:12px;margin:8px 0;white-space:normal}
@@ -292,7 +314,7 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime', './xlsx
                 </tr><tr><th>Item ID</th><th>Item Name</th><th>Sales Channel</th><th>Ordered</th><th>Shipped</th><th>Remaining</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th><th>Booked</th><th>Filled</th><th>Balance</th></tr></thead>
                 <tbody>${body || '<tr><td colspan="13">No matching item/channel rows.</td></tr>'}</tbody></table></div>
                 <div class="mi-note">Sales orders: created within the last ${CONFIG.SALES_ORDER_LOOKBACK_DAYS} days, using the supplied Christmas criteria. Reservations: supplied open reservation criteria, without a date restriction.<br>
-                LCL includes Fortinos. Blank sales channels map to Xmas 2026. Master values use the workbook’s saved values. — means no matching source row or a blank master value; zero means a recorded zero.</div></div>`;
+                LCL includes Fortinos. Blank sales channels map to Xmas 2026. Master values come from the latest CSV upload. — means no matching source row or a blank master value; zero means a recorded zero.</div></div>`;
         }
 
         function onRequest(context) {
