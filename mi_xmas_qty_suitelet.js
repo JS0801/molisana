@@ -2,10 +2,12 @@
  * @NApiVersion 2.1
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
- *
+ * Read-only Christmas commitments and inventory dashboard.
+ * Master bookings must use the same base units as NetSuite search quantities.
+ * Configure inclusive season and purchase dates below before deployment.
  */
-define(['N/search', 'N/file', 'N/log', 'N/runtime'],
-    (search, file, log, runtime) => {
+define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
+    (search, file, log, runtime, format, record) => {
         'use strict';
 
         const CONFIG = {
@@ -14,7 +16,10 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             MAX_FILE_BYTES: 9 * 1024 * 1024,
             MAX_MASTER_ROWS: 10000,
             MAX_DISPLAY_ROWS: 15000,
-            SALES_ORDER_LOOKBACK_DAYS: 35
+            // Inclusive dates. Update these for each Christmas season.
+            SEASON_START: '2026-09-01',
+            SEASON_END: '2026-12-31',
+            PURCHASE_START: '2026-01-01'
         };
 
         const MASTER_MAP = [
@@ -114,8 +119,11 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                     ['memomain', 'contains', 'CHRISTMAS'], 'OR',
                     ["formulanumeric: CASE WHEN {item} LIKE '%XMAS%' OR {item} LIKE '%BACI%' THEN 1 ELSE 0 END", 'equalto', '1'], 'OR',
                     ["formulanumeric: CASE WHEN UPPER({item.displayname}) LIKE '%CHIOSTRO%' OR UPPER({item.displayname}) LIKE '%STREGA%' THEN 1 ELSE 0 END", 'equalto', '1']
-                ], 'AND', ['actualshipdate', 'within', 'daysago' + CONFIG.SALES_ORDER_LOOKBACK_DAYS, 'daysago0'], 'AND',
-                ['taxline', 'is', 'F'], 'AND', ['cogs', 'is', 'F'], 'AND', ['closed', 'is', 'F']
+                ], 'AND', [
+                    ['actualshipdate', 'within', accountDate(CONFIG.SEASON_START), accountDate(CONFIG.SEASON_END)], 'OR',
+                    ['trandate', 'within', accountDate(CONFIG.SEASON_START), accountDate(CONFIG.SEASON_END)], 'OR',
+                    [['closed', 'is', 'F'], 'AND', ['formulanumeric: ABS({quantity}) - ABS(NVL({quantityshiprecv},0))', 'greaterthan', '0']]
+                ], 'AND', ['taxline', 'is', 'F'], 'AND', ['cogs', 'is', 'F']
             ];
             if (itemId) filters.push('AND', ['item', 'anyof', itemId]);
             const s = search.create({ type: 'salesorder', settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }], filters, columns });
@@ -141,7 +149,6 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             ];
             const filters = [
                 ['type', 'anyof', 'OrdResv'], 'AND', ['closed', 'is', 'F'], 'AND', ['mainline', 'is', 'F'], 'AND',
-                ['formulanumeric: {quantity} - NVL({quantitycommitted},0)', 'greaterthan', '0'], 'AND',
                 ['saleschannel', 'noneof', '@NONE@', '6', '1', '2', '5', '3', '4']
             ];
             if (itemId) filters.push('AND', ['item', 'anyof', itemId]);
@@ -168,7 +175,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             const found = search.create({
                 type: 'file',
                 filters: [
-                    ['folder', 'anyof', String(CONFIG.MASTER_FOLDER_ID)]
+                    ['folder', 'anyof', String(CONFIG.MASTER_FOLDER_ID)], 'AND', ['name', 'endswith', '.csv']
                 ], columns: cols
             }).run().getRange({ start: 0, end: 1 });
             if (!found.length) throw new Error('No .csv file found directly in master folder ' + CONFIG.MASTER_FOLDER_ID + '.');
@@ -284,7 +291,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
         }
 
         // Missing or blank master bookings remain unknown, rather than becoming zero.
-        // A missing sales group means no shipments matched the existing report filters.
+        // A missing sales group means no shipments or open demand matched the report scope.
         function commitmentSummary(row) {
             const booked = row.master && row.master[0] != null ? row.master[0] : null;
             const shipped = row.so ? row.so[1] : 0;
@@ -306,7 +313,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             };
             const headers = ['Item ID', 'Item Description', 'Item Name', 'Sales Channel',
                 'Booked / Original Commitments',
-                'Sales Order Qty - Ordered', 'Sales Order Qty - Shipped', 'Sales Order Qty - Remaining',
+                'Sales Order Qty - Ordered / demand', 'Sales Order Qty - Shipped', 'Sales Order Qty - Remaining',
                 'Remaining Commitments', 'Commitment Status',
                 'Order Reservation - Reserved', 'Order Reservation - Committed', 'Order Reservation - Used', 'Order Reservation - Remaining'];
             return '\uFEFF' + [headers].concat(rows.map(r => {
@@ -323,7 +330,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                 '<td class="num' + (n !== null && n < 0 ? ' negative' : '') + '">' + fmt(n) + '</td>').join('');
             return '<div class="table-wrap"><table><thead><tr>' +
                 '<th colspan="4">Item Details</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th>' +
-                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered</th><th>Shipped</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
+                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered / demand</th><th>Season shipped</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
                 (rows.map(r => {
                     const commitment = commitmentSummary(r);
                     return '<tr class="' + commitment.css + '"><td>' + escapeHtml(r.id) + '</td><td class="description">' + escapeHtml(r.description || '—') + '</td><td>' + escapeHtml(r.name || 'Unresolved item') + '</td><td>' + escapeHtml(r.channel) + '</td>' +
@@ -332,7 +339,188 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                 }).join('') || '<tr><td colspan="14">No matching items.</td></tr>') + '</tbody></table></div>';
         }
 
-        function renderPage(rows, allRows, itemId, chosenChannel, warnings, fatal) {
+        function accountDate(iso) {
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) throw new Error('Configure dates as YYYY-MM-DD.');
+            const [y, m, d] = iso.split('-').map(Number);
+            const date = new Date(y, m - 1, d);
+            if(date.getFullYear()!==y || date.getMonth()!==m-1 || date.getDate()!==d) throw new Error('Invalid configured date: '+iso);
+            return format.format({ value: date, type: format.Type.DATE });
+        }
+        const quantity = r => Math.abs(numberValue(r, 'quantity', 0));
+        function lineFilters(ids) {
+            return [['mainline', 'is', 'F'], 'AND', ['taxline', 'is', 'F'], 'AND', ['cogs', 'is', 'F'], 'AND', ['shipping', 'is', 'F'], 'AND', ['item', 'anyof', ids]];
+        }
+        function transactionRows(type, filters, columns, consume) {
+            const order = [search.createColumn({name:'internalid', sort:search.Sort.ASC}), search.createColumn({name:'lineuniquekey', sort:search.Sort.ASC})];
+            eachResult(search.create({type, filters, columns:order.concat(columns)}), consume);
+        }
+        // Load into temporary arrays. A failed later page must not publish partial totals.
+        function readSection(label, fn, warnings) {
+            try { return fn(); }
+            catch (e) {
+                log.error({title:label + ' unavailable', details:e});
+                warnings.push(label + ' unavailable: ' + (e.message || String(e)));
+                return null;
+            }
+        }
+        function newInventory(id) {
+            return {id, stock:null, purchases:null, openOrders:null, shipments:null, transfers:null, reservations:null};
+        }
+        function loadInventory(rows, itemId, warnings) {
+            const ids = Array.from(new Set(Array.from(rows.values()).map(r=>r.id)));
+            const inventory = new Map(ids.map(id=>[id,newInventory(id)]));
+            // Clear the discovery quantities; actual shipped quantity comes from shipped fulfillments.
+            rows.forEach(r=>{r.so=null;});
+            for (let start=0; start<ids.length; start+=200) {
+                const batch=ids.slice(start,start+200);
+                const stock=readSection('Stock by location',()=>{
+                    const out=[];
+                    eachResult(search.create({type:'item', filters:[['internalid','anyof',batch]], columns:[
+                        search.createColumn({name:'internalid',sort:search.Sort.ASC}), search.createColumn({name:'inventorylocation',sort:search.Sort.ASC}),
+                        'locationquantityonhand','locationquantityavailable','locationquantitycommitted','locationquantityonorder','locationquantitybackordered','locationquantityintransit'
+                    ]}),r=>out.push({id:String(r.id),location:r.getText('inventorylocation') || 'No inventory location',
+                        onHand:numberValue(r.getValue('locationquantityonhand'),'on hand',0), available:numberValue(r.getValue('locationquantityavailable'),'available',0),
+                        committed:quantity(r.getValue('locationquantitycommitted')), onOrder:quantity(r.getValue('locationquantityonorder')),
+                        backordered:quantity(r.getValue('locationquantitybackordered')), inTransit:quantity(r.getValue('locationquantityintransit'))}));
+                    return out;
+                },warnings);
+                const purchases=readSection('Purchase orders',()=>{
+                    const out=[];
+                    transactionRows('purchaseorder',lineFilters(batch).concat(['AND',['status','noneof','PurchOrd:A','PurchOrd:C'],'AND',[['trandate','within',accountDate(CONFIG.PURCHASE_START),accountDate(CONFIG.SEASON_END)],'OR',[['closed','is','F'],'AND',['formulanumeric: ABS({quantity}) - ABS(NVL({quantityshiprecv},0))','greaterthan','0']]]]),
+                        ['item','tranid','trandate','entity','location','quantity','quantityshiprecv','closed','statusref','expectedreceiptdate'],r=>{
+                            const ordered=quantity(r.getValue('quantity')),received=quantity(r.getValue('quantityshiprecv'));
+                            const closed=r.getValue('closed')===true || r.getValue('closed')==='T' || r.getValue('statusref')==='closed';
+                            out.push({id:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),date:r.getValue('trandate'),vendor:r.getText('entity'),location:r.getText('location'),ordered,received,
+                                remaining:closed?0:Math.max(0,ordered-received),expected:r.getValue('expectedreceiptdate')});
+                        }); return out;
+                },warnings);
+                const openOrders=readSection('Open sales orders',()=>{
+                    const out=[];
+                    transactionRows('salesorder',lineFilters(batch).concat(['AND',['closed','is','F'],'AND',['status','noneof','SalesOrd:C','SalesOrd:H'],'AND',
+                        ['formulanumeric: ABS({quantity}) - ABS(NVL({quantityshiprecv},0))','greaterthan','0']]),
+                        ['item','tranid','entity','location','quantity','quantityshiprecv','quantitycommitted',search.createColumn({name:'custentity_default_shipping_channel',join:'customerMain'})],r=>{
+                            const ordered=quantity(r.getValue('quantity')),fulfilled=quantity(r.getValue('quantityshiprecv')),committed=quantity(r.getValue('quantitycommitted'));
+                            out.push({id:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),customer:r.getText('entity'),location:r.getText('location'),ordered,fulfilled,committed,
+                                remaining:Math.max(0,ordered-fulfilled),uncommitted:Math.max(0,ordered-fulfilled-committed),channel:channelName(r.getText({name:'custentity_default_shipping_channel',join:'customerMain'}))});
+                        });return out;
+                },warnings);
+                const shipments=readSection('Season shipments',()=>{
+                    const out=[];
+                    transactionRows('itemfulfillment',lineFilters(batch).concat(['AND',['status','anyof','ItemShip:C'],'AND',['createdfrom.type','anyof','SalesOrd'],
+                        'AND',['trandate','within',accountDate(CONFIG.SEASON_START),accountDate(CONFIG.SEASON_END)]]),
+                        ['item','quantity',search.createColumn({name:'custentity_default_shipping_channel',join:'customerMain'})],r=>out.push({id:String(r.getValue('item')),shipped:quantity(r.getValue('quantity')),
+                            channel:channelName(r.getText({name:'custentity_default_shipping_channel',join:'customerMain'}))})); return out;
+                },warnings);
+                for (const id of batch) {
+                    const inv=inventory.get(id);
+                    for (const [key,data] of Object.entries({stock,purchases,openOrders,shipments})) inv[key]=data===null?null:data.filter(r=>r.id===id);
+                    // No item search row is not proof of zero stock (permissions or unsupported item type).
+                    if (inv.stock && !inv.stock.length) {inv.stock=null;warnings.push('Stock unavailable for item '+id+'.');}
+                }
+                if (openOrders) openOrders.forEach(o=>{
+                    const row=getRow(rows,o.id,'',o.channel);
+                    if (!row.so) row.so=[0,0,0];
+                    row.so[0]+=o.remaining; row.so[2]+=o.remaining;
+                });
+                if (shipments) shipments.forEach(o=>{
+                    const row=getRow(rows,o.id,'',o.channel);
+                    if (!row.so) row.so=[0,0,0];
+                    row.so[0]+=o.shipped; row.so[1]+=o.shipped;
+                });
+                rows.forEach(r=>{if(batch.includes(r.id)) {
+                    if(!r.so) r.so=[0,0,0];
+                    if(shipments===null) {r.so[0]=null;r.so[1]=null;}
+                    if(openOrders===null) {r.so[0]=null;r.so[2]=null;}
+                }});
+            }
+            if(itemId && inventory.has(itemId)) loadItemDetails(inventory.get(itemId),warnings);
+            return inventory;
+        }
+        function loadItemDetails(inv,warnings) {
+            inv.reservations=readSection('Reservation details',()=>{
+                const out=[];
+                transactionRows('orderreservation',lineFilters([inv.id]).concat(['AND',['closed','is','F']]),
+                    ['tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv'],r=>out.push({recordId:r.id,number:r.getValue('tranid'),channel:r.getText('saleschannel'),location:r.getText('location'),
+                        reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantityshiprecv'))}));return out;
+            },warnings);
+            // Record lines distinguish dispatched and received transfer quantities without
+            // counting the two transaction-search sides of an internal transfer twice.
+            inv.transfers=readSection('Incoming transfer orders',()=>{
+                const ids=new Set();
+                transactionRows('transferorder',lineFilters([inv.id]).concat(['AND',['closed','is','F'],'AND',['status','noneof','TrnfrOrd:A','TrnfrOrd:C','TrnfrOrd:H']]),[],r=>ids.add(String(r.id)));
+                const out=[];
+                for(const id of ids) {
+                    assertUsage();
+                    const rec=record.load({type:record.Type.TRANSFER_ORDER,id,isDynamic:false});
+                    for(let i=0;i<rec.getLineCount({sublistId:'item'});i++) {
+                        const val=fieldId=>rec.getSublistValue({sublistId:'item',fieldId,line:i});
+                        if(String(val('item'))!==inv.id || val('isclosed')===true || val('isclosed')==='T') continue;
+                        const ordered=quantity(val('quantity')),shipped=quantity(val('quantityfulfilled')),received=quantity(val('quantityreceived'));
+                        if(ordered<=received) continue;
+                        out.push({recordId:id,number:rec.getValue('tranid'),from:rec.getText('location'),to:rec.getText('transferlocation'),
+                            units:rec.getSublistText({sublistId:'item',fieldId:'units',line:i}) || 'Base units',ordered,shipped,received,committed:quantity(val('quantitycommitted')),expected:val('expectedreceiptdate') || '',
+                            remaining:Math.max(0,ordered-received),inTransit:Math.max(0,shipped-received)});
+                    }
+                } return out;
+            },warnings);
+            inv.allocations=readSection('Supply allocation details',()=>{
+                const out=[];
+                transactionRows('transaction',lineFilters([inv.id]).concat(['AND',['type','anyof','SalesOrd','TrnfrOrd'],'AND',['closed','is','F'],'AND',
+                    ['formulanumeric: ABS(NVL({quantityallocated},0))','greaterthan','0']]),['tranid','type','entity','location','quantityallocated'],r=>out.push({recordId:r.id,number:r.getValue('tranid'),type:r.getText('type'),customer:r.getText('entity'),location:r.getText('location'),allocated:quantity(r.getValue('quantityallocated'))}));return out;
+            },warnings);
+        }
+        function sum(data,field) {return data===null?null:data.reduce((s,r)=>s+r[field],0);}
+        function summarizeInventory(inv,rows) {
+            const bookings=rows.filter(r=>r.id===inv.id);
+            const known=bookings.length>0 && bookings.every(r=>r.master && r.master[0]!==null && r.master[0]!==undefined);
+            const booked=known?bookings.reduce((s,r)=>s+r.master[0],0):null;
+            const shipped=sum(inv.shipments,'shipped'),onHand=sum(inv.stock,'onHand'),transit=sum(inv.stock,'inTransit'),incoming=sum(inv.purchases,'remaining');
+            // Overshipments for customer A do not cancel a commitment still owed to customer B.
+            const outstanding=known && shipped!==null?bookings.reduce((s,r)=>s+Math.max(0,commitmentSummary(r).remaining),0):null;
+            const excess=outstanding===null || onHand===null || transit===null || incoming===null?null:onHand+transit+incoming-outstanding;
+            const purchaseStart=accountDate(CONFIG.PURCHASE_START),purchaseEnd=accountDate(CONFIG.SEASON_END);
+            const from=format.parse({value:purchaseStart,type:format.Type.DATE}).getTime(),to=format.parse({value:purchaseEnd,type:format.Type.DATE}).getTime();
+            const seasonal=inv.purchases===null?null:inv.purchases.filter(p=>{const date=format.parse({value:p.date,type:format.Type.DATE}).getTime();return date>=from && date<=to;});
+            return {id:inv.id,name:bookings[0]?.name || inv.id,description:bookings[0]?.description || '',booked,shipped,outstanding,onHand,
+                available:sum(inv.stock,'available'),committed:sum(inv.stock,'committed'),onOrder:sum(inv.stock,'onOrder'),backordered:sum(inv.stock,'backordered'),transit,incoming,
+                purchased:sum(seasonal,'ordered'),received:sum(seasonal,'received'),openDemand:sum(inv.openOrders,'remaining'),excess};
+        }
+        function detailTable(title,heads,data,values) {
+            if(data===null || data===undefined) return '<h3>'+escapeHtml(title)+'</h3><p class="error">Data unavailable. See warnings above.</p>';
+            const tx=r=>'<a target="_blank" rel="noopener" href="/app/accounting/transactions/transaction.nl?id='+encodeURIComponent(r.recordId)+'">'+escapeHtml(r.number || r.recordId)+'</a>';
+            return '<details open><summary>'+escapeHtml(title)+'</summary><div class="table-wrap detail"><table><thead><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+
+                (data.map(r=>'<tr>'+values(r).map((v,i)=>'<td>'+(i===0 && r.recordId?tx(r):escapeHtml(v==null?'—':v))+'</td>').join('')+'</tr>').join('') || '<tr><td colspan="'+heads.length+'">No matching records.</td></tr>')+'</tbody></table></div></details>';
+        }
+        function renderInventory(inventory,allRows,visibleRows,itemId) {
+            const visible=new Set(visibleRows.map(r=>r.id));
+            const items=Array.from(inventory.values()).filter(i=>visible.has(i.id)).map(i=>summarizeInventory(i,allRows));
+            const fields=['purchased','received','onHand','available','committed','onOrder','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
+            const heads=['Item ID','Description','Item','Purchased','Received against POs','On hand','Available','Committed','On order (reference)','Internal transfer in transit','Open PO remaining','Season shipped','Original commitments','Outstanding commitments','Open SO demand','Projected excess / (shortage)','Details'];
+            const fmt=n=>n===null?'—':escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
+            let html='<h2>Inventory summary</h2><p>One row per item, all sales channels and all visible locations. Channel filters select items; inventory totals remain across all channels. Quantities and master bookings must use the same item base units. Blank master bookings remain unknown and suppress the coverage estimate.</p>'+
+                '<p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only; PO transit is already included in PO remaining. Internal transfers awaiting dispatch add no new supply. This is a commitment coverage estimate, not free-to-promise stock: open orders may exceed bookings, and blocked/non-sellable stock may require review.</p>'+
+                '<div class="table-wrap"><table><thead><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+
+                (items.map(i=>'<tr class="'+(i.excess===null?'':i.excess<0?'over':'complete')+'"><td>'+escapeHtml(i.id)+'</td><td class="description">'+escapeHtml(i.description)+'</td><td>'+escapeHtml(i.name)+'</td>'+fields.map(f=>'<td class="num">'+fmt(i[f])+'</td>').join('')+'<td><form method="post"><input type="hidden" name="custpage_item" value="'+escapeHtml(i.id)+'"><button name="action" value="view">View details</button></form></td></tr>').join('') || '<tr><td colspan="17">No matching items.</td></tr>')+'</tbody></table></div>';
+            if(itemId && inventory.has(itemId)) {
+                const i=inventory.get(itemId);
+                html+='<h2>Item '+escapeHtml(itemId)+' — inventory details</h2>';
+                html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
+                html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
+                html+=detailTable('Supply allocations (do not add to committed quantities)',['Order','Type','Customer','Location','Allocated'],i.allocations,r=>[r.number,r.type,r.customer,r.location,r.allocated]);
+                html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Committed','Used'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.committed,r.used]);
+                html+=detailTable('Incoming purchase orders',['PO','Vendor','Location','Ordered','Received','Remaining','Expected receipt'],i.purchases===null?null:i.purchases.filter(p=>p.remaining>0),r=>[r.number,r.vendor,r.location,r.ordered,r.received,r.remaining,r.expected]);
+                html+=detailTable('Incoming internal transfers (quantities in displayed line units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
+            }
+            return html;
+        }
+        function exportInventory(inventory,allRows,visibleRows) {
+            const visible=new Set(visibleRows.map(r=>r.id));
+            const fields=['id','description','name','purchased','received','onHand','available','committed','onOrder','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
+            const cell=v=>{let s=v==null?'':String(v);if(typeof v==='string' && /^\s*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};
+            return '\uFEFF'+[fields].concat(Array.from(inventory.values()).filter(i=>visible.has(i.id)).map(i=>{const summary=summarizeInventory(i,allRows);return fields.map(f=>summary[f]);})).map(r=>r.map(cell).join(',')).join('\r\n');
+        }
+
+        function renderPage(rows, allRows, itemId, chosenChannel, warnings, fatal, inventory) {
             const h = escapeHtml;
             const items = new Map();
             allRows.forEach(r => items.set(r.id, [r.name || r.id, r.description].filter(Boolean).join(' — ')));
@@ -355,16 +543,18 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                 tbody tr.complete:hover{background:#cce9d3}tbody tr.over:hover{background:#f9d0d0}tbody tr.partial:hover{background:#ffe9a3}
                 .status{font-weight:700}.description{white-space:normal;min-width:220px;max-width:380px}
                 .legend{margin:12px 0;line-height:1.6;color:#394c63}
+                details{margin:18px 0}summary{font-size:16px;font-weight:bold;cursor:pointer}.detail{max-height:420px}.detail table{min-width:900px}.table-wrap form{padding:0;border:0;background:transparent}h2{margin-top:28px}
                 @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
                 </style></head><body><main><h1>Christmas Quantity Comparison</h1>
                 <form method="post"><label>Item<input name="custpage_item" list="items" value="${h(itemId)}" placeholder="All items — enter or select item ID"><datalist id="items">${options}</datalist></label>
                 <label>Sales Channel<select name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
                 <button type="submit" name="action" value="view">Apply Filters</button><button type="submit" name="action" value="export" class="secondary">Export CSV</button>
+                <button type="submit" name="action" value="export_inventory" class="secondary">Export Inventory CSV</button>
                 <button type="submit" name="action" value="clear" class="secondary">Clear Filters</button></form>
-                <p class="note">Sales Order Qty uses orders with an actual ship date in the past ${CONFIG.SALES_ORDER_LOOKBACK_DAYS} days. Remaining Commitments = Original Booked − Shipped from this report; it is not an all-season balance. Any other sales channel is merged with Xmas 2026.</p>
+                <p class="note">Shipments: ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, using shipped fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = season shipped + current open SO quantity. Remaining Commitments = Original Booked − Season Shipped. Other channels are merged into Xmas 2026.</p>
                 <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately.</p>
                 ${warnings.map(w => '<div class="error" role="alert">' + h(w) + '</div>').join('')}
-                ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : renderTable(rows)}
+                ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : renderInventory(inventory, allRows, rows, itemId) + '<h2>Commitments by sales channel</h2>' + renderTable(rows)}
                 </main></body></html>`;
         }
 
@@ -374,6 +564,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             const channelInput = params.action === 'clear' ? '' : clean(params.custpage_channel);
             const chosenChannel = channelInput ? channelName(channelInput) : '';
             const rows = new Map(), warnings = [];
+            let inventory = new Map();
             let fatal = null;
             try {
                 if (itemId && !/^\d+$/.test(itemId)) throw new Error('Select or enter a valid item internal ID.');
@@ -384,6 +575,8 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                     log.error({ title: 'Master CSV unavailable', details: e });
                     warnings.push('Master Excel Qty unavailable: ' + e.message);
                 }
+                if(itemId && !Array.from(rows.values()).some(r=>r.id===itemId)) getRow(rows,itemId,'','Xmas 2026');
+                inventory = loadInventory(rows, itemId, warnings);
                 fillItemNames(rows, warnings);
             } catch (e) {
                 log.error({ title: 'Christmas quantity Suitelet failed', details: e });
@@ -392,14 +585,14 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             const allRows = Array.from(rows.values());
             const selectedRows = allRows.filter(r => !chosenChannel || r.channel === chosenChannel);
             selectedRows.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id) || a.channel.localeCompare(b.channel));
-            if (!fatal && params.action === 'export' && !warnings.length) {
-                context.response.writeFile({ file: file.create({ name: 'Christmas_Quantities.csv', fileType: file.Type.CSV, contents: exportCsv(selectedRows), encoding: file.Encoding.UTF8 }), isInline: false });
+            if (!fatal && ['export','export_inventory'].includes(params.action) && !warnings.length) {
+                context.response.writeFile({ file: file.create({ name: params.action === 'export_inventory' ? 'Christmas_Inventory.csv' : 'Christmas_Quantities.csv', fileType: file.Type.CSV, contents: params.action === 'export_inventory' ? exportInventory(inventory, allRows, selectedRows) : exportCsv(selectedRows), encoding: file.Encoding.UTF8 }), isInline: false });
                 return;
             }
-            if (params.action === 'export' && warnings.length) warnings.push('CSV export is unavailable until the data errors above are resolved.');
+            if (['export','export_inventory'].includes(params.action) && warnings.length) warnings.push('CSV export is unavailable until the data errors above are resolved.');
             if (selectedRows.length > CONFIG.MAX_DISPLAY_ROWS) fatal = 'Too many rows to display. Narrow the filters or use Export CSV.';
             context.response.setHeader({ name: 'Content-Type', value: 'text/html; charset=UTF-8' });
-            context.response.write(renderPage(selectedRows, allRows, itemId, chosenChannel, warnings, fatal));
+            context.response.write(renderPage(selectedRows, allRows, itemId, chosenChannel, warnings, fatal, inventory));
         }
         return { onRequest };
     });
