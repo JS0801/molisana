@@ -520,28 +520,28 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         }
         const SUMMARY_SECTIONS = [
             ['Inventory',[
-                ['onHand','On Hand','Item record: total location quantity on hand, including negative balances.'],
-                ['available','Available','Sum of Location Available + Location External Quantity In Transit + Location In Transit across inventory locations. Includes stock still in transit; it is not all available to ship now.'],
-                ['excess','Projected Excess / (Shortage)','On Hand + Internal Transfer In Transit + Pending Receipt − Remaining Commitments. Vendor transit is already part of Pending Receipt and is not added twice.']
+                ['onHand','On Hand',"Total stock currently held across all locations."],
+                ['available','Available',"Available stock plus incoming stock in transit."],
+                ['excess','Projected Excess / (Shortage)',"On Hand + Internal Transfer In Transit + Pending Receipt − Remaining Commitments."]
             ]],
             ['Sales',[
-                ['booked','Total Booked','Sum of original booked quantities across all channels in the latest master CSV. Blank bookings make this total unavailable.'],
-                ['shipped','Shipped','Sum of fulfilled quantity on matching Christmas sales orders. Cumulative SO fulfilled quantity; includes billed and partially fulfilled orders. Season order/actual ship dates: '+CONFIG.SEASON_START+' to '+CONFIG.SEASON_END+', plus open Christmas orders.'],
-                ['outstanding','Remaining Commitments','For each sales channel: max(0, Original Booked − Shipped), then sum. One channel’s excess does not offset another channel’s commitment.'],
-                ['pendingCommitment','Pending Commitment','Open SO lines: sum of max(0, Ordered − Fulfilled − Committed). Includes older open orders.'],
-                ['committedSO','Committed SO','Sum of quantitycommitted on open sales-order lines across all sales channels, including older open orders. Uses the loaded SO search, not the combined item-record committed balance.'],
-                ['committedReservation','Committed Order Reservation','Sum of Full Committed (quantitycommitted) on open order reservations in the report. Excludes sales channels @NONE@, 1, 2, 3, 4, 5 and 6. Allocated Demand is not subtracted.'],
-                ['backordered','Backordered SO','Item record: sum of locationquantitybackordered across inventory locations. This retains the existing item-record backorder calculation.']
+                ['booked','Total Booked',"Total original customer commitments from the latest master Excel file."],
+                ['shipped','Shipped',"Total quantity fulfilled against Christmas sales orders."],
+                ['outstanding','Remaining Commitments',"Original booked quantity minus shipped quantity for each sales channel. Extra shipments for one channel do not reduce another channel’s balance."],
+                ['pendingCommitment','Pending Commitment',"Quantity on open sales orders that has not been shipped or committed."],
+                ['committedSO','Committed SO',"Stock committed to open sales orders across all sales channels."],
+                ['committedReservation','Committed Order Reservation',"Full quantity committed to the order reservations included in this report, before subtracting allocated demand."],
+                ['backordered','Backordered SO',"Total sales-order quantity reported as backordered across all locations."]
             ]],
             ['Purchase',[
-                ['purchased','Total Purchased','PO dates '+CONFIG.PURCHASE_START+' to '+CONFIG.SEASON_END+'. Open lines contribute ordered quantity. Closed or partially closed lines contribute only quantity received; closed unreceived balances are removed. Pending-approval and rejected POs are excluded.'],
-                ['received','Received','Received quantity against POs dated '+CONFIG.PURCHASE_START+' to '+CONFIG.SEASON_END+'. Uses PO date, not receipt date.'],
-                ['incoming','Pending Receipt','Sum of max(0, Ordered − Received) on open PO lines, including older POs. Closed lines contribute zero.'],
-                ['purchaseOnOrder','On Order','Sum of item Location On Order minus Location External Quantity In Transit across inventory locations.'],
-                ['purchaseTransit','In Transit','Sum of item Location External Quantity In Transit (locationqtyintransitext) across inventory locations. Internal transfer transit is shown separately under Transfer.']
+                ['purchased','Total Purchased',"Quantity ordered on purchase orders dated in 2026. Orders awaiting approval or rejected are excluded."],
+                ['received','Received',"Quantity received against purchase orders dated in 2026."],
+                ['incoming','Pending Receipt',"Quantity still to be received on open purchase orders, including older orders."],
+                ['purchaseOnOrder','On Order',"Total quantity on order minus external stock in transit."],
+                ['purchaseTransit','In Transit',"External stock currently in transit to your locations."]
             ]],
             ['Transfer',[
-                ['transit','Internal Transfer In Transit','Item record: sum of location quantity in transit. Transfer detail quantities are not added again.']
+                ['transit','Internal Transfer In Transit',"Stock moving between internal locations that has not yet been received."]
             ]]
         ];
         const INVENTORY_FIELDS=SUMMARY_SECTIONS.flatMap(s=>s[1].map(m=>m[0]));
