@@ -3,18 +3,13 @@
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
  *
- * Read-only Christmas quantities dashboard. Standalone CSV version.
- * No JSON configuration or third-party library is needed.
  */
-define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
-    (search, file, serverWidget, log, runtime) => {
+define(['N/search', 'N/file', 'N/log', 'N/runtime'],
+    (search, file, log, runtime) => {
         'use strict';
 
         const CONFIG = {
-            // File Cabinet folder containing master CSV uploads.
             MASTER_FOLDER_ID: 493530,
-            // Newest upload = Created DESC, then Internal ID DESC.
-            // Change to 'modified' only if overwriting existing files is preferred.
             MASTER_DATE_FIELD: 'created',
             MAX_FILE_BYTES: 9 * 1024 * 1024,
             MAX_MASTER_ROWS: 10000,
@@ -22,8 +17,6 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
             SALES_ORDER_LOOKBACK_DAYS: 35
         };
 
-        // LCL total is authoritative: do NOT add LCL/Fortinos detail again.
-        // Metro total columns are deliberately omitted.
         const MASTER_MAP = [
             ['LCL - XMAS', 'TTL LCL Booked', 'TTL LCL Filled', 'Total LCL Balance'],
             ['Amazon - XMAS', 'Amazon Booked', 'Amazon Filled', 'Amazon Balance'],
@@ -55,7 +48,7 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
         function channelName(value) {
             const text = clean(value);
             if (!text || ['- none -', '@none@', 'none'].includes(key(text))) return 'Xmas 2026';
-            return channelNames[key(text)] || text;
+            return channelNames[key(text)] || 'Xmas 2026';
         }
         function escapeHtml(v) {
             return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({
@@ -121,7 +114,7 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
                     ['memomain', 'contains', 'CHRISTMAS'], 'OR',
                     ["formulanumeric: CASE WHEN {item} LIKE '%XMAS%' OR {item} LIKE '%BACI%' THEN 1 ELSE 0 END", 'equalto', '1'], 'OR',
                     ["formulanumeric: CASE WHEN UPPER({item.displayname}) LIKE '%CHIOSTRO%' OR UPPER({item.displayname}) LIKE '%STREGA%' THEN 1 ELSE 0 END", 'equalto', '1']
-                ], 'AND', ['datecreated', 'within', 'daysago' + CONFIG.SALES_ORDER_LOOKBACK_DAYS, 'daysago0'], 'AND',
+                ], 'AND', ['actualshipdate', 'within', 'daysago' + CONFIG.SALES_ORDER_LOOKBACK_DAYS, 'daysago0'], 'AND',
                 ['taxline', 'is', 'F'], 'AND', ['cogs', 'is', 'F'], 'AND', ['closed', 'is', 'F']
             ];
             if (itemId) filters.push('AND', ['item', 'anyof', itemId]);
@@ -131,7 +124,6 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
                 const id = r.getValue(columns[1]);
                 if (!id || id === '- None -') { withoutItem++; return; }
                 const row = getRow(rows, id, r.getText(columns[1]), r.getText(columns[5]));
-                // Multiple customer categories collapse into the same item/channel.
                 addQuantities(row, 'so', [2, 3, 4].map(i => numberValue(r.getValue(columns[i]), 'sales order result', 0)));
             });
             return withoutItem;
@@ -185,8 +177,6 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
             return { file: f, date: found[0].getValue(cols[0]) };
         }
 
-        // Comma-delimited CSV: quoted commas, escaped quotes and embedded
-        // newlines are supported. Malformed quoting fails rather than shifts data.
         function parseCsv(contents) {
             const text = String(contents).replace(/^\uFEFF/, '');
             if (text.includes('\u0000')) throw new Error('Save the master CSV as UTF-8, comma-delimited.');
@@ -263,7 +253,6 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
             let result;
             try { result = parseMaster(newest.file); }
             catch (e) { throw new Error(newest.file.name + ': ' + e.message); }
-            // Apply only after the entire file validates: never display a partial master.
             result.parsed.forEach(r => {
                 if (!itemId || r.id === itemId) getRow(rows, r.id, '', r.channel).master = r.quantities;
             });
@@ -284,56 +273,78 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
             if (unresolved.length) warnings.push(unresolved.length + ' master item ID(s) could not be resolved or are not visible to this role: ' + unresolved.slice(0, 20).join(', ') + '.');
         }
 
-        function renderTable(rows, masterInfo, warnings) {
+        function exportCsv(rows) {
+            const cell = v => {
+                if (v === null || v === undefined) return '""';
+                let s = String(v);
+                if (typeof v === 'string' && /^[\s]*[=+@-]/.test(s)) s = "'" + s;
+                return '"' + s.replace(/"/g, '""') + '"';
+            };
+            const headers = ['Item ID', 'Item Name', 'Sales Channel',
+                'Sales Order Qty - Ordered', 'Sales Order Qty - Shipped', 'Sales Order Qty - Remaining',
+                'Order Reservation - Reserved', 'Order Reservation - Committed', 'Order Reservation - Used', 'Order Reservation - Remaining',
+                'Master Excel Qty - Booked', 'Master Excel Qty - Filled', 'Master Excel Qty - Balance'];
+            return '\uFEFF' + [headers].concat(rows.map(r => [r.id, r.name, r.channel].concat(
+                r.so || [null, null, null], r.reservation || [null, null, null, null], r.master || [null, null, null]
+            ))).map(r => r.map(cell).join(',')).join('\r\n');
+        }
+
+        function renderTable(rows) {
+            const fmt = n => n === null ? '—' : escapeHtml(n.toLocaleString('en-US', { maximumFractionDigits: 6 }));
+            const group = (v, count) => (v || Array(count).fill(null)).map(n =>
+                '<td class="num' + (n !== null && n < 0 ? ' negative' : '') + '">' + fmt(n) + '</td>').join('');
+            return '<div class="table-wrap"><table><thead><tr>' +
+                '<th colspan="3">Item Details</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="4" class="reservation">Order Reservation</th><th colspan="3" class="master">Master Excel Qty</th>' +
+                '</tr><tr><th>Item ID</th><th>Item Name</th><th>Sales Channel</th><th>Ordered</th><th>Shipped</th><th>Remaining</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th><th>Booked</th><th>Filled</th><th>Balance</th></tr></thead><tbody>' +
+                (rows.map(r => '<tr><td>' + escapeHtml(r.id) + '</td><td>' + escapeHtml(r.name || 'Unresolved item') + '</td><td>' + escapeHtml(r.channel) + '</td>' +
+                    group(r.so, 3) + group(r.reservation, 4) + group(r.master, 3) + '</tr>').join('') || '<tr><td colspan="13">No matching items.</td></tr>') + '</tbody></table></div>';
+        }
+
+        function renderPage(rows, allRows, itemId, chosenChannel, warnings, fatal) {
             const h = escapeHtml;
-            const fmt = n => n === null ? '<span class="mi-missing" title="No saved value">—</span>' : h(n.toLocaleString('en-US', { maximumFractionDigits: 6 }));
-            const group = (v, count, cls) => (v || Array(count).fill(null)).map(n =>
-                '<td class="mi-num ' + cls + (n !== null && n < 0 ? ' mi-negative' : '') + '">' + fmt(n) + '</td>').join('');
-            const body = rows.map(r => '<tr><td>' + h(r.id) + '</td><td class="mi-item">' + h(r.name || 'Unresolved item') + '</td><td>' + h(r.channel) + '</td>' +
-                group(r.so, 3, 'mi-so') + group(r.reservation, 4, 'mi-or') + group(r.master, 3, 'mi-master') + '</tr>').join('');
-            const notice = warnings.map(w => '<div class="mi-warning">' + h(w) + '</div>').join('');
-            const source = masterInfo ? 'Master: ' + h(masterInfo.name) + ' (File ID ' + h(masterInfo.id) + ') · ' +
-                h(CONFIG.MASTER_DATE_FIELD === 'created' ? 'Uploaded' : 'Modified') + ': ' + h(masterInfo.date) : 'Master Excel Qty is unavailable.';
-            return `<style>
-                .mi-dashboard{font:13px Arial,sans-serif;color:#172b4d;margin:16px 0;max-width:100%}
-                .mi-meta{padding:12px 0;line-height:1.7}.mi-warning{background:#fff4d5;border-left:4px solid #d59b15;padding:12px;margin:8px 0;white-space:normal}
-                .mi-scroll{overflow:auto;max-height:70vh;border:1px solid #d6dce5;border-radius:6px}
-                .mi-dashboard table{border-collapse:separate;border-spacing:0;min-width:1300px;width:100%;font-size:12px}
-                .mi-dashboard th,.mi-dashboard td{padding:10px 12px;border-right:1px solid #e2e7ed;border-bottom:1px solid #e2e7ed;white-space:nowrap}
-                .mi-dashboard thead th{position:sticky;z-index:2;top:0;background:#263a55;color:white;text-align:center;height:24px}
-                .mi-dashboard thead tr:nth-child(2) th{top:45px;background:#e8edf4;color:#25364c}
-                .mi-dashboard thead .mi-head-so{background:#225e87}.mi-dashboard thead .mi-head-or{background:#4e568c}.mi-dashboard thead .mi-head-master{background:#247365}
-                .mi-dashboard tbody tr:nth-child(even){background:#f7f9fc}.mi-dashboard tbody tr:hover{background:#edf4ff}
-                .mi-dashboard .mi-num{text-align:right;font-variant-numeric:tabular-nums}.mi-dashboard .mi-item{min-width:180px}
-                .mi-dashboard .mi-negative{color:#b52929}.mi-missing{color:#8c96a4}.mi-note{margin-top:10px;color:#526273;line-height:1.6}
-                </style><div class="mi-dashboard">${notice}<div class="mi-meta"><strong>${rows.length.toLocaleString('en-US')} item/channel rows</strong><br>${source}</div>
-                <div class="mi-scroll"><table aria-label="Christmas item quantities"><thead><tr>
-                <th colspan="3">Item Details</th><th colspan="3" class="mi-head-so">Sales Order Qty</th><th colspan="4" class="mi-head-or">Order Reservation</th><th colspan="3" class="mi-head-master">Master Excel Qty</th>
-                </tr><tr><th>Item ID</th><th>Item Name</th><th>Sales Channel</th><th>Ordered</th><th>Shipped</th><th>Remaining</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th><th>Booked</th><th>Filled</th><th>Balance</th></tr></thead>
-                <tbody>${body || '<tr><td colspan="13">No matching item/channel rows.</td></tr>'}</tbody></table></div>
-                <div class="mi-note">Sales orders: created within the last ${CONFIG.SALES_ORDER_LOOKBACK_DAYS} days, using the supplied Christmas criteria. Reservations: supplied open reservation criteria, without a date restriction.<br>
-                LCL includes Fortinos. Blank sales channels map to Xmas 2026. Master values come from the latest CSV upload. — means no matching source row or a blank master value; zero means a recorded zero.</div></div>`;
+            const items = new Map();
+            allRows.forEach(r => items.set(r.id, r.name || r.id));
+            const options = Array.from(items).sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) =>
+                '<option value="' + h(id) + '">' + h(name) + '</option>').join('');
+            const channels = MASTER_MAP.map(m => m[0]).sort((a, b) => a.localeCompare(b)).map(c =>
+                '<option value="' + h(c) + '"' + (c === chosenChannel ? ' selected' : '') + '>' + h(c) + '</option>').join('');
+            return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+                <title>Christmas Quantity Comparison</title><style>
+                *{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:#21334b;font:14px Arial,sans-serif}main{padding:28px;max-width:100%}h1{font-size:25px;margin:0 0 20px}
+                form{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;background:white;padding:18px;border:1px solid #dce2eb;border-radius:8px}
+                label{display:flex;flex-direction:column;gap:8px;font-weight:600}input,select,button{font:inherit;border:1px solid #b9c5d4;border-radius:5px;padding:10px 12px;min-height:40px}
+                input,select{min-width:230px;background:white}button{cursor:pointer;background:#245885;color:white;border-color:#245885}.secondary{background:white;color:#245885}
+                .note{color:#c11c2b;margin:18px 0;font-weight:600;line-height:1.6}.error{background:#fff0f0;color:#a5202d;padding:14px;margin:12px 0;border:1px solid #efbcc1}
+                .table-wrap{overflow:auto;max-height:75vh;border:1px solid #d4dde7;border-radius:7px;background:white}table{border-collapse:separate;border-spacing:0;min-width:1350px;width:100%;font-size:12px}
+                th,td{padding:11px 12px;border-right:1px solid #e0e6ed;border-bottom:1px solid #e0e6ed;white-space:nowrap}thead th{position:sticky;top:0;height:40px;background:#263a55;color:white;text-align:center;z-index:2}
+                thead tr:nth-child(2) th{top:40px;background:#eaf0f6;color:#24364e}.so{background:#225e87}.reservation{background:#4e568c}.master{background:#247365}
+                tbody tr:nth-child(even){background:#f7f9fc}tbody tr:hover{background:#edf4ff}.num{text-align:right;font-variant-numeric:tabular-nums}.negative{color:#bb2331}
+                @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
+                </style></head><body><main><h1>Christmas Quantity Comparison</h1>
+                <form method="post"><label>Item<input name="custpage_item" list="items" value="${h(itemId)}" placeholder="All items — enter or select item ID"><datalist id="items">${options}</datalist></label>
+                <label>Sales Channel<select name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
+                <button type="submit" name="action" value="view">Apply Filters</button><button type="submit" name="action" value="export" class="secondary">Export CSV</button>
+                <button type="submit" name="action" value="clear" class="secondary">Clear Filters</button></form>
+                <p class="note">Sales Order Qty is only from the past 35 days. Any other sales channel is merged with Xmas 2026.</p>
+                ${warnings.map(w => '<div class="error" role="alert">' + h(w) + '</div>').join('')}
+                ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : renderTable(rows)}
+                </main></body></html>`;
         }
 
         function onRequest(context) {
             const params = context.request.parameters || {};
-            let itemId = clean(params.custpage_item);
-            const chosenChannel = clean(params.custpage_channel);
-            const form = serverWidget.createForm({ title: 'MI | Christmas Quantity Comparison' });
-            const itemField = form.addField({ id: 'custpage_item', type: serverWidget.FieldType.SELECT, label: 'Item', source: 'item' });
-            const channelField = form.addField({ id: 'custpage_channel', type: serverWidget.FieldType.SELECT, label: 'Sales Channel' });
-            form.addSubmitButton({ label: 'Apply Filters / Refresh' });
-            const output = form.addField({ id: 'custpage_dashboard', type: serverWidget.FieldType.INLINEHTML, label: 'Quantities' });
+            const itemId = params.action === 'clear' ? '' : clean(params.custpage_item);
+            const channelInput = params.action === 'clear' ? '' : clean(params.custpage_channel);
+            const chosenChannel = channelInput ? channelName(channelInput) : '';
             const rows = new Map(), warnings = [];
-            let masterInfo = null, fatal = null;
+            let fatal = null;
             try {
-                if (itemId && !/^\d+$/.test(itemId)) throw new Error('Select a valid item.');
-                if (itemId) itemField.defaultValue = itemId;
+                if (itemId && !/^\d+$/.test(itemId)) throw new Error('Select or enter a valid item internal ID.');
                 const omitted = loadSalesOrders(rows, itemId) + loadReservations(rows, itemId);
-                if (omitted) warnings.push(omitted + ' search group(s) have no item and were excluded from the item comparison.');
-                try { masterInfo = loadMaster(rows, itemId); }
+                if (omitted) warnings.push(omitted + ' search group(s) have no item and cannot be displayed.');
+                try { loadMaster(rows, itemId); }
                 catch (e) {
-                    log.error({ title: 'Master Excel unavailable', details: e });
+                    log.error({ title: 'Master CSV unavailable', details: e });
                     warnings.push('Master Excel Qty unavailable: ' + e.message);
                 }
                 fillItemNames(rows, warnings);
@@ -341,17 +352,17 @@ define(['N/search', 'N/file', 'N/ui/serverWidget', 'N/log', 'N/runtime'],
                 log.error({ title: 'Christmas quantity Suitelet failed', details: e });
                 fatal = e.message || String(e);
             }
-            const channels = new Set(MASTER_MAP.map(m => m[0]));
-            rows.forEach(r => channels.add(r.channel));
-            if (chosenChannel) channels.add(channelName(chosenChannel));
-            channelField.addSelectOption({ value: '', text: 'All Sales Channels' });
-            Array.from(channels).sort((a, b) => a.localeCompare(b)).forEach(c => channelField.addSelectOption({ value: c, text: c }));
-            if (chosenChannel) channelField.defaultValue = channelName(chosenChannel);
-            let selectedRows = Array.from(rows.values()).filter(r => !chosenChannel || key(r.channel) === key(channelName(chosenChannel)));
+            const allRows = Array.from(rows.values());
+            const selectedRows = allRows.filter(r => !chosenChannel || r.channel === chosenChannel);
             selectedRows.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id) || a.channel.localeCompare(b.channel));
-            if (selectedRows.length > CONFIG.MAX_DISPLAY_ROWS) fatal = 'More than ' + CONFIG.MAX_DISPLAY_ROWS + ' rows match. Select an item or sales channel and refresh. No rows have been silently truncated.';
-            output.defaultValue = fatal ? '<div style="padding:18px;color:#9a2626;background:#fff2f2"><strong>Unable to display quantities.</strong><br>' + escapeHtml(fatal) + '</div>' : renderTable(selectedRows, masterInfo, warnings);
-            context.response.writePage(form);
+            if (!fatal && params.action === 'export' && !warnings.length) {
+                context.response.writeFile({ file: file.create({ name: 'Christmas_Quantities.csv', fileType: file.Type.CSV, contents: exportCsv(selectedRows), encoding: file.Encoding.UTF8 }), isInline: false });
+                return;
+            }
+            if (params.action === 'export' && warnings.length) warnings.push('CSV export is unavailable until the data errors above are resolved.');
+            if (selectedRows.length > CONFIG.MAX_DISPLAY_ROWS) fatal = 'Too many rows to display. Narrow the filters or use Export CSV.';
+            context.response.setHeader({ name: 'Content-Type', value: 'text/html; charset=UTF-8' });
+            context.response.write(renderPage(selectedRows, allRows, itemId, chosenChannel, warnings, fatal));
         }
         return { onRequest };
     });
