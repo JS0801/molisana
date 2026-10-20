@@ -483,11 +483,12 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             return '<details open><summary>'+escapeHtml(title)+'</summary><div class="table-wrap detail"><table><thead><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+
                 (data.map(r=>'<tr>'+values(r).map((v,i)=>'<td>'+(i===0 && r.recordId?tx(r):escapeHtml(v==null?'—':v))+'</td>').join('')+'</tr>').join('') || '<tr><td colspan="'+heads.length+'">No matching records.</td></tr>')+'</tbody></table></div></details>';
         }
-        function renderItemDetails(inventory,itemId) {
+        function renderItemDetails(inventory,itemId,summary) {
             let html = '';
             if(itemId && inventory.has(itemId)) {
                 const i=inventory.get(itemId);
-                html+='<div class="inline-details"><h3>Inventory details for item '+escapeHtml(itemId)+'</h3>';
+                html+='<div class="inline-details"><h3>Item Inventory — All Sales Channels</h3>';
+                if(summary) html+='<dl class="inventory-grid">'+INVENTORY_FIELDS.map((field,index)=>'<div><dt>'+escapeHtml(INVENTORY_HEADINGS[index])+'</dt><dd class="'+(field==='excess' && summary[field]<0?'negative':'')+'">'+(summary[field]==null?'—':escapeHtml(summary[field].toLocaleString('en-US',{maximumFractionDigits:6})))+'</dd></div>').join('')+'</dl>';
                 html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
                 html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
                 html+=detailTable('Supply allocations (do not add to committed quantities)',['Order','Type','Customer','Location','Allocated'],i.allocations,r=>[r.number,r.type,r.customer,r.location,r.allocated]);
@@ -505,7 +506,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             rows.forEach(r => {if(!groups.has(r.id)) groups.set(r.id,[]);groups.get(r.id).push(r);});
             const fmt = n => n == null ? '—' : escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
             const numbers = values => values.map(n=>'<td class="num'+(n<0?' negative':'')+'">'+fmt(n)+'</td>').join('');
-            const heads=['Item ID','Item Description','Item Name','Sales Channel','Booked / Original Commitments','Ordered / demand','Season shipped','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'].concat(INVENTORY_HEADINGS,['Details']);
+            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Season shipped','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'];
             let body='';
             const csvIndexes=new Map(rows.map((r,i)=>[r,i]));
             groups.forEach((channels,id)=>{
@@ -514,21 +515,19 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 body+='<tbody class="item-group" data-item-id="'+escapeHtml(id)+'" data-search="'+escapeHtml([id,channels[0].name,channels[0].description].join(' '))+'" data-expanded="false">';
                 channels.forEach((r,index)=>{
                     const commitment=commitmentSummary(r);
-                    body+='<tr class="channel-row '+commitment.css+'" data-channel="'+escapeHtml(r.channel)+'" data-csv-index="'+csvIndexes.get(r)+'">';
-                    if(index===0) body+='<td class="item-total shared-leading" rowspan="'+channels.length+'">'+escapeHtml(id)+'</td><td class="description item-total shared-leading" rowspan="'+channels.length+'">'+escapeHtml(r.description || '—')+'</td><td class="item-total shared-leading" rowspan="'+channels.length+'">'+escapeHtml(r.name || id)+'</td>';
-                    body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null]);
+                    body+='<tr class="channel-row '+commitment.css+'" data-channel="'+escapeHtml(r.channel)+'" data-status="'+escapeHtml(commitment.status)+'" data-csv-index="'+csvIndexes.get(r)+'">';
                     if(index===0) {
-                        body+=INVENTORY_FIELDS.map(f=>'<td rowspan="'+channels.length+'" class="num item-total shared-trailing'+(f==='excess' && summary && summary[f]<0?' shortage':'')+'">'+fmt(summary ? summary[f] : null)+'</td>').join('');
-                        body+='<td class="item-total shared-trailing" rowspan="'+channels.length+'"><button type="button" class="toggle-detail" aria-expanded="false" aria-controls="detail-'+escapeHtml(id)+'">View details</button></td>';
+                        body+='<td class="item-total shared-leading" rowspan="'+channels.length+'"><button type="button" class="toggle-detail" aria-expanded="false" aria-controls="detail-'+escapeHtml(id)+'">View details</button></td>';
+                        body+='<td class="description item-total shared-leading" rowspan="'+channels.length+'"><strong>'+escapeHtml(r.name || id)+'</strong><div>'+escapeHtml(r.description || '—')+'</div><small>Item ID: '+escapeHtml(id)+'</small></td>';
                     }
+                    body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null]);
                     body+='</tr>';
                 });
-                body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+renderItemDetails(inventory,id)+'</td></tr></tbody>';
+                body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+renderItemDetails(inventory,id,summary)+'</td></tr></tbody>';
             });
-            return '<p>Inventory figures are shared across each item’s sales-channel rows and include all channels and visible locations, even when a channel filter is applied. Master bookings must use item base units. Blank bookings remain unknown.</p>'+
-                '<p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only. Supplier stock in transit is already included in open PO remaining. This is coverage against bookings, not free-to-promise stock.</p>'+
-                '<div class="table-wrap"><table id="combined-table"><thead><tr><th colspan="4">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th><th colspan="'+INVENTORY_FIELDS.length+'" class="so">Item Inventory — All Sales Channels</th><th>Details</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
+            return '<div class="table-wrap"><table id="combined-table"><thead><tr><th>Details</th><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
         }
+
         function exportCombined(rows,allRows,inventory) {
             const table=parseCsv(exportCsv(rows));
             table[0]=table[0].concat(INVENTORY_HEADINGS);
@@ -555,18 +554,19 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const data=JSON.parse(document.getElementById('report-data').textContent);
             const form=document.getElementById('report-filters');
             const item=document.getElementById('item-filter');
+            const itemSearch=document.getElementById('item-search');
+            const status=document.getElementById('status-filter');
             const channel=document.getElementById('channel-filter');
             const groups=Array.from(document.querySelectorAll('tbody.item-group'));
             const normalize=v=>String(v || '').trim().toLowerCase();
             const query=document.getElementById('filter-status');
             function applyFilters() {
-                const term=normalize(item.value),selected=channel.value;
-                const exactId=groups.some(g=>g.dataset.itemId===term);
+                const term=normalize(itemSearch.value),selected=channel.value,selectedItem=item.value,selectedStatus=status.value;
                 let visibleItems=0,visibleChannels=0;
                 groups.forEach(group=>{
-                    const matchesItem=!term || (exactId?group.dataset.itemId===term:normalize(group.dataset.search).includes(term));
+                    const matchesItem=(!selectedItem || group.dataset.itemId===selectedItem) && (!term || normalize(group.dataset.search).includes(term));
                     const rows=Array.from(group.querySelectorAll('tr.channel-row'));
-                    const visible=rows.filter(row=>matchesItem && (!selected || row.dataset.channel===selected));
+                    const visible=rows.filter(row=>matchesItem && (!selected || row.dataset.channel===selected) && (!selectedStatus || row.dataset.status===selectedStatus));
                     rows.forEach(row=>{row.hidden=!visible.includes(row);});
                     group.hidden=visible.length===0;
                     const detail=group.querySelector('tr.item-detail-row');
@@ -583,12 +583,14 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     trailing.forEach(cell=>{cell.rowSpan=visible.length;first.appendChild(cell);});
                 });
                 document.getElementById('empty-result').hidden=visibleItems!==0;
-                query.textContent=visibleItems+' item(s), '+visibleChannels+' sales-channel row(s). Filters use the loaded snapshot; reload the page to refresh NetSuite data.';
+                query.textContent=visibleItems+' item(s), '+visibleChannels+' sales-channel row(s). showing.';
             }
             form.addEventListener('submit',event=>{event.preventDefault();applyFilters();});
-            item.addEventListener('input',applyFilters);
+            item.addEventListener('change',applyFilters);
+            itemSearch.addEventListener('input',applyFilters);
+            status.addEventListener('change',applyFilters);
             channel.addEventListener('change',applyFilters);
-            document.getElementById('clear-filters').addEventListener('click',()=>{item.value='';channel.value='';applyFilters();});
+            document.getElementById('clear-filters').addEventListener('click',()=>{item.value='';itemSearch.value='';channel.value='';status.value='';applyFilters();});
             document.getElementById('combined-table').addEventListener('click',event=>{
                 const button=event.target.closest('button.toggle-detail');
                 if(!button)return;
@@ -633,7 +635,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const items = new Map();
             allRows.forEach(r => items.set(r.id, [r.name || r.id, r.description].filter(Boolean).join(' — ')));
             const options = Array.from(items).sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) =>
-                '<option value="' + h(id) + '">' + h(name) + '</option>').join('');
+                '<option value="' + h(id) + '"' + (id === itemId ? ' selected' : '') + '>' + h(name + ' (ID: ' + id + ')') + '</option>').join('');
             const channels = MASTER_MAP.map(m => m[0]).sort((a, b) => a.localeCompare(b)).map(c =>
                 '<option value="' + h(c) + '"' + (c === chosenChannel ? ' selected' : '') + '>' + h(c) + '</option>').join('');
             return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -650,18 +652,27 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 tbody tr.complete{background:#e1f3e5}tbody tr.over{background:#fde5e5}tbody tr.partial{background:#fff3cd}
                 tbody tr.complete:hover{background:#cce9d3}tbody tr.over:hover{background:#f9d0d0}tbody tr.partial:hover{background:#ffe9a3}
                 .status{font-weight:700}.description{white-space:normal;min-width:220px;max-width:380px}
+                #item-filter{max-width:430px}#report-explanation{background:#fff;border:1px solid #dce2eb;padding:16px;margin:16px 0;line-height:1.6}.inventory-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;white-space:normal;margin:16px 0}.inventory-grid>div{background:#fff;border:1px solid #dce2eb;border-radius:6px;padding:12px}.inventory-grid dt{font-size:12px;color:#4b5e73}.inventory-grid dd{margin:8px 0 0;font-size:20px;font-weight:700}.description strong,.description small{display:block}.description small{margin-top:6px;color:#56677b}
                 .legend{margin:12px 0;line-height:1.6;color:#394c63}
                 [hidden]{display:none!important}.item-detail-row>td{background:#f6f8fb;padding:18px}.inline-details{text-align:left;white-space:normal}.inline-details h3{margin:8px 0}button:disabled{opacity:.5;cursor:not-allowed}
                 td.item-total{background:#f0f4f8;vertical-align:top}td.shortage{background:#fde5e5;color:#a5202d;font-weight:bold}
                 details{margin:18px 0}summary{font-size:16px;font-weight:bold;cursor:pointer}.detail{max-height:420px}.detail table{min-width:900px}.table-wrap form{padding:0;border:0;background:transparent}h2{margin-top:28px}
                 @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
                 </style></head><body><main><h1>Christmas Quantity Comparison</h1>
-                <form id="report-filters" onsubmit="return false"><label>Item<input id="item-filter" name="custpage_item" list="items" value="${h(itemId)}" placeholder="Filter by item ID, code or description"><datalist id="items">${options}</datalist></label>
+                <form id="report-filters" onsubmit="return false"><label>Item<select id="item-filter" name="custpage_item"><option value="">All Items</option>${options}</select></label>
+                <label>Search items<input id="item-search" placeholder="Item ID, code or description"></label>
                 <label>Sales Channel<select id="channel-filter" name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
+                <label>Status<select id="status-filter"><option value="">All Statuses</option>${['Completed','Partially fulfilled','Over commitment','Not shipped','No commitment','Booking unavailable'].map(s=>'<option value="'+h(s)+'">'+h(s)+'</option>').join('')}</select></label>
                 <button type="submit">Apply Filters</button><button type="button" id="export-csv" class="secondary" ${warnings.length || fatal ? 'disabled title="Resolve data warnings before exporting"' : ''}>Export CSV</button>
-                <button type="button" id="clear-filters" class="secondary">Clear Filters</button></form>
+                <button type="button" id="clear-filters" class="secondary">Clear Filters</button>
+                <button type="button" class="secondary" aria-expanded="false" aria-controls="report-explanation" onclick="var p=document.getElementById('report-explanation');p.hidden=!p.hidden;this.setAttribute('aria-expanded',String(!p.hidden));">Report Details</button></form>
+                <section id="report-explanation" hidden>
                 <p class="note">Shipments: ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, using shipped fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = season shipped + current open SO quantity. Remaining Commitments = Original Booked − Season Shipped. Other channels are merged into Xmas 2026.</p>
                 <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately.</p>
+                <p>Inventory figures include all sales channels and visible locations, even when filters are applied. Master bookings must use item base units. Blank bookings remain unknown.</p>
+                <p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only. Supplier stock in transit is already included in open PO remaining. This is coverage against bookings, not free-to-promise stock.</p>
+                <p>Filters and details use the loaded snapshot. Reload the page to refresh NetSuite data. Item choices always include the complete loaded item list. Export CSV includes filtered channel rows and item inventory totals once per item.</p>
+                </section>
                 ${warnings.map(w => '<div class="error" role="alert">' + h(w) + '</div>').join('')}
                 ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : '<p id="filter-status" role="status"></p>' + renderCombined(rows, allRows, inventory, chosenChannel) + renderBrowserScript(rows, inventory, warnings)}
                 </main></body></html>`;
