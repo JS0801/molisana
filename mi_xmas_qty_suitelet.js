@@ -82,7 +82,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             const canonical = channelName(channel);
             const rowKey = itemId + '|' + key(canonical);
             if (!rows.has(rowKey)) rows.set(rowKey, {
-                id: itemId, name: clean(name), channel: canonical,
+                id: itemId, name: clean(name), description: '', channel: canonical,
                 so: null, reservation: null, master: null
             });
             const row = rows.get(rowKey);
@@ -220,7 +220,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                 if (index[key(h)] !== undefined) throw new Error('Duplicate master header: ' + h);
                 index[key(h)] = i;
             });
-            const required = ['Item ID'].concat(...MASTER_MAP.map(m => m.slice(1)));
+            const required = ['Item ID'].concat(...MASTER_MAP.map(m => m.slice(1, 2)));
             const missing = required.filter(h => index[key(h)] === undefined);
             if (missing.length) throw new Error('Newest master file is missing headers: ' + missing.join(', '));
             const parsed = [], seen = new Set();
@@ -237,7 +237,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                 if (seen.has(id)) throw new Error('Duplicate Item ID ' + id + ' in master row ' + (r + 1) + '. Keep one row per item.');
                 seen.add(id);
                 MASTER_MAP.forEach(m => {
-                    const quantities = m.slice(1).map(h => {
+                    const quantities = m.slice(1, 2).map(h => {
                         const col = index[key(h)];
                         return numberValue(values[col], h + ', row ' + (r + 1), null);
                     });
@@ -260,17 +260,41 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
         }
 
         function fillItemNames(rows, warnings) {
-            const ids = Array.from(new Set(Array.from(rows.values()).filter(r => !r.name).map(r => r.id)));
+            const ids = Array.from(new Set(Array.from(rows.values()).map(r => r.id)));
+            const details = new Map();
             for (let start = 0; start < ids.length; start += 500) {
                 const batch = ids.slice(start, start + 500);
-                const names = new Map();
                 eachResult(search.create({ type: 'item', filters: [['internalid', 'anyof', batch]], columns: [
-                    search.createColumn({ name: 'internalid', sort: search.Sort.ASC }), 'itemid'
-                ] }), r => { names.set(String(r.id), r.getValue({ name: 'itemid' })); });
-                rows.forEach(r => { if (!r.name && names.has(r.id)) r.name = names.get(r.id); });
+                    search.createColumn({ name: 'internalid', sort: search.Sort.ASC }),
+                    'itemid', 'displayname', 'salesdescription'
+                ] }), r => { details.set(String(r.id), {
+                    name: clean(r.getValue({ name: 'itemid' })),
+                    description: clean(r.getValue({ name: 'salesdescription' })) || clean(r.getValue({ name: 'displayname' }))
+                }); });
             }
-            const unresolved = Array.from(new Set(Array.from(rows.values()).filter(r => !r.name).map(r => r.id)));
-            if (unresolved.length) warnings.push(unresolved.length + ' master item ID(s) could not be resolved or are not visible to this role: ' + unresolved.slice(0, 20).join(', ') + '.');
+            rows.forEach(r => {
+                const detail = details.get(r.id);
+                if (detail) {
+                    r.name = detail.name || r.name;
+                    r.description = detail.description;
+                }
+            });
+            const unresolved = ids.filter(id => !details.has(id));
+            if (unresolved.length) warnings.push(unresolved.length + ' item ID(s) could not be resolved or are not visible to this role: ' + unresolved.slice(0, 20).join(', ') + '.');
+        }
+
+        // Missing or blank master bookings remain unknown, rather than becoming zero.
+        // A missing sales group means no shipments matched the existing report filters.
+        function commitmentSummary(row) {
+            const booked = row.master && row.master[0] != null ? row.master[0] : null;
+            const shipped = row.so ? row.so[1] : 0;
+            if (booked === null || shipped === null) return { booked, remaining: null, status: 'Booking unavailable', css: '' };
+            const difference = booked - shipped;
+            const remaining = Math.abs(difference) < 0.000000001 ? 0 : difference;
+            if (remaining < 0) return { booked, remaining, status: 'Over commitment', css: 'over' };
+            if (booked > 0 && remaining === 0) return { booked, remaining, status: 'Completed', css: 'complete' };
+            if (booked > 0 && shipped > 0) return { booked, remaining, status: 'Partially fulfilled', css: 'partial' };
+            return { booked, remaining, status: booked === 0 ? 'No commitment' : 'Not shipped', css: '' };
         }
 
         function exportCsv(rows) {
@@ -280,13 +304,17 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                 if (typeof v === 'string' && /^[\s]*[=+@-]/.test(s)) s = "'" + s;
                 return '"' + s.replace(/"/g, '""') + '"';
             };
-            const headers = ['Item ID', 'Item Name', 'Sales Channel',
+            const headers = ['Item ID', 'Item Description', 'Item Name', 'Sales Channel',
+                'Booked / Original Commitments',
                 'Sales Order Qty - Ordered', 'Sales Order Qty - Shipped', 'Sales Order Qty - Remaining',
-                'Order Reservation - Reserved', 'Order Reservation - Committed', 'Order Reservation - Used', 'Order Reservation - Remaining',
-                'Master Excel Qty - Booked', 'Master Excel Qty - Filled', 'Master Excel Qty - Balance'];
-            return '\uFEFF' + [headers].concat(rows.map(r => [r.id, r.name, r.channel].concat(
-                r.so || [null, null, null], r.reservation || [null, null, null, null], r.master || [null, null, null]
-            ))).map(r => r.map(cell).join(',')).join('\r\n');
+                'Remaining Commitments', 'Commitment Status',
+                'Order Reservation - Reserved', 'Order Reservation - Committed', 'Order Reservation - Used', 'Order Reservation - Remaining'];
+            return '\uFEFF' + [headers].concat(rows.map(r => {
+                const commitment = commitmentSummary(r);
+                return [r.id, r.description, r.name, r.channel, commitment.booked].concat(
+                    r.so || [0, 0, 0], [commitment.remaining, commitment.status], r.reservation || [null, null, null, null]
+                );
+            })).map(r => r.map(cell).join(',')).join('\r\n');
         }
 
         function renderTable(rows) {
@@ -294,16 +322,20 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
             const group = (v, count) => (v || Array(count).fill(null)).map(n =>
                 '<td class="num' + (n !== null && n < 0 ? ' negative' : '') + '">' + fmt(n) + '</td>').join('');
             return '<div class="table-wrap"><table><thead><tr>' +
-                '<th colspan="3">Item Details</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="4" class="reservation">Order Reservation</th><th colspan="3" class="master">Master Excel Qty</th>' +
-                '</tr><tr><th>Item ID</th><th>Item Name</th><th>Sales Channel</th><th>Ordered</th><th>Shipped</th><th>Remaining</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th><th>Booked</th><th>Filled</th><th>Balance</th></tr></thead><tbody>' +
-                (rows.map(r => '<tr><td>' + escapeHtml(r.id) + '</td><td>' + escapeHtml(r.name || 'Unresolved item') + '</td><td>' + escapeHtml(r.channel) + '</td>' +
-                    group(r.so, 3) + group(r.reservation, 4) + group(r.master, 3) + '</tr>').join('') || '<tr><td colspan="13">No matching items.</td></tr>') + '</tbody></table></div>';
+                '<th colspan="4">Item Details</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th>' +
+                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered</th><th>Shipped</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
+                (rows.map(r => {
+                    const commitment = commitmentSummary(r);
+                    return '<tr class="' + commitment.css + '"><td>' + escapeHtml(r.id) + '</td><td class="description">' + escapeHtml(r.description || '—') + '</td><td>' + escapeHtml(r.name || 'Unresolved item') + '</td><td>' + escapeHtml(r.channel) + '</td>' +
+                        group([commitment.booked], 1) + group(r.so || [0, 0, 0], 3) + group([commitment.remaining], 1) + '<td class="status">' + escapeHtml(commitment.status) + '</td>' +
+                        group(r.reservation, 4) + '</tr>';
+                }).join('') || '<tr><td colspan="14">No matching items.</td></tr>') + '</tbody></table></div>';
         }
 
         function renderPage(rows, allRows, itemId, chosenChannel, warnings, fatal) {
             const h = escapeHtml;
             const items = new Map();
-            allRows.forEach(r => items.set(r.id, r.name || r.id));
+            allRows.forEach(r => items.set(r.id, [r.name || r.id, r.description].filter(Boolean).join(' — ')));
             const options = Array.from(items).sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) =>
                 '<option value="' + h(id) + '">' + h(name) + '</option>').join('');
             const channels = MASTER_MAP.map(m => m[0]).sort((a, b) => a.localeCompare(b)).map(c =>
@@ -319,13 +351,18 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime'],
                 th,td{padding:11px 12px;border-right:1px solid #e0e6ed;border-bottom:1px solid #e0e6ed;white-space:nowrap}thead th{position:sticky;top:0;height:40px;background:#263a55;color:white;text-align:center;z-index:2}
                 thead tr:nth-child(2) th{top:40px;background:#eaf0f6;color:#24364e}.so{background:#225e87}.reservation{background:#4e568c}.master{background:#247365}
                 tbody tr:nth-child(even){background:#f7f9fc}tbody tr:hover{background:#edf4ff}.num{text-align:right;font-variant-numeric:tabular-nums}.negative{color:#bb2331}
+                tbody tr.complete{background:#e1f3e5}tbody tr.over{background:#fde5e5}tbody tr.partial{background:#fff3cd}
+                tbody tr.complete:hover{background:#cce9d3}tbody tr.over:hover{background:#f9d0d0}tbody tr.partial:hover{background:#ffe9a3}
+                .status{font-weight:700}.description{white-space:normal;min-width:220px;max-width:380px}
+                .legend{margin:12px 0;line-height:1.6;color:#394c63}
                 @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
                 </style></head><body><main><h1>Christmas Quantity Comparison</h1>
                 <form method="post"><label>Item<input name="custpage_item" list="items" value="${h(itemId)}" placeholder="All items — enter or select item ID"><datalist id="items">${options}</datalist></label>
                 <label>Sales Channel<select name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
                 <button type="submit" name="action" value="view">Apply Filters</button><button type="submit" name="action" value="export" class="secondary">Export CSV</button>
                 <button type="submit" name="action" value="clear" class="secondary">Clear Filters</button></form>
-                <p class="note">Sales Order Qty is only from the past 35 days. Any other sales channel is merged with Xmas 2026.</p>
+                <p class="note">Sales Order Qty uses orders with an actual ship date in the past ${CONFIG.SALES_ORDER_LOOKBACK_DAYS} days. Remaining Commitments = Original Booked − Shipped from this report; it is not an all-season balance. Any other sales channel is merged with Xmas 2026.</p>
+                <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately.</p>
                 ${warnings.map(w => '<div class="error" role="alert">' + h(w) + '</div>').join('')}
                 ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : renderTable(rows)}
                 </main></body></html>`;
