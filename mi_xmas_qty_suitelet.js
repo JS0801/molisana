@@ -100,6 +100,21 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 v === null || values[i] === null ? null : v + values[i]);
         }
 
+        function christmasOrderScope() {
+            return [[
+                    ['custbody_order_type_cp', 'anyof', '3'], 'OR', ['memomain', 'contains', 'Xmas'], 'OR',
+                    ['formulatext: {otherrefnum}', 'contains', 'CHRISTMAS'], 'OR',
+                    ['formulatext: {otherrefnum}', 'contains', 'Xmas'], 'OR',
+                    ['memomain', 'contains', 'CHRISTMAS'], 'OR',
+                    ["formulanumeric: CASE WHEN {item} LIKE '%XMAS%' OR {item} LIKE '%BACI%' THEN 1 ELSE 0 END", 'equalto', '1'], 'OR',
+                    ["formulanumeric: CASE WHEN UPPER({item.displayname}) LIKE '%CHIOSTRO%' OR UPPER({item.displayname}) LIKE '%STREGA%' THEN 1 ELSE 0 END", 'equalto', '1']
+                ], 'AND', [
+                    ['actualshipdate', 'within', accountDate(CONFIG.SEASON_START), accountDate(CONFIG.SEASON_END)], 'OR',
+                    ['trandate', 'within', accountDate(CONFIG.SEASON_START), accountDate(CONFIG.SEASON_END)], 'OR',
+                    [['closed', 'is', 'F'], 'AND', ['formulanumeric: ABS({quantity}) - ABS(NVL({quantityshiprecv},0))', 'greaterthan', '0']]
+                ]];
+        }
+
         function loadSalesOrders(rows, itemId) {
             const columns = [
                 search.createColumn({ name: 'internalid', join: 'item', summary: 'GROUP', sort: search.Sort.ASC }),
@@ -112,18 +127,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             ];
             const filters = [
                 ['type', 'anyof', 'SalesOrd'], 'AND', ['mainline', 'is', 'F'], 'AND',
-                [
-                    ['custbody_order_type_cp', 'anyof', '3'], 'OR', ['memomain', 'contains', 'Xmas'], 'OR',
-                    ['formulatext: {otherrefnum}', 'contains', 'CHRISTMAS'], 'OR',
-                    ['formulatext: {otherrefnum}', 'contains', 'Xmas'], 'OR',
-                    ['memomain', 'contains', 'CHRISTMAS'], 'OR',
-                    ["formulanumeric: CASE WHEN {item} LIKE '%XMAS%' OR {item} LIKE '%BACI%' THEN 1 ELSE 0 END", 'equalto', '1'], 'OR',
-                    ["formulanumeric: CASE WHEN UPPER({item.displayname}) LIKE '%CHIOSTRO%' OR UPPER({item.displayname}) LIKE '%STREGA%' THEN 1 ELSE 0 END", 'equalto', '1']
-                ], 'AND', [
-                    ['actualshipdate', 'within', accountDate(CONFIG.SEASON_START), accountDate(CONFIG.SEASON_END)], 'OR',
-                    ['trandate', 'within', accountDate(CONFIG.SEASON_START), accountDate(CONFIG.SEASON_END)], 'OR',
-                    [['closed', 'is', 'F'], 'AND', ['formulanumeric: ABS({quantity}) - ABS(NVL({quantityshiprecv},0))', 'greaterthan', '0']]
-                ], 'AND', ['taxline', 'is', 'F'], 'AND', ['cogs', 'is', 'F']
+                christmasOrderScope(), 'AND', ['taxline', 'is', 'F'], 'AND', ['cogs', 'is', 'F']
             ];
             if (itemId) filters.push('AND', ['item', 'anyof', itemId]);
             const s = search.create({ type: 'salesorder', settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }], filters, columns });
@@ -308,7 +312,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 '<td class="num' + (n !== null && n < 0 ? ' negative' : '') + '">' + fmt(n) + '</td>').join('');
             return '<div class="table-wrap"><table><thead><tr>' +
                 '<th colspan="4">Item Details</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th>' +
-                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered / demand</th><th>Season shipped</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
+                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered / demand</th><th>Christmas SO fulfilled</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
                 (rows.map(r => {
                     const commitment = commitmentSummary(r);
                     return '<tr class="' + commitment.css + '"><td>' + escapeHtml(r.id) + '</td><td class="description">' + escapeHtml(r.description || '—') + '</td><td>' + escapeHtml(r.name || 'Unresolved item') + '</td><td>' + escapeHtml(r.channel) + '</td>' +
@@ -347,7 +351,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         function loadInventory(rows, itemId, warnings, reservationData) {
             const ids = Array.from(new Set(Array.from(rows.values()).map(r=>r.id)));
             const inventory = new Map(ids.map(id=>[id,newInventory(id)]));
-            // Clear the discovery quantities; actual shipped quantity comes from shipped fulfillments.
+            // Clear the discovery quantities; fulfilled quantity comes from Christmas SO lines, including billed orders.
             rows.forEach(r=>{r.so=null;});
             if (!ids.length) return inventory;
             {
@@ -383,11 +387,14 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                                 remaining:Math.max(0,ordered-fulfilled),uncommitted:Math.max(0,ordered-fulfilled-committed),channel:channelName(r.getText({name:'custentity_default_shipping_channel',join:'customerMain'}))});
                         });return out;
                 },warnings);
-                const shipments=readSection('Season shipments',()=>{
+                const shipments=readSection('Christmas sales order fulfillments',()=>{
                     const out=[];
-                    transactionRows('itemfulfillment',lineFilters(batch).concat(['AND',['status','anyof','ItemShip:C'],'AND',['createdfrom.type','anyof','SalesOrd'],
-                        'AND',['trandate','within',accountDate(CONFIG.SEASON_START),accountDate(CONFIG.SEASON_END)]]),
-                        ['item','quantity',search.createColumn({name:'custentity_default_shipping_channel',join:'customerMain'})],r=>out.push({id:String(r.getValue('item')),shipped:quantity(r.getValue('quantity')),
+                    // All statuses are eligible: billed, pending billing, partial and closed
+                    // lines can have fulfilled quantities. Never add open-order fulfilled
+                    // quantities again; the open search contributes remaining demand only.
+                    transactionRows('salesorder',lineFilters(batch).concat(['AND',christmasOrderScope(),'AND',
+                        ['formulanumeric: ABS(NVL({quantityshiprecv},0))','greaterthan','0']]),
+                        ['item','quantityshiprecv',search.createColumn({name:'custentity_default_shipping_channel',join:'customerMain'})],r=>out.push({id:String(r.getValue('item')),shipped:quantity(r.getValue('quantityshiprecv')),
                             channel:channelName(r.getText({name:'custentity_default_shipping_channel',join:'customerMain'}))})); return out;
                 },warnings);
                 for (const [field,data] of Object.entries({stock,purchases,openOrders,shipments})) distribute(inventory,field,data,'id');
@@ -500,13 +507,13 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             return html;
         }
         const INVENTORY_FIELDS = ['purchased','received','onHand','available','committed','onOrder','backordered','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
-        const INVENTORY_HEADINGS = ['Purchased','Received against POs','On hand','Available','Committed','On order (reference)','Backordered','Internal transfer in transit','Open PO remaining','Season shipped — all channels','Booked — all channels','Outstanding commitments — all channels','Open SO demand — all channels','Projected excess / (shortage)'];
+        const INVENTORY_HEADINGS = ['Purchased','Received against POs','On hand','Available','Committed','On order (reference)','Backordered','Internal transfer in transit','Open PO remaining','Christmas SO fulfilled — all channels','Booked — all channels','Outstanding commitments — all channels','Open SO demand — all channels','Projected excess / (shortage)'];
         function renderCombined(rows, allRows, inventory, chosenChannel) {
             const groups = new Map();
             rows.forEach(r => {if(!groups.has(r.id)) groups.set(r.id,[]);groups.get(r.id).push(r);});
             const fmt = n => n == null ? '—' : escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
             const numbers = values => values.map(n=>'<td class="num'+(n<0?' negative':'')+'">'+fmt(n)+'</td>').join('');
-            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Season shipped','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'];
+            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Christmas SO fulfilled','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'];
             let body='';
             const csvIndexes=new Map(rows.map((r,i)=>[r,i]));
             groups.forEach((channels,id)=>{
@@ -560,6 +567,25 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const groups=Array.from(document.querySelectorAll('tbody.item-group'));
             const normalize=v=>String(v || '').trim().toLowerCase();
             const query=document.getElementById('filter-status');
+            const searchableFilters=[item,channel,status].map(select=>{
+                const input=document.getElementById(select.id+'-search');
+                const options=Array.from(select.options).map(o=>({value:o.value,text:o.textContent}));
+                function refresh() {
+                    const term=normalize(input.value),selected=select.value;
+                    const matches=options.filter(o=>!o.value || !term || normalize(o.text).includes(term) || o.value===selected);
+                    matches.sort((a,b)=>{
+                        if(!a.value)return -1;if(!b.value)return 1;
+                        const rank=o=>normalize(o.text).startsWith(term)?0:1;
+                        return rank(a)-rank(b) || a.text.localeCompare(b.text);
+                    });
+                    select.replaceChildren(...matches.map(o=>{
+                        const option=document.createElement('option');option.value=o.value;option.textContent=o.text;return option;
+                    }));
+                    select.value=selected;
+                }
+                input.addEventListener('input',refresh);
+                return {input,refresh};
+            });
             function applyFilters() {
                 const term=normalize(itemSearch.value),selected=channel.value,selectedItem=item.value,selectedStatus=status.value;
                 let visibleItems=0,visibleChannels=0;
@@ -590,7 +616,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             itemSearch.addEventListener('input',applyFilters);
             status.addEventListener('change',applyFilters);
             channel.addEventListener('change',applyFilters);
-            document.getElementById('clear-filters').addEventListener('click',()=>{item.value='';itemSearch.value='';channel.value='';status.value='';applyFilters();});
+            document.getElementById('clear-filters').addEventListener('click',()=>{item.value='';itemSearch.value='';channel.value='';status.value='';searchableFilters.forEach(f=>{f.input.value='';f.refresh();});applyFilters();});
             document.getElementById('combined-table').addEventListener('click',event=>{
                 const button=event.target.closest('button.toggle-detail');
                 if(!button)return;
@@ -659,19 +685,19 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 details{margin:18px 0}summary{font-size:16px;font-weight:bold;cursor:pointer}.detail{max-height:420px}.detail table{min-width:900px}.table-wrap form{padding:0;border:0;background:transparent}h2{margin-top:28px}
                 @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
                 </style></head><body><main><h1>Christmas Quantity Comparison</h1>
-                <form id="report-filters" onsubmit="return false"><label>Item<select id="item-filter" name="custpage_item"><option value="">All Items</option>${options}</select></label>
+                <form id="report-filters" onsubmit="return false"><label>Item<input id="item-filter-search" aria-label="Search item options" placeholder="Type to find an item" autocomplete="off"><select id="item-filter" name="custpage_item"><option value="">All Items</option>${options}</select></label>
                 <label>Search items<input id="item-search" placeholder="Item ID, code or description"></label>
-                <label>Sales Channel<select id="channel-filter" name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
-                <label>Status<select id="status-filter"><option value="">All Statuses</option>${['Completed','Partially fulfilled','Over commitment','Not shipped','No commitment','Booking unavailable'].map(s=>'<option value="'+h(s)+'">'+h(s)+'</option>').join('')}</select></label>
+                <label>Sales Channel<input id="channel-filter-search" aria-label="Search sales channel options" placeholder="Type to find a channel" autocomplete="off"><select id="channel-filter" name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
+                <label>Status<input id="status-filter-search" aria-label="Search status options" placeholder="Type to find a status" autocomplete="off"><select id="status-filter"><option value="">All Statuses</option>${['Completed','Partially fulfilled','Over commitment','Not shipped','No commitment','Booking unavailable'].map(s=>'<option value="'+h(s)+'">'+h(s)+'</option>').join('')}</select></label>
                 <button type="submit">Apply Filters</button><button type="button" id="export-csv" class="secondary" ${warnings.length || fatal ? 'disabled title="Resolve data warnings before exporting"' : ''}>Export CSV</button>
                 <button type="button" id="clear-filters" class="secondary">Clear Filters</button>
                 <button type="button" class="secondary" aria-expanded="false" aria-controls="report-explanation" onclick="var p=document.getElementById('report-explanation');p.hidden=!p.hidden;this.setAttribute('aria-expanded',String(!p.hidden));">Report Details</button></form>
                 <section id="report-explanation" hidden>
-                <p class="note">Shipments: ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, using shipped fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = season shipped + current open SO quantity. Remaining Commitments = Original Booked − Season Shipped. Other channels are merged into Xmas 2026.</p>
+                <p class="note">Fulfilled quantities are cumulative on Christmas sales orders with an order date or actual ship date from ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, plus older open Christmas orders. Billed, partially fulfilled, pending-billing and closed orders with fulfillment are included. These are SO fulfilled quantities, not shipments restricted to fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = Christmas SO fulfilled + current open SO quantity. Remaining Commitments = Original Booked − Season Shipped. Other channels are merged into Xmas 2026.</p>
                 <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately.</p>
                 <p>Inventory figures include all sales channels and visible locations, even when filters are applied. Master bookings must use item base units. Blank bookings remain unknown.</p>
                 <p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only. Supplier stock in transit is already included in open PO remaining. This is coverage against bookings, not free-to-promise stock.</p>
-                <p>Filters and details use the loaded snapshot. Reload the page to refresh NetSuite data. Item choices always include the complete loaded item list. Export CSV includes filtered channel rows and item inventory totals once per item.</p>
+                <p>Filters and details use the loaded snapshot. Reload the page to refresh NetSuite data. Type above any dropdown to narrow its choices; matching names starting with your text appear first. Selected choices stay available. Clear Filters restores every option. Export CSV includes filtered channel rows and item inventory totals once per item.</p>
                 </section>
                 ${warnings.map(w => '<div class="error" role="alert">' + h(w) + '</div>').join('')}
                 ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : '<p id="filter-status" role="status"></p>' + renderCombined(rows, allRows, inventory, chosenChannel) + renderBrowserScript(rows, inventory, warnings)}
