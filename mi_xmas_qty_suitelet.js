@@ -13,8 +13,8 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         const CONFIG = {
             MASTER_FOLDER_ID: 493530,
             APPLICATION_ORIGIN: 'https://4975346.app.netsuite.com',
-            // Set to the account's item-search column for vendor/external transit.
-            PURCHASE_TRANSIT_FIELD: '',
+            // Location External Quantity In Transit, verified in the account's formula builder.
+            PURCHASE_TRANSIT_FIELD: 'locationqtyintransitext',
             MASTER_DATE_FIELD: 'created',
             MAX_FILE_BYTES: 9 * 1024 * 1024,
             MAX_MASTER_ROWS: 10000,
@@ -489,8 +489,10 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const seasonal=inv.purchases===null?null:inv.purchases.filter(p=>{const date=format.parse({value:p.date,type:format.Type.DATE}).getTime();return date>=from && date<=to;});
             const purchaseTransit=inv.stock===null || inv.stock.some(r=>r.purchaseTransit==null)?null:sum(inv.stock,'purchaseTransit');
             const rawOnOrder=sum(inv.stock,'onOrder');
+            const locationAvailable=sum(inv.stock,'available');
+            const available=locationAvailable===null || purchaseTransit===null || transit===null?null:locationAvailable+purchaseTransit+transit;
             return {id:inv.id,name:bookings[0]?.name || inv.id,description:bookings[0]?.description || '',booked,shipped,outstanding,onHand,
-                available:sum(inv.stock,'available'),committed:sum(inv.stock,'committed'),onOrder:sum(inv.stock,'onOrder'),backordered:sum(inv.stock,'backordered'),transit,incoming,
+                available,committed:sum(inv.stock,'committed'),committedSO:sum(inv.openOrders,'committed'),committedReservation:sum(inv.reservations,'fullCommitted'),onOrder:sum(inv.stock,'onOrder'),backordered:sum(inv.stock,'backordered'),transit,incoming,
                 purchased:sum(seasonal,'purchased'),received:sum(seasonal,'received'),openDemand:sum(inv.openOrders,'remaining'),pendingCommitment:sum(inv.openOrders,'uncommitted'),purchaseTransit,purchaseOnOrder:purchaseTransit===null || rawOnOrder===null?null:rawOnOrder-purchaseTransit,excess};
         }
         function detailTable(title,heads,data,values) {
@@ -504,7 +506,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             if(itemId && inventory.has(itemId)) {
                 const i=inventory.get(itemId);
                 html+='<div class="inline-details"><h3>Inventory</h3>';
-                html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
+                html+=detailTable('Stock by location',['Location','On hand','Location available (excluding transit)','Committed','On order','Backordered','External in transit','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.purchaseTransit,r.inTransit]);
                 html+='<h3>Sales</h3>';
                 html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
                 html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Full Committed','Currently Committed','Allocated Demand','Fulfilled/Received'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.fullCommitted,r.committed,r.used,r.fulfilled]);
@@ -519,7 +521,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         const SUMMARY_SECTIONS = [
             ['Inventory',[
                 ['onHand','On Hand','Item record: total location quantity on hand, including negative balances.'],
-                ['available','Available','Item record: total location quantity available.'],
+                ['available','Available','Sum of Location Available + Location External Quantity In Transit + Location In Transit across inventory locations. Includes stock still in transit; it is not all available to ship now.'],
                 ['excess','Projected Excess / (Shortage)','On Hand + Internal Transfer In Transit + Pending Receipt − Remaining Commitments. Vendor transit is already part of Pending Receipt and is not added twice.']
             ]],
             ['Sales',[
@@ -527,15 +529,16 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 ['shipped','Shipped','Sum of fulfilled quantity on matching Christmas sales orders. Cumulative SO fulfilled quantity; includes billed and partially fulfilled orders. Season order/actual ship dates: '+CONFIG.SEASON_START+' to '+CONFIG.SEASON_END+', plus open Christmas orders.'],
                 ['outstanding','Remaining Commitments','For each sales channel: max(0, Original Booked − Shipped), then sum. One channel’s excess does not offset another channel’s commitment.'],
                 ['pendingCommitment','Pending Commitment','Open SO lines: sum of max(0, Ordered − Fulfilled − Committed). Includes older open orders.'],
-                ['committed','Committed','Item-record location committed quantities, summed once. No separate SO or reservation quantities are added, avoiding double counting.'],
-                ['backordered','Backordered','Item record: sum of location backordered quantities.']
+                ['committedSO','Committed SO','Sum of quantitycommitted on open sales-order lines across all sales channels, including older open orders. Uses the loaded SO search, not the combined item-record committed balance.'],
+                ['committedReservation','Committed Order Reservation','Sum of Full Committed (quantitycommitted) on open order reservations in the report. Excludes sales channels @NONE@, 1, 2, 3, 4, 5 and 6. Allocated Demand is not subtracted.'],
+                ['backordered','Backordered SO','Item record: sum of locationquantitybackordered across inventory locations. This retains the existing item-record backorder calculation.']
             ]],
             ['Purchase',[
                 ['purchased','Total Purchased','PO dates '+CONFIG.PURCHASE_START+' to '+CONFIG.SEASON_END+'. Open lines contribute ordered quantity. Closed or partially closed lines contribute only quantity received; closed unreceived balances are removed. Pending-approval and rejected POs are excluded.'],
                 ['received','Received','Received quantity against POs dated '+CONFIG.PURCHASE_START+' to '+CONFIG.SEASON_END+'. Uses PO date, not receipt date.'],
                 ['incoming','Pending Receipt','Sum of max(0, Ordered − Received) on open PO lines, including older POs. Closed lines contribute zero.'],
-                ['purchaseOnOrder','On Order','Item-record On Order minus vendor/external In Transit. Unavailable until the vendor-transit search field is configured.'],
-                ['purchaseTransit','In Transit','Vendor/external stock in transit, separate from internal transfers. Unavailable until its search field is configured.']
+                ['purchaseOnOrder','On Order','Sum of item Location On Order minus Location External Quantity In Transit across inventory locations.'],
+                ['purchaseTransit','In Transit','Sum of item Location External Quantity In Transit (locationqtyintransitext) across inventory locations. Internal transfer transit is shown separately under Transfer.']
             ]],
             ['Transfer',[
                 ['transit','Internal Transfer In Transit','Item record: sum of location quantity in transit. Transfer detail quantities are not added again.']
