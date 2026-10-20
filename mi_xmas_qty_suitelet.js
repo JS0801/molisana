@@ -89,7 +89,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const rowKey = itemId + '|' + key(canonical);
             if (!rows.has(rowKey)) rows.set(rowKey, {
                 id: itemId, name: clean(name), description: '', channel: canonical,
-                so: null, reservation: null, master: null
+                so: null, reservation: null, reservationIds: [], master: null
             });
             const row = rows.get(rowKey);
             if (!row.name && name) row.name = clean(name);
@@ -158,6 +158,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             if(details) details.forEach(r=>{
                 if(['','@NONE@','1','2','3','4','5','6'].includes(r.channelId))return;
                 const row=getRow(rows,r.itemId,r.itemName,r.channel);
+                if (!row.reservationIds.includes(String(r.recordId))) row.reservationIds.push(String(r.recordId));
                 addQuantities(row,'reservation',[r.reserved,r.committed,r.used,r.reserved-r.committed-r.used]);
             });
             return details;
@@ -298,11 +299,11 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 'Booked / Original Commitments',
                 'Sales Order Qty - Ordered / demand', 'Sales Order Qty - Christmas SO Fulfilled', 'Sales Order Qty - Remaining',
                 'Remaining Commitments', 'Commitment Status',
-                'Order Reservation - Reserved', 'Order Reservation - Committed', 'Order Reservation - Used', 'Order Reservation - Remaining'];
+                'Order Reservation - Internal IDs', 'Order Reservation - Reserved', 'Order Reservation - Committed', 'Order Reservation - Used', 'Order Reservation - Remaining'];
             return '\uFEFF' + [headers].concat(rows.map(r => {
                 const commitment = commitmentSummary(r);
                 return [r.id, r.description, r.name, r.channel, commitment.booked].concat(
-                    r.so || [0, 0, 0], [commitment.remaining, commitment.status], r.reservation || [null, null, null, null]
+                    r.so || [0, 0, 0], [commitment.remaining, commitment.status, (r.reservationIds || []).join(', ')], r.reservation || [null, null, null, null]
                 );
             })).map(r => r.map(cell).join(',')).join('\r\n');
         }
@@ -312,14 +313,14 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const group = (v, count) => (v || Array(count).fill(null)).map(n =>
                 '<td class="num' + (n !== null && n < 0 ? ' negative' : '') + '">' + fmt(n) + '</td>').join('');
             return '<div class="table-wrap"><table><thead><tr>' +
-                '<th colspan="4">Item Details</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th>' +
-                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered / demand</th><th>Christmas SO fulfilled</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
+                '<th colspan="4">Item Details</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th>' +
+                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered / demand</th><th>Christmas SO fulfilled</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Order Reservation Internal ID</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
                 (rows.map(r => {
                     const commitment = commitmentSummary(r);
                     return '<tr class="' + commitment.css + '"><td>' + escapeHtml(r.id) + '</td><td class="description">' + escapeHtml(r.description || '—') + '</td><td>' + escapeHtml(r.name || 'Unresolved item') + '</td><td>' + escapeHtml(r.channel) + '</td>' +
                         group([commitment.booked], 1) + group(r.so || [0, 0, 0], 3) + group([commitment.remaining], 1) + '<td class="status">' + escapeHtml(commitment.status) + '</td>' +
-                        group(r.reservation, 4) + '</tr>';
-                }).join('') || '<tr><td colspan="14">No matching items.</td></tr>') + '</tbody></table></div>';
+                        '<td>'+escapeHtml((r.reservationIds || []).join(', ') || '—')+'</td>'+group(r.reservation, 4) + '</tr>';
+                }).join('') || '<tr><td colspan="15">No matching items.</td></tr>') + '</tbody></table></div>';
         }
 
         function accountDate(iso) {
@@ -500,7 +501,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
                 html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
                 html+=detailTable('Supply allocations (do not add to committed quantities)',['Order','Type','Customer','Location','Allocated'],i.allocations,r=>[r.number,r.type,r.customer,r.location,r.allocated]);
-                html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Committed','Used'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.committed,r.used]);
+                html+=detailTable('Open order reservations',['Reservation','Internal ID','Channel','Location','Reserved','Committed','Used'],i.reservations,r=>[r.number,r.recordId,r.channel,r.location,r.reserved,r.committed,r.used]);
                 html+=detailTable('Incoming purchase orders',['PO','Vendor','Location','Ordered','Received','Remaining','Expected receipt'],i.purchases===null?null:i.purchases.filter(p=>p.remaining>0),r=>[r.number,r.vendor,r.location,r.ordered,r.received,r.remaining,r.expected]);
                 html+=detailTable('Incoming internal transfers (base units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
                 html+='</div>';
@@ -514,7 +515,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             rows.forEach(r => {if(!groups.has(r.id)) groups.set(r.id,[]);groups.get(r.id).push(r);});
             const fmt = n => n == null ? '—' : escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
             const numbers = values => values.map(n=>'<td class="num'+(n<0?' negative':'')+'">'+fmt(n)+'</td>').join('');
-            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Christmas SO fulfilled','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'];
+            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Christmas SO fulfilled','Open SO remaining','Remaining Commitments','Status','Order Reservation Internal ID','Reserved','Committed','Used','Reservation remaining'];
             let body='';
             const csvIndexes=new Map(rows.map((r,i)=>[r,i]));
             groups.forEach((channels,id)=>{
@@ -528,12 +529,12 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                         body+='<td class="item-total shared-leading" rowspan="'+channels.length+'"><button type="button" class="toggle-detail" aria-expanded="false" aria-controls="detail-'+escapeHtml(id)+'">View details</button></td>';
                         body+='<td class="description item-total shared-leading" rowspan="'+channels.length+'"><strong>'+escapeHtml(r.name || id)+'</strong><div>'+escapeHtml(r.description || '—')+'</div><small>Item ID: '+escapeHtml(id)+'</small></td>';
                     }
-                    body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null]);
+                    body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td><td>'+escapeHtml((r.reservationIds || []).join(', ') || '—')+'</td>'+numbers(r.reservation || [null,null,null,null]);
                     body+='</tr>';
                 });
                 body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+renderItemDetails(inventory,id,summary)+'</td></tr></tbody>';
             });
-            return '<div class="table-wrap"><table id="combined-table"><thead><tr><th>Details</th><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
+            return '<div class="table-wrap"><table id="combined-table"><thead><tr><th>Details</th><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
         }
 
         function exportCombined(rows,allRows,inventory) {
