@@ -70,7 +70,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
         }
         function assertUsage() {
             if (runtime.getCurrentScript().getRemainingUsage() < 80) {
-                throw new Error('This request is too large. Select a specific item and refresh. No partial totals are displayed.');
+                throw new Error('The full snapshot exceeds the remaining Suitelet execution budget. This section cannot be loaded completely; no partial totals are displayed.');
             }
         }
         function eachResult(s, callback) {
@@ -440,42 +440,51 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
                     if(openOrders===null) {r.so[0]=null;r.so[2]=null;}
                 }});
             }
-            if(itemId && inventory.has(itemId)) loadItemDetails(inventory.get(itemId),warnings);
+            loadAllDetails(inventory,warnings);
             return inventory;
         }
-        function loadItemDetails(inv,warnings) {
-            inv.reservations=readSection('Reservation details',()=>{
-                const out=[];
-                transactionRows('orderreservation',lineFilters([inv.id]).concat(['AND',['closed','is','F']]),
-                    ['tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv'],r=>out.push({recordId:r.id,number:r.getValue('tranid'),channel:r.getText('saleschannel'),location:r.getText('location'),
-                        reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantityshiprecv'))}));return out;
-            },warnings);
-            // Record lines distinguish dispatched and received transfer quantities without
-            // counting the two transaction-search sides of an internal transfer twice.
-            inv.transfers=readSection('Incoming transfer orders',()=>{
-                const ids=new Set();
-                transactionRows('transferorder',lineFilters([inv.id]).concat(['AND',['closed','is','F'],'AND',['status','noneof','TrnfrOrd:A','TrnfrOrd:C','TrnfrOrd:H']]),[],r=>ids.add(String(r.id)));
-                const out=[];
-                for(const id of ids) {
+        function loadAllDetails(inventory,warnings) {
+            const ids=Array.from(inventory.keys());
+            for (let start=0;start<ids.length;start+=200) {
+                const batch=ids.slice(start,start+200);
+                const reservations=readSection('Reservation details',()=>{
+                    const out=[];
+                    transactionRows('orderreservation',lineFilters(batch).concat(['AND',['closed','is','F']]),
+                        ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv'],r=>out.push({itemId:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),channel:r.getText('saleschannel'),location:r.getText('location'),
+                            reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantityshiprecv'))}));return out;
+                },warnings);
+                const allocations=readSection('Supply allocation details',()=>{
+                    const out=[];
+                    transactionRows('transaction',lineFilters(batch).concat(['AND',['type','anyof','SalesOrd','TrnfrOrd'],'AND',['closed','is','F'],'AND',
+                        ['formulanumeric: ABS(NVL({quantityallocated},0))','greaterthan','0']]),['item','tranid','type','entity','location','quantityallocated'],r=>out.push({itemId:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),type:r.getText('type'),customer:r.getText('entity'),location:r.getText('location'),allocated:quantity(r.getValue('quantityallocated'))}));return out;
+                },warnings);
+                for(const id of batch) {
+                    inventory.get(id).reservations=reservations===null?null:reservations.filter(r=>r.itemId===id);
+                    inventory.get(id).allocations=allocations===null?null:allocations.filter(r=>r.itemId===id);
+                }
+            }
+            // Discover transfers in batches, then load each transfer only once for all items.
+            const transfers=readSection('Incoming transfer orders',()=>{
+                const transferIds=new Set(),out=[];
+                for(let start=0;start<ids.length;start+=200) transactionRows('transferorder',lineFilters(ids.slice(start,start+200)).concat(['AND',['closed','is','F'],'AND',['status','noneof','TrnfrOrd:A','TrnfrOrd:C','TrnfrOrd:H']]),[],r=>transferIds.add(String(r.id)));
+                for(const id of transferIds) {
                     assertUsage();
                     const rec=record.load({type:record.Type.TRANSFER_ORDER,id,isDynamic:false});
                     for(let i=0;i<rec.getLineCount({sublistId:'item'});i++) {
                         const val=fieldId=>rec.getSublistValue({sublistId:'item',fieldId,line:i});
-                        if(String(val('item'))!==inv.id || val('isclosed')===true || val('isclosed')==='T') continue;
+                        const itemId=String(val('item'));
+                        if(!inventory.has(itemId) || val('isclosed')===true || val('isclosed')==='T') continue;
                         const ordered=quantity(val('quantity')),shipped=quantity(val('quantityfulfilled')),received=quantity(val('quantityreceived'));
                         if(ordered<=received) continue;
-                        out.push({recordId:id,number:rec.getValue('tranid'),from:rec.getText('location'),to:rec.getText('transferlocation'),
+                        out.push({itemId,recordId:id,number:rec.getValue('tranid'),from:rec.getText('location'),to:rec.getText('transferlocation'),
                             units:rec.getSublistText({sublistId:'item',fieldId:'units',line:i}) || 'Base units',ordered,shipped,received,committed:quantity(val('quantitycommitted')),expected:val('expectedreceiptdate') || '',
                             remaining:Math.max(0,ordered-received),inTransit:Math.max(0,shipped-received)});
                     }
-                } return out;
+                }return out;
             },warnings);
-            inv.allocations=readSection('Supply allocation details',()=>{
-                const out=[];
-                transactionRows('transaction',lineFilters([inv.id]).concat(['AND',['type','anyof','SalesOrd','TrnfrOrd'],'AND',['closed','is','F'],'AND',
-                    ['formulanumeric: ABS(NVL({quantityallocated},0))','greaterthan','0']]),['tranid','type','entity','location','quantityallocated'],r=>out.push({recordId:r.id,number:r.getValue('tranid'),type:r.getText('type'),customer:r.getText('entity'),location:r.getText('location'),allocated:quantity(r.getValue('quantityallocated'))}));return out;
-            },warnings);
+            inventory.forEach(inv=>{inv.transfers=transfers===null?null:transfers.filter(r=>r.itemId===inv.id);});
         }
+        function loadItemDetails(inv,warnings) { loadAllDetails(new Map([[inv.id,inv]]),warnings); }
         function sum(data,field) {return data===null?null:data.reduce((s,r)=>s+r[field],0);}
         function summarizeInventory(inv,rows) {
             const bookings=rows.filter(r=>r.id===inv.id);
@@ -502,14 +511,14 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             let html = '';
             if(itemId && inventory.has(itemId)) {
                 const i=inventory.get(itemId);
-                html+='<details><summary>Inventory details for item '+escapeHtml(itemId)+'</summary>';
+                html+='<div class="inline-details"><h3>Inventory details for item '+escapeHtml(itemId)+'</h3>';
                 html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
                 html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
                 html+=detailTable('Supply allocations (do not add to committed quantities)',['Order','Type','Customer','Location','Allocated'],i.allocations,r=>[r.number,r.type,r.customer,r.location,r.allocated]);
                 html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Committed','Used'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.committed,r.used]);
                 html+=detailTable('Incoming purchase orders',['PO','Vendor','Location','Ordered','Received','Remaining','Expected receipt'],i.purchases===null?null:i.purchases.filter(p=>p.remaining>0),r=>[r.number,r.vendor,r.location,r.ordered,r.received,r.remaining,r.expected]);
                 html+=detailTable('Incoming internal transfers (quantities in displayed line units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
-                html+='</details>';
+                html+='</div>';
             }
             return html;
         }
@@ -522,24 +531,27 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             const numbers = values => values.map(n=>'<td class="num'+(n<0?' negative':'')+'">'+fmt(n)+'</td>').join('');
             const heads=['Item ID','Item Description','Item Name','Sales Channel','Booked / Original Commitments','Ordered / demand','Season shipped','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'].concat(INVENTORY_HEADINGS,['Details']);
             let body='';
+            const csvIndexes=new Map(rows.map((r,i)=>[r,i]));
             groups.forEach((channels,id)=>{
                 const inv=inventory.get(id);
                 const summary=inv ? summarizeInventory(inv,allRows) : null;
+                body+='<tbody class="item-group" data-item-id="'+escapeHtml(id)+'" data-search="'+escapeHtml([id,channels[0].name,channels[0].description].join(' '))+'" data-expanded="false">';
                 channels.forEach((r,index)=>{
                     const commitment=commitmentSummary(r);
-                    body+='<tr class="'+commitment.css+'">';
-                    if(index===0) body+='<td class="item-total" rowspan="'+channels.length+'">'+escapeHtml(id)+'</td><td class="description item-total" rowspan="'+channels.length+'">'+escapeHtml(r.description || '—')+'</td><td class="item-total" rowspan="'+channels.length+'">'+escapeHtml(r.name || id)+'</td>';
+                    body+='<tr class="channel-row '+commitment.css+'" data-channel="'+escapeHtml(r.channel)+'" data-csv-index="'+csvIndexes.get(r)+'">';
+                    if(index===0) body+='<td class="item-total shared-leading" rowspan="'+channels.length+'">'+escapeHtml(id)+'</td><td class="description item-total shared-leading" rowspan="'+channels.length+'">'+escapeHtml(r.description || '—')+'</td><td class="item-total shared-leading" rowspan="'+channels.length+'">'+escapeHtml(r.name || id)+'</td>';
                     body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null]);
                     if(index===0) {
-                        body+=INVENTORY_FIELDS.map(f=>'<td rowspan="'+channels.length+'" class="num item-total'+(f==='excess' && summary && summary[f]<0?' shortage':'')+'">'+fmt(summary ? summary[f] : null)+'</td>').join('');
-                        body+='<td class="item-total" rowspan="'+channels.length+'"><form method="post"><input type="hidden" name="custpage_item" value="'+escapeHtml(id)+'"><input type="hidden" name="custpage_channel" value="'+escapeHtml(chosenChannel || '')+'"><button name="action" value="view">View details</button></form></td>';
+                        body+=INVENTORY_FIELDS.map(f=>'<td rowspan="'+channels.length+'" class="num item-total shared-trailing'+(f==='excess' && summary && summary[f]<0?' shortage':'')+'">'+fmt(summary ? summary[f] : null)+'</td>').join('');
+                        body+='<td class="item-total shared-trailing" rowspan="'+channels.length+'"><button type="button" class="toggle-detail" aria-expanded="false" aria-controls="detail-'+escapeHtml(id)+'">View details</button></td>';
                     }
                     body+='</tr>';
                 });
+                body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+renderItemDetails(inventory,id)+'</td></tr></tbody>';
             });
             return '<p>Inventory figures are shared across each item’s sales-channel rows and include all channels and visible locations, even when a channel filter is applied. Master bookings must use item base units. Blank bookings remain unknown.</p>'+
                 '<p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only. Supplier stock in transit is already included in open PO remaining. This is coverage against bookings, not free-to-promise stock.</p>'+
-                '<div class="table-wrap"><table><thead><tr><th colspan="4">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th><th colspan="'+INVENTORY_FIELDS.length+'" class="so">Item Inventory — All Sales Channels</th><th>Details</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+(body || '<tr><td colspan="'+heads.length+'">No matching items.</td></tr>')+'</tbody></table></div>';
+                '<div class="table-wrap"><table id="combined-table"><thead><tr><th colspan="4">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th><th colspan="'+INVENTORY_FIELDS.length+'" class="so">Item Inventory — All Sales Channels</th><th>Details</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
         }
         function exportCombined(rows,allRows,inventory) {
             const table=parseCsv(exportCsv(rows));
@@ -560,6 +572,84 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             const fields=['id','description','name','purchased','received','onHand','available','committed','onOrder','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
             const cell=v=>{let s=v==null?'':String(v);if(typeof v==='string' && /^\s*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';};
             return '\uFEFF'+[fields].concat(Array.from(inventory.values()).filter(i=>visible.has(i.id)).map(i=>{const summary=summarizeInventory(i,allRows);return fields.map(f=>summary[f]);})).map(r=>r.map(cell).join(',')).join('\r\n');
+        }
+
+        // Runs entirely in the browser. No fetch, navigation or form submission.
+        function browserController() {
+            const data=JSON.parse(document.getElementById('report-data').textContent);
+            const form=document.getElementById('report-filters');
+            const item=document.getElementById('item-filter');
+            const channel=document.getElementById('channel-filter');
+            const groups=Array.from(document.querySelectorAll('tbody.item-group'));
+            const normalize=v=>String(v || '').trim().toLowerCase();
+            const query=document.getElementById('filter-status');
+            function applyFilters() {
+                const term=normalize(item.value),selected=channel.value;
+                const exactId=groups.some(g=>g.dataset.itemId===term);
+                let visibleItems=0,visibleChannels=0;
+                groups.forEach(group=>{
+                    const matchesItem=!term || (exactId?group.dataset.itemId===term:normalize(group.dataset.search).includes(term));
+                    const rows=Array.from(group.querySelectorAll('tr.channel-row'));
+                    const visible=rows.filter(row=>matchesItem && (!selected || row.dataset.channel===selected));
+                    rows.forEach(row=>{row.hidden=!visible.includes(row);});
+                    group.hidden=visible.length===0;
+                    const detail=group.querySelector('tr.item-detail-row');
+                    detail.hidden=!visible.length || group.dataset.expanded!=='true';
+                    if(!visible.length) return;
+                    visibleItems++;visibleChannels+=visible.length;
+                    // Move shared cells to the first visible channel, preserving alignment
+                    // when the originally first channel has been filtered out.
+                    const first=visible[0];
+                    const leading=Array.from(group.querySelectorAll('td.shared-leading'));
+                    const trailing=Array.from(group.querySelectorAll('td.shared-trailing'));
+                    leading.forEach(cell=>{cell.rowSpan=visible.length;});
+                    for(let n=leading.length-1;n>=0;n--)first.insertBefore(leading[n],first.firstChild);
+                    trailing.forEach(cell=>{cell.rowSpan=visible.length;first.appendChild(cell);});
+                });
+                document.getElementById('empty-result').hidden=visibleItems!==0;
+                query.textContent=visibleItems+' item(s), '+visibleChannels+' sales-channel row(s). Filters use the loaded snapshot; reload the page to refresh NetSuite data.';
+            }
+            form.addEventListener('submit',event=>{event.preventDefault();applyFilters();});
+            item.addEventListener('input',applyFilters);
+            channel.addEventListener('change',applyFilters);
+            document.getElementById('clear-filters').addEventListener('click',()=>{item.value='';channel.value='';applyFilters();});
+            document.getElementById('combined-table').addEventListener('click',event=>{
+                const button=event.target.closest('button.toggle-detail');
+                if(!button)return;
+                const group=button.closest('tbody.item-group');
+                const expanded=group.dataset.expanded!=='true';
+                group.dataset.expanded=String(expanded);
+                group.querySelector('tr.item-detail-row').hidden=!expanded;
+                button.setAttribute('aria-expanded',String(expanded));
+                button.textContent=expanded?'Hide details':'View details';
+            });
+            document.getElementById('export-csv').addEventListener('click',()=>{
+                if(!data.canExport)return;
+                const table=[data.headers];
+                groups.filter(g=>!g.hidden).forEach(group=>{
+                    const visible=Array.from(group.querySelectorAll('tr.channel-row')).filter(r=>!r.hidden);
+                    visible.forEach((row,index)=>{
+                        const cells=data.rows[Number(row.dataset.csvIndex)].slice();
+                        table.push(cells.concat(index===0?data.inventory[group.dataset.itemId]:Array(data.inventoryColumns).fill(null)));
+                    });
+                });
+                // Channel text has already been escaped for spreadsheet formulas on the server.
+                const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+                const csv='\uFEFF'+table.map(row=>row.map(cell).join(',')).join('\r\n');
+                const objectUrl=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+                const link=document.createElement('a');link.href=objectUrl;link.download='Christmas_Quantities.csv';
+                document.body.appendChild(link);link.click();link.remove();
+                setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+            });
+            applyFilters();
+        }
+        function renderBrowserScript(rows,inventory,warnings) {
+            const csv=parseCsv(exportCsv(rows));
+            const totals={};
+            inventory.forEach((inv,id)=>{const summary=summarizeInventory(inv,rows);totals[id]=INVENTORY_FIELDS.map(f=>summary[f]);});
+            const data={headers:csv[0].concat(INVENTORY_HEADINGS),rows:csv.slice(1),inventory:totals,inventoryColumns:INVENTORY_FIELDS.length,canExport:!warnings.length};
+            const json=JSON.stringify(data).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
+            return '<script type="application/json" id="report-data">'+json+'</script><script>('+browserController.toString()+')();</script>';
         }
 
         function renderPage(rows, allRows, itemId, chosenChannel, warnings, fatal, inventory) {
@@ -585,56 +675,47 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
                 tbody tr.complete:hover{background:#cce9d3}tbody tr.over:hover{background:#f9d0d0}tbody tr.partial:hover{background:#ffe9a3}
                 .status{font-weight:700}.description{white-space:normal;min-width:220px;max-width:380px}
                 .legend{margin:12px 0;line-height:1.6;color:#394c63}
+                [hidden]{display:none!important}.item-detail-row>td{background:#f6f8fb;padding:18px}.inline-details{text-align:left;white-space:normal}.inline-details h3{margin:8px 0}button:disabled{opacity:.5;cursor:not-allowed}
                 td.item-total{background:#f0f4f8;vertical-align:top}td.shortage{background:#fde5e5;color:#a5202d;font-weight:bold}
                 details{margin:18px 0}summary{font-size:16px;font-weight:bold;cursor:pointer}.detail{max-height:420px}.detail table{min-width:900px}.table-wrap form{padding:0;border:0;background:transparent}h2{margin-top:28px}
                 @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
                 </style></head><body><main><h1>Christmas Quantity Comparison</h1>
-                <form method="post"><label>Item<input name="custpage_item" list="items" value="${h(itemId)}" placeholder="All items — enter or select item ID"><datalist id="items">${options}</datalist></label>
-                <label>Sales Channel<select name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
-                <button type="submit" name="action" value="view">Apply Filters</button><button type="submit" name="action" value="export" class="secondary">Export CSV</button>
-                <button type="submit" name="action" value="clear" class="secondary">Clear Filters</button></form>
+                <form id="report-filters" onsubmit="return false"><label>Item<input id="item-filter" name="custpage_item" list="items" value="${h(itemId)}" placeholder="Filter by item ID, code or description"><datalist id="items">${options}</datalist></label>
+                <label>Sales Channel<select id="channel-filter" name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
+                <button type="submit">Apply Filters</button><button type="button" id="export-csv" class="secondary" ${warnings.length || fatal ? 'disabled title="Resolve data warnings before exporting"' : ''}>Export CSV</button>
+                <button type="button" id="clear-filters" class="secondary">Clear Filters</button></form>
                 <p class="note">Shipments: ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, using shipped fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = season shipped + current open SO quantity. Remaining Commitments = Original Booked − Season Shipped. Other channels are merged into Xmas 2026.</p>
                 <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately.</p>
                 ${warnings.map(w => '<div class="error" role="alert">' + h(w) + '</div>').join('')}
-                ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : renderCombined(rows, allRows, inventory, chosenChannel) + renderItemDetails(inventory, itemId)}
+                ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : '<p id="filter-status" role="status"></p>' + renderCombined(rows, allRows, inventory, chosenChannel) + renderBrowserScript(rows, inventory, warnings)}
                 </main></body></html>`;
         }
 
         function onRequest(context) {
-            const params = context.request.parameters || {};
-            const itemId = params.action === 'clear' ? '' : clean(params.custpage_item);
-            const channelInput = params.action === 'clear' ? '' : clean(params.custpage_channel);
-            const chosenChannel = channelInput ? channelName(channelInput) : '';
+            // Always load the complete snapshot. URL/form filter parameters never narrow
+            // server queries; filtering, details and CSV export are browser-only.
             const rows = new Map(), warnings = [];
-            let inventory = new Map();
-            let fatal = null;
+            let inventory = new Map(), fatal = null;
             try {
-                if (itemId && !/^\d+$/.test(itemId)) throw new Error('Select or enter a valid item internal ID.');
-                const omitted = loadSalesOrders(rows, itemId) + loadReservations(rows, itemId);
+                const omitted = loadSalesOrders(rows, '') + loadReservations(rows, '');
                 if (omitted) warnings.push(omitted + ' search group(s) have no item and cannot be displayed.');
-                try { loadMaster(rows, itemId); }
+                try { loadMaster(rows, ''); }
                 catch (e) {
                     log.error({ title: 'Master CSV unavailable', details: e });
                     warnings.push('Master Excel Qty unavailable: ' + e.message);
                 }
-                if(itemId && !Array.from(rows.values()).some(r=>r.id===itemId)) getRow(rows,itemId,'','Xmas 2026');
-                inventory = loadInventory(rows, itemId, warnings);
+                if (rows.size > CONFIG.MAX_DISPLAY_ROWS) throw new Error('The full report exceeds CONFIG.MAX_DISPLAY_ROWS. Increase the configured limit after reviewing account capacity.');
+                inventory = loadInventory(rows, '', warnings);
                 fillItemNames(rows, warnings);
             } catch (e) {
                 log.error({ title: 'Christmas quantity Suitelet failed', details: e });
                 fatal = e.message || String(e);
             }
             const allRows = Array.from(rows.values());
-            const selectedRows = allRows.filter(r => !chosenChannel || r.channel === chosenChannel);
-            selectedRows.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id) || a.channel.localeCompare(b.channel));
-            if (!fatal && ['export','export_inventory'].includes(params.action) && !warnings.length) {
-                context.response.writeFile({ file: file.create({ name: params.action === 'export_inventory' ? 'Christmas_Inventory.csv' : 'Christmas_Quantities.csv', fileType: file.Type.CSV, contents: params.action === 'export_inventory' ? exportInventory(inventory, allRows, selectedRows) : exportCombined(selectedRows, allRows, inventory), encoding: file.Encoding.UTF8 }), isInline: false });
-                return;
-            }
-            if (['export','export_inventory'].includes(params.action) && warnings.length) warnings.push('CSV export is unavailable until the data errors above are resolved.');
-            if (selectedRows.length > CONFIG.MAX_DISPLAY_ROWS) fatal = 'Too many rows to display. Narrow the filters or use Export CSV.';
+            allRows.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id) || a.channel.localeCompare(b.channel));
+            if (allRows.length > CONFIG.MAX_DISPLAY_ROWS) fatal = 'The full report exceeds CONFIG.MAX_DISPLAY_ROWS. Increase the configured limit after reviewing account capacity.';
             context.response.setHeader({ name: 'Content-Type', value: 'text/html; charset=UTF-8' });
-            context.response.write(renderPage(selectedRows, allRows, itemId, chosenChannel, warnings, fatal, inventory));
+            context.response.write(renderPage(allRows, allRows, '', '', warnings, fatal, inventory));
         }
         return { onRequest };
     });
