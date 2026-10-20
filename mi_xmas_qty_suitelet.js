@@ -13,6 +13,8 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         const CONFIG = {
             MASTER_FOLDER_ID: 493530,
             APPLICATION_ORIGIN: 'https://4975346.app.netsuite.com',
+            // Set to the account's item-search column for vendor/external transit.
+            PURCHASE_TRANSIT_FIELD: '',
             MASTER_DATE_FIELD: 'created',
             MAX_FILE_BYTES: 9 * 1024 * 1024,
             MAX_MASTER_ROWS: 10000,
@@ -142,7 +144,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             return withoutItem;
         }
 
-        function loadReservations(rows, warnings) {
+        function loadReservations(rows, warnings, itemId) {
             const details=readSection('Order reservations',()=>{
                 const out=[];
                 // All-item version of the supplied item-6953 reservation search.
@@ -151,7 +153,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 transactionRows('orderreservation', [
                     ['type','anyof','OrdResv'],'AND',['closed','is','F'],'AND',['mainline','is','F'],'AND',
                     ['saleschannel','noneof','@NONE@','6','1','2','5','3','4']
-                ], ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantitydemandallocated','quantityshiprecv'],r=>{
+                ].concat(itemId ? ['AND',['item','anyof',itemId]] : []), ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantitydemandallocated','quantityshiprecv'],r=>{
                     const itemId=String(r.getValue('item') || '');
                     if(!/^\d+$/.test(itemId)) return;
                     out.push({itemId,itemName:r.getText('item'),recordId:r.id,number:r.getValue('tranid'),channelId:String(r.getValue('saleschannel') || ''),channel:r.getText('saleschannel'),location:r.getText('location'),
@@ -371,7 +373,8 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     eachResult(search.create({type:'item', filters:[['internalid','anyof',batch]], columns:[
                         search.createColumn({name:'internalid',sort:search.Sort.ASC}), search.createColumn({name:'inventorylocation',sort:search.Sort.ASC}),
                         'itemid','displayname','salesdescription','locationquantityonhand','locationquantityavailable','locationquantitycommitted','locationquantityonorder','locationquantitybackordered','locationquantityintransit'
-                    ]}),r=>out.push({id:String(r.id),name:clean(r.getValue('itemid')),description:clean(r.getValue('salesdescription')) || clean(r.getValue('displayname')),location:r.getText('inventorylocation') || 'No inventory location',
+                    ].concat(CONFIG.PURCHASE_TRANSIT_FIELD ? [CONFIG.PURCHASE_TRANSIT_FIELD] : [])}),r=>out.push({id:String(r.id),name:clean(r.getValue('itemid')),description:clean(r.getValue('salesdescription')) || clean(r.getValue('displayname')),location:r.getText('inventorylocation') || 'No inventory location',
+                        purchaseTransit:CONFIG.PURCHASE_TRANSIT_FIELD ? numberValue(r.getValue(CONFIG.PURCHASE_TRANSIT_FIELD),'vendor in transit',0) : null,
                         onHand:numberValue(r.getValue('locationquantityonhand'),'on hand',0), available:numberValue(r.getValue('locationquantityavailable'),'available',0),
                         committed:quantity(r.getValue('locationquantitycommitted')), onOrder:quantity(r.getValue('locationquantityonorder')),
                         backordered:quantity(r.getValue('locationquantitybackordered')), inTransit:quantity(r.getValue('locationquantityintransit'))}));
@@ -383,7 +386,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                         ['item','tranid','trandate','entity','location','quantity','quantityshiprecv','closed','statusref','expectedreceiptdate'],r=>{
                             const ordered=quantity(r.getValue('quantity')),received=quantity(r.getValue('quantityshiprecv'));
                             const closed=r.getValue('closed')===true || r.getValue('closed')==='T' || r.getValue('statusref')==='closed';
-                            out.push({id:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),date:r.getValue('trandate'),vendor:r.getText('entity'),location:r.getText('location'),ordered,received,
+                            out.push({id:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),date:r.getValue('trandate'),vendor:r.getText('entity'),location:r.getText('location'),ordered,received,purchased:closed?received:ordered,
                                 remaining:closed?0:Math.max(0,ordered-received),expected:r.getValue('expectedreceiptdate')});
                         }); return out;
                 },warnings);
@@ -484,9 +487,11 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const purchaseStart=accountDate(CONFIG.PURCHASE_START),purchaseEnd=accountDate(CONFIG.SEASON_END);
             const from=format.parse({value:purchaseStart,type:format.Type.DATE}).getTime(),to=format.parse({value:purchaseEnd,type:format.Type.DATE}).getTime();
             const seasonal=inv.purchases===null?null:inv.purchases.filter(p=>{const date=format.parse({value:p.date,type:format.Type.DATE}).getTime();return date>=from && date<=to;});
+            const purchaseTransit=inv.stock===null || inv.stock.some(r=>r.purchaseTransit==null)?null:sum(inv.stock,'purchaseTransit');
+            const rawOnOrder=sum(inv.stock,'onOrder');
             return {id:inv.id,name:bookings[0]?.name || inv.id,description:bookings[0]?.description || '',booked,shipped,outstanding,onHand,
                 available:sum(inv.stock,'available'),committed:sum(inv.stock,'committed'),onOrder:sum(inv.stock,'onOrder'),backordered:sum(inv.stock,'backordered'),transit,incoming,
-                purchased:sum(seasonal,'ordered'),received:sum(seasonal,'received'),openDemand:sum(inv.openOrders,'remaining'),excess};
+                purchased:sum(seasonal,'purchased'),received:sum(seasonal,'received'),openDemand:sum(inv.openOrders,'remaining'),pendingCommitment:sum(inv.openOrders,'uncommitted'),purchaseTransit,purchaseOnOrder:purchaseTransit===null || rawOnOrder===null?null:rawOnOrder-purchaseTransit,excess};
         }
         function detailTable(title,heads,data,values) {
             if(data===null || data===undefined) return '<h3>'+escapeHtml(title)+'</h3><p class="error">Data unavailable. See warnings above.</p>';
@@ -498,25 +503,59 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             let html = '';
             if(itemId && inventory.has(itemId)) {
                 const i=inventory.get(itemId);
-                html+='<div class="inline-details"><h3>Item Inventory — All Sales Channels</h3>';
-                if(summary) html+='<dl class="inventory-grid">'+INVENTORY_FIELDS.map((field,index)=>'<div><dt>'+escapeHtml(INVENTORY_HEADINGS[index])+'</dt><dd class="'+(field==='excess' && summary[field]<0?'negative':'')+'">'+(summary[field]==null?'—':escapeHtml(summary[field].toLocaleString('en-US',{maximumFractionDigits:6})))+'</dd></div>').join('')+'</dl>';
+                html+='<div class="inline-details"><h3>Inventory</h3>';
                 html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
+                html+='<h3>Sales</h3>';
                 html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
                 html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Full Committed','Currently Committed','Allocated Demand','Fulfilled/Received'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.fullCommitted,r.committed,r.used,r.fulfilled]);
+                html+='<h3>Purchase</h3>';
                 html+=detailTable('Incoming purchase orders',['PO','Vendor','Location','Ordered','Received','Remaining','Expected receipt'],i.purchases===null?null:i.purchases.filter(p=>p.remaining>0),r=>[r.number,r.vendor,r.location,r.ordered,r.received,r.remaining,r.expected]);
+                html+='<h3>Transfer</h3>';
                 html+=detailTable('Incoming internal transfers (base units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
                 html+='</div>';
             }
             return html;
         }
-        const INVENTORY_FIELDS = ['purchased','received','onHand','available','committed','onOrder','backordered','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
-        const INVENTORY_HEADINGS = ['Purchased','Received against POs','On hand','Available','Committed','On order (reference)','Backordered','Internal transfer in transit','Open PO remaining','Christmas SO fulfilled — all channels','Booked — all channels','Outstanding commitments — all channels','Open SO demand — all channels','Projected excess / (shortage)'];
+        const SUMMARY_SECTIONS = [
+            ['Inventory',[
+                ['onHand','On Hand','Item record: total location quantity on hand, including negative balances.'],
+                ['available','Available','Item record: total location quantity available.'],
+                ['excess','Projected Excess / (Shortage)','On Hand + Internal Transfer In Transit + Pending Receipt − Remaining Commitments. Vendor transit is already part of Pending Receipt and is not added twice.']
+            ]],
+            ['Sales',[
+                ['booked','Total Booked','Sum of original booked quantities across all channels in the latest master CSV. Blank bookings make this total unavailable.'],
+                ['shipped','Shipped','Sum of fulfilled quantity on matching Christmas sales orders. Cumulative SO fulfilled quantity; includes billed and partially fulfilled orders. Season order/actual ship dates: '+CONFIG.SEASON_START+' to '+CONFIG.SEASON_END+', plus open Christmas orders.'],
+                ['outstanding','Remaining Commitments','For each sales channel: max(0, Original Booked − Shipped), then sum. One channel’s excess does not offset another channel’s commitment.'],
+                ['pendingCommitment','Pending Commitment','Open SO lines: sum of max(0, Ordered − Fulfilled − Committed). Includes older open orders.'],
+                ['committed','Committed','Item-record location committed quantities, summed once. No separate SO or reservation quantities are added, avoiding double counting.'],
+                ['backordered','Backordered','Item record: sum of location backordered quantities.']
+            ]],
+            ['Purchase',[
+                ['purchased','Total Purchased','PO dates '+CONFIG.PURCHASE_START+' to '+CONFIG.SEASON_END+'. Open lines contribute ordered quantity. Closed or partially closed lines contribute only quantity received; closed unreceived balances are removed. Pending-approval and rejected POs are excluded.'],
+                ['received','Received','Received quantity against POs dated '+CONFIG.PURCHASE_START+' to '+CONFIG.SEASON_END+'. Uses PO date, not receipt date.'],
+                ['incoming','Pending Receipt','Sum of max(0, Ordered − Received) on open PO lines, including older POs. Closed lines contribute zero.'],
+                ['purchaseOnOrder','On Order','Item-record On Order minus vendor/external In Transit. Unavailable until the vendor-transit search field is configured.'],
+                ['purchaseTransit','In Transit','Vendor/external stock in transit, separate from internal transfers. Unavailable until its search field is configured.']
+            ]],
+            ['Transfer',[
+                ['transit','Internal Transfer In Transit','Item record: sum of location quantity in transit. Transfer detail quantities are not added again.']
+            ]]
+        ];
+        const INVENTORY_FIELDS=SUMMARY_SECTIONS.flatMap(s=>s[1].map(m=>m[0]));
+        const INVENTORY_HEADINGS=SUMMARY_SECTIONS.flatMap(s=>s[1].map(m=>s[0]+' — '+m[1]));
+        function renderSummary(summary) {
+            if(!summary)return '';
+            return '<div class="item-summary">'+SUMMARY_SECTIONS.map(([section,metrics])=>
+                '<section class="summary-section"><h3>'+escapeHtml(section)+'</h3><dl>'+metrics.map(([field,label,help])=>
+                    '<div class="summary-metric"><dt>'+escapeHtml(label)+'</dt><dd class="'+(summary[field]<0?'negative':'')+'">'+(summary[field]==null?'—':escapeHtml(summary[field].toLocaleString('en-US',{maximumFractionDigits:6})))+'</dd><details class="metric-help"><summary title="'+escapeHtml(help)+'" aria-label="How '+escapeHtml(label)+' is calculated">?</summary><p>'+escapeHtml(help)+'</p></details></div>'
+                ).join('')+'</dl></section>').join('')+'</div>';
+        }
         function renderCombined(rows, allRows, inventory, chosenChannel, summaries) {
             const groups = new Map();
             rows.forEach(r => {if(!groups.has(r.id)) groups.set(r.id,[]);groups.get(r.id).push(r);});
             const fmt = n => n == null ? '—' : escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
             const numbers = values => values.map(n=>'<td class="num'+(n<0?' negative':'')+'">'+fmt(n)+'</td>').join('');
-            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Christmas SO fulfilled','Open SO remaining','Remaining Commitments','Status','Reserved','Full Committed','Currently Committed','Allocated Demand','Fulfilled/Received'];
+            const heads=['Item / Details','Sales Channel','Booked / Original Commitments','Ordered / demand','Christmas SO fulfilled','Open SO remaining','Remaining Commitments','Status','Reserved','Full Committed','Currently Committed','Allocated Demand','Fulfilled/Received'];
             let body='';
             const csvIndexes=new Map(rows.map((r,i)=>[r,i]));
             groups.forEach((channels,id)=>{
@@ -527,15 +566,15 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     const commitment=commitmentSummary(r);
                     body+='<tr class="channel-row '+commitment.css+'" data-channel="'+escapeHtml(r.channel)+'" data-status="'+escapeHtml(commitment.status)+'" data-csv-index="'+csvIndexes.get(r)+'">';
                     if(index===0) {
-                        body+='<td class="item-total shared-leading" rowspan="'+channels.length+'"><button type="button" class="toggle-detail" aria-expanded="false" aria-controls="detail-'+escapeHtml(id)+'">View details</button></td>';
-                        body+='<td class="description item-total shared-leading" rowspan="'+channels.length+'"><strong>'+escapeHtml(r.name || id)+'</strong><div>'+escapeHtml(r.description || '—')+'</div><small>Item ID: '+escapeHtml(id)+'</small></td>';
+                        body+='<td class="description item-total shared-leading" rowspan="'+channels.length+'"><strong>'+escapeHtml(r.name || id)+'</strong><div>'+escapeHtml(r.description || '—')+'</div><small>Item ID: '+escapeHtml(id)+'</small><button type="button" class="toggle-detail" aria-expanded="false" aria-controls="detail-'+escapeHtml(id)+'">View details</button>'+renderSummary(summary)+'</td>';
+
                     }
                     body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null,null]);
                     body+='</tr>';
                 });
                 body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+'<template class="detail-template">'+renderItemDetails(inventory,id,summary)+'</template></td></tr></tbody>';
             });
-            return '<div class="table-wrap"><table id="combined-table"><thead><tr><th>Details</th><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
+            return '<div class="table-wrap"><table id="combined-table"><thead><tr><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
         }
 
         function exportCombined(rows,allRows,inventory) {
@@ -697,6 +736,12 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 [hidden]{display:none!important}.item-detail-row>td{background:#f6f8fb;padding:18px}.inline-details{text-align:left;white-space:normal}.inline-details h3{margin:8px 0}button:disabled{opacity:.5;cursor:not-allowed}
                 td.item-total{background:#f0f4f8;vertical-align:top}td.shortage{background:#fde5e5;color:#a5202d;font-weight:bold}
                 details{margin:18px 0}summary{font-size:16px;font-weight:bold;cursor:pointer}.detail{max-height:420px}.detail table{min-width:900px}.table-wrap form{padding:0;border:0;background:transparent}h2{margin-top:28px}
+                .item-total.description{min-width:300px;width:320px;max-width:360px;vertical-align:top;white-space:normal}
+                .item-total .toggle-detail{margin:12px 0}.summary-section h3{font-size:14px;margin:14px 0 4px;padding:7px 0;border-bottom:2px solid #c6d6e7;color:#245885}
+                .summary-section dl{margin:0}.summary-metric{display:grid;grid-template-columns:minmax(0,1fr) auto 22px;gap:8px;align-items:start;padding:7px 0;border-bottom:1px solid #dfe6ee;font-size:12px}
+                .summary-metric dt{white-space:normal}.summary-metric dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}.summary-metric .metric-help{margin:0;position:relative}
+                .metric-help summary{font-size:12px;list-style:none;text-align:center;border:1px solid #899eb4;border-radius:50%;width:18px;height:18px;line-height:16px;color:#245885}
+                .metric-help summary::-webkit-details-marker{display:none}.metric-help p{position:absolute;right:0;top:18px;width:265px;white-space:normal;background:#fff;color:#21334b;padding:12px;border:1px solid #a7bacd;box-shadow:0 3px 12px #0002;z-index:5;font-size:12px;line-height:1.5}
                 @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
                 </style></head><body><main><h1>Christmas Quantity Comparison</h1>
                 <form id="report-filters" onsubmit="return false">
@@ -706,6 +751,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 <button type="submit">Apply Filters</button><button type="button" id="export-csv" class="secondary" ${warnings.length || fatal ? 'disabled title="Resolve data warnings before exporting"' : ''}>Export CSV</button>
                 <button type="button" id="clear-filters" class="secondary">Clear Filters</button>
                 <button type="button" class="secondary" aria-expanded="false" aria-controls="report-explanation" onclick="var p=document.getElementById('report-explanation');p.hidden=!p.hidden;this.setAttribute('aria-expanded',String(!p.hidden));">Report Details</button></form>
+                ${itemId ? '<p class="legend">Server scope: item '+h(itemId)+'. Remove itemid from the URL to load all items.</p>' : ''}
                 <section id="report-explanation" hidden>
                 <p class="note">Fulfilled quantities are cumulative on Christmas sales orders with an order date or actual ship date from ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, plus older open Christmas orders. Billed, partially fulfilled, pending-billing and closed orders with fulfillment are included. These are SO fulfilled quantities, not shipments restricted to fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = Christmas SO fulfilled + current open SO quantity. Remaining Commitments = Original Booked − Christmas SO Fulfilled. Other channels are merged into Xmas 2026.</p>
                 <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately. Allocated Demand uses quantitydemandallocated. Full Committed uses quantitycommitted. Currently Committed = Full Committed − Allocated Demand. Fulfilled/Received uses quantityshiprecv. Open reservation lines are included except sales channels @NONE@, 1, 2, 3, 4, 5 and 6. No positive-remainder filter is applied. Other channels are grouped into Xmas 2026.</p>
@@ -719,21 +765,23 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         }
 
         function onRequest(context) {
-            // Always load the complete snapshot. URL/form filter parameters never narrow
-            // server queries; filtering, details and CSV export are browser-only.
+            // itemid scopes server data. Visible filters remain local within that snapshot.
             const rows = new Map(), warnings = [];
-            let inventory = new Map(), fatal = null;
+            let inventory = new Map(), fatal = null, requestedItem='';
             try {
-                const omitted = loadSalesOrders(rows, '');
+                requestedItem=clean(context.request.parameters.itemid || '');
+                if(requestedItem && (!/^\d+$/.test(requestedItem) || !Number.isSafeInteger(Number(requestedItem)) || Number(requestedItem)<=0)) throw new Error('Invalid itemid. Supply a positive item internal ID.');
+                if(requestedItem){requestedItem=String(Number(requestedItem));getRow(rows,requestedItem,'','Xmas 2026');}
+                const omitted = loadSalesOrders(rows, requestedItem);
                 if (omitted) warnings.push(omitted + ' search group(s) have no item and cannot be displayed.');
-                try { loadMaster(rows, ''); }
+                try { loadMaster(rows, requestedItem); }
                 catch (e) {
                     log.error({ title: 'Master CSV unavailable', details: e });
                     warnings.push('Master Excel Qty unavailable: ' + e.message);
                 }
-                const reservationData = loadReservations(rows,warnings);
+                const reservationData = loadReservations(rows,warnings,requestedItem);
                 if (rows.size > CONFIG.MAX_DISPLAY_ROWS) throw new Error('The full report exceeds CONFIG.MAX_DISPLAY_ROWS. Increase the configured limit after reviewing account capacity.');
-                inventory = loadInventory(rows, '', warnings, reservationData);
+                inventory = loadInventory(rows, requestedItem, warnings, reservationData);
             } catch (e) {
                 log.error({ title: 'Christmas quantity Suitelet failed', details: e });
                 fatal = e.message || String(e);
@@ -742,7 +790,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             allRows.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id) || a.channel.localeCompare(b.channel));
             if (allRows.length > CONFIG.MAX_DISPLAY_ROWS) fatal = 'The full report exceeds CONFIG.MAX_DISPLAY_ROWS. Increase the configured limit after reviewing account capacity.';
             context.response.setHeader({ name: 'Content-Type', value: 'text/html; charset=UTF-8' });
-            context.response.write(renderPage(allRows, allRows, '', '', warnings, fatal, inventory));
+            context.response.write(renderPage(allRows, allRows, requestedItem, '', warnings, fatal, inventory));
         }
         return { onRequest };
     });
