@@ -142,26 +142,104 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             return withoutItem;
         }
 
-        function loadReservations(rows, warnings) {
-            const details=readSection('Order reservations',()=>{
-                const out=[];
-                transactionRows('orderreservation', [['mainline','is','F'],'AND',['closed','is','F'],'AND',['taxline','is','F'],'AND',['cogs','is','F']],
-                    ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv'],r=>{
-                        const itemId=String(r.getValue('item') || '');
-                        if(!/^\d+$/.test(itemId)) return;
-                        out.push({itemId,itemName:r.getText('item'),recordId:r.id,number:r.getValue('tranid'),channelId:String(r.getValue('saleschannel') || ''),channel:r.getText('saleschannel'),location:r.getText('location'),
-                            reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantityshiprecv'))});
-                    }); return out;
-            },warnings);
-            // Preserve the original Christmas-channel discovery rule. Other reservations
-            // remain in the master dataset for details on the discovered items.
-            if(details) details.forEach(r=>{
-                if(['','@NONE@','1','2','3','4','5','6'].includes(r.channelId))return;
-                const row=getRow(rows,r.itemId,r.itemName,r.channel);
-                addQuantities(row,'reservation',[r.reserved,r.committed,r.used,r.reserved-r.committed-r.used]);
-            });
-            return details;
-        }
+
+      function loadReservations(rows, warnings) {
+    const details = readSection('Order reservations', () => {
+        const out = [];
+
+        transactionRows(
+            'orderreservation',
+            [
+                ['type', 'anyof', 'OrdResv'],
+                'AND',
+                ['closed', 'is', 'F'],
+                'AND',
+                ['mainline', 'is', 'F'],
+                'AND',
+                [
+                    'formulanumeric: {quantity} - NVL({quantitycommitted},0)',
+                    'greaterthan',
+                    '0'
+                ],
+                'AND',
+                ['saleschannel', 'noneof', '@NONE@', '6', '1', '2', '5', '3', '4']
+            ],
+            [
+                'item',
+                'tranid',
+                'saleschannel',
+                'location',
+                'quantity',
+                'quantitycommitted',
+                'quantitydemandallocated'
+            ],
+            r => {
+                const itemId = String(r.getValue('item') || '');
+                if (!/^\d+$/.test(itemId)) return;
+
+                out.push({
+                    itemId,
+                    itemName: r.getText('item'),
+                    recordId: r.id,
+                    number: r.getValue('tranid'),
+                    channelId: String(r.getValue('saleschannel') || ''),
+                    channel: r.getText('saleschannel'),
+                    location: r.getText('location'),
+                    reserved: numberValue(
+                        r.getValue('quantity'), 'reservation quantity', 0
+                    ),
+                    committed: numberValue(
+                        r.getValue('quantitycommitted'), 'reservation committed', 0
+                    ),
+                    used: numberValue(
+                        r.getValue('quantitydemandallocated'),
+                        'reservation allocated demand',
+                        0
+                    )
+                });
+            },
+            [{ name: 'consolidationtype', value: 'ACCTTYPE' }]
+        );
+
+        return out;
+    }, warnings);
+
+    if (details) {
+        details.forEach(r => {
+            const row = getRow(rows, r.itemId, r.itemName, r.channel);
+
+            addQuantities(row, 'reservation', [
+                r.reserved,
+                r.committed,
+                r.used,
+                r.reserved - r.committed
+            ]);
+        });
+    }
+
+    return details;
+}
+
+        // function loadReservations(rows, warnings) {
+        //     const details=readSection('Order reservations',()=>{
+        //         const out=[];
+        //         transactionRows('orderreservation', [['mainline','is','F'],'AND',['closed','is','F'],'AND',['taxline','is','F'],'AND',['cogs','is','F']],
+        //             ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv', 'quantitydemandallocated'],r=>{
+        //                 const itemId=String(r.getValue('item') || '');
+        //                 if(!/^\d+$/.test(itemId)) return;
+        //                 out.push({itemId,itemName:r.getText('item'),recordId:r.id,number:r.getValue('tranid'),channelId:String(r.getValue('saleschannel') || ''),channel:r.getText('saleschannel'),location:r.getText('location'),
+        //                     reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantitydemandallocated'))});
+        //             }); return out;
+        //     },warnings);
+        //     // Preserve the original Christmas-channel discovery rule. Other reservations
+        //     // remain in the master dataset for details on the discovered items.
+        //     if(details) details.forEach(r=>{
+        //         if(['','@NONE@','1','2','3','4','5','6'].includes(r.channelId))return;
+        //         const row=getRow(rows,r.itemId,r.itemName,r.channel);
+        //         addQuantities(row,'reservation',[r.reserved,r.committed,r.used,r.reserved-r.committed-r.used]);
+        //     });
+        //     return details;
+        // }
 
         function newestMaster() {
             if (!Number.isInteger(Number(CONFIG.MASTER_FOLDER_ID)) || Number(CONFIG.MASTER_FOLDER_ID) <= 0) {
