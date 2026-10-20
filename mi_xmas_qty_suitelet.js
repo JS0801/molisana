@@ -492,7 +492,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const locationAvailable=sum(inv.stock,'available');
             const available=locationAvailable===null || purchaseTransit===null || transit===null?null:locationAvailable+purchaseTransit+transit;
             return {id:inv.id,name:bookings[0]?.name || inv.id,description:bookings[0]?.description || '',booked,shipped,outstanding,onHand,
-                available,committed:sum(inv.stock,'committed'),committedSO:sum(inv.openOrders,'committed'),committedReservation:sum(inv.reservations,'fullCommitted'),onOrder:sum(inv.stock,'onOrder'),backordered:sum(inv.stock,'backordered'),transit,incoming,
+                available,committed:sum(inv.stock,'committed'),committedSO:sum(inv.openOrders,'committed'),committedReservation:sum(inv.reservations,'committed'),onOrder:sum(inv.stock,'onOrder'),backordered:sum(inv.stock,'backordered'),transit,incoming,
                 purchased:sum(seasonal,'purchased'),received:sum(seasonal,'received'),openDemand:sum(inv.openOrders,'remaining'),pendingCommitment:sum(inv.openOrders,'uncommitted'),purchaseTransit,purchaseOnOrder:purchaseTransit===null || rawOnOrder===null?null:rawOnOrder-purchaseTransit,excess};
         }
         function detailTable(title,heads,data,values) {
@@ -530,7 +530,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 ['outstanding','Remaining Commitments',"Original booked quantity minus shipped quantity for each sales channel. Extra shipments for one channel do not reduce another channel’s balance."],
                 ['pendingCommitment','Pending Commitment',"Quantity on open sales orders that has not been shipped or committed."],
                 ['committedSO','Committed SO',"Stock committed to open sales orders across all sales channels."],
-                ['committedReservation','Committed Order Reservation',"Full quantity committed to the order reservations included in this report, before subtracting allocated demand."],
+                ['committedReservation','Committed Order Reservation',"Committed quantity minus allocated demand for the order reservations included in this report."],
                 ['backordered','Backordered SO',"Total sales-order quantity reported as backordered across all locations."]
             ]],
             ['Purchase',[
