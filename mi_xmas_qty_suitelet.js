@@ -6,8 +6,8 @@
  * Master bookings must use the same base units as NetSuite search quantities.
  * Configure inclusive season and purchase dates below before deployment.
  */
-define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
-    (search, file, log, runtime, format, record) => {
+define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
+    (search, file, log, runtime, format) => {
         'use strict';
 
         const CONFIG = {
@@ -137,30 +137,25 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             return withoutItem;
         }
 
-        function loadReservations(rows, itemId) {
-            const columns = [
-                search.createColumn({ name: 'internalid', join: 'item', summary: 'GROUP', sort: search.Sort.ASC }),
-                search.createColumn({ name: 'saleschannel', summary: 'GROUP', sort: search.Sort.ASC }),
-                search.createColumn({ name: 'item', summary: 'GROUP' }),
-                search.createColumn({ name: 'quantity', summary: 'SUM' }),
-                search.createColumn({ name: 'quantitycommitted', summary: 'SUM' }),
-                search.createColumn({ name: 'quantityshiprecv', summary: 'SUM' }),
-                search.createColumn({ name: 'formulanumeric', summary: 'SUM', formula: '{quantity} - NVL({quantitycommitted},0) - NVL({quantityshiprecv},0)' })
-            ];
-            const filters = [
-                ['type', 'anyof', 'OrdResv'], 'AND', ['closed', 'is', 'F'], 'AND', ['mainline', 'is', 'F'], 'AND',
-                ['saleschannel', 'noneof', '@NONE@', '6', '1', '2', '5', '3', '4']
-            ];
-            if (itemId) filters.push('AND', ['item', 'anyof', itemId]);
-            const s = search.create({ type: 'orderreservation', settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }], filters, columns });
-            let withoutItem = 0;
-            eachResult(s, r => {
-                const id = r.getValue(columns[2]);
-                if (!id || id === '- None -') { withoutItem++; return; }
-                const row = getRow(rows, id, r.getText(columns[2]), r.getText(columns[1]));
-                addQuantities(row, 'reservation', [3, 4, 5, 6].map(i => numberValue(r.getValue(columns[i]), 'reservation result', 0)));
+        function loadReservations(rows, warnings) {
+            const details=readSection('Order reservations',()=>{
+                const out=[];
+                transactionRows('orderreservation', [['mainline','is','F'],'AND',['closed','is','F'],'AND',['taxline','is','F'],'AND',['cogs','is','F']],
+                    ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv'],r=>{
+                        const itemId=String(r.getValue('item') || '');
+                        if(!/^\d+$/.test(itemId)) return;
+                        out.push({itemId,itemName:r.getText('item'),recordId:r.id,number:r.getValue('tranid'),channelId:String(r.getValue('saleschannel') || ''),channel:r.getText('saleschannel'),location:r.getText('location'),
+                            reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantityshiprecv'))});
+                    }); return out;
+            },warnings);
+            // Preserve the original Christmas-channel discovery rule. Other reservations
+            // remain in the master dataset for details on the discovered items.
+            if(details) details.forEach(r=>{
+                if(['','@NONE@','1','2','3','4','5','6'].includes(r.channelId))return;
+                const row=getRow(rows,r.itemId,r.itemName,r.channel);
+                addQuantities(row,'reservation',[r.reserved,r.committed,r.used,r.reserved-r.committed-r.used]);
             });
-            return withoutItem;
+            return details;
         }
 
         function newestMaster() {
@@ -273,30 +268,6 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             return { name: newest.file.name, id: newest.file.id, date: newest.date, itemCount: result.itemCount };
         }
 
-        function fillItemNames(rows, warnings) {
-            const ids = Array.from(new Set(Array.from(rows.values()).map(r => r.id)));
-            const details = new Map();
-            for (let start = 0; start < ids.length; start += 500) {
-                const batch = ids.slice(start, start + 500);
-                eachResult(search.create({ type: 'item', filters: [['internalid', 'anyof', batch]], columns: [
-                    search.createColumn({ name: 'internalid', sort: search.Sort.ASC }),
-                    'itemid', 'displayname', 'salesdescription'
-                ] }), r => { details.set(String(r.id), {
-                    name: clean(r.getValue({ name: 'itemid' })),
-                    description: clean(r.getValue({ name: 'salesdescription' })) || clean(r.getValue({ name: 'displayname' }))
-                }); });
-            }
-            rows.forEach(r => {
-                const detail = details.get(r.id);
-                if (detail) {
-                    r.name = detail.name || r.name;
-                    r.description = detail.description;
-                }
-            });
-            const unresolved = ids.filter(id => !details.has(id));
-            if (unresolved.length) warnings.push(unresolved.length + ' item ID(s) could not be resolved or are not visible to this role: ' + unresolved.slice(0, 20).join(', ') + '.');
-        }
-
         // Missing or blank master bookings remain unknown, rather than becoming zero.
         // A missing sales group means no shipments or open demand matched the report scope.
         function commitmentSummary(row) {
@@ -373,19 +344,20 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
         function newInventory(id) {
             return {id, stock:null, purchases:null, openOrders:null, shipments:null, transfers:null, reservations:null};
         }
-        function loadInventory(rows, itemId, warnings) {
+        function loadInventory(rows, itemId, warnings, reservationData) {
             const ids = Array.from(new Set(Array.from(rows.values()).map(r=>r.id)));
             const inventory = new Map(ids.map(id=>[id,newInventory(id)]));
             // Clear the discovery quantities; actual shipped quantity comes from shipped fulfillments.
             rows.forEach(r=>{r.so=null;});
-            for (let start=0; start<ids.length; start+=200) {
-                const batch=ids.slice(start,start+200);
+            if (!ids.length) return inventory;
+            {
+                const batch=ids; // One search per dataset, not one search per item/batch.
                 const stock=readSection('Stock by location',()=>{
                     const out=[];
                     eachResult(search.create({type:'item', filters:[['internalid','anyof',batch]], columns:[
                         search.createColumn({name:'internalid',sort:search.Sort.ASC}), search.createColumn({name:'inventorylocation',sort:search.Sort.ASC}),
-                        'locationquantityonhand','locationquantityavailable','locationquantitycommitted','locationquantityonorder','locationquantitybackordered','locationquantityintransit'
-                    ]}),r=>out.push({id:String(r.id),location:r.getText('inventorylocation') || 'No inventory location',
+                        'itemid','displayname','salesdescription','locationquantityonhand','locationquantityavailable','locationquantitycommitted','locationquantityonorder','locationquantitybackordered','locationquantityintransit'
+                    ]}),r=>out.push({id:String(r.id),name:clean(r.getValue('itemid')),description:clean(r.getValue('salesdescription')) || clean(r.getValue('displayname')),location:r.getText('inventorylocation') || 'No inventory location',
                         onHand:numberValue(r.getValue('locationquantityonhand'),'on hand',0), available:numberValue(r.getValue('locationquantityavailable'),'available',0),
                         committed:quantity(r.getValue('locationquantitycommitted')), onOrder:quantity(r.getValue('locationquantityonorder')),
                         backordered:quantity(r.getValue('locationquantitybackordered')), inTransit:quantity(r.getValue('locationquantityintransit'))}));
@@ -418,12 +390,10 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
                         ['item','quantity',search.createColumn({name:'custentity_default_shipping_channel',join:'customerMain'})],r=>out.push({id:String(r.getValue('item')),shipped:quantity(r.getValue('quantity')),
                             channel:channelName(r.getText({name:'custentity_default_shipping_channel',join:'customerMain'}))})); return out;
                 },warnings);
-                for (const id of batch) {
-                    const inv=inventory.get(id);
-                    for (const [key,data] of Object.entries({stock,purchases,openOrders,shipments})) inv[key]=data===null?null:data.filter(r=>r.id===id);
-                    // No item search row is not proof of zero stock (permissions or unsupported item type).
-                    if (inv.stock && !inv.stock.length) {inv.stock=null;warnings.push('Stock unavailable for item '+id+'.');}
-                }
+                for (const [field,data] of Object.entries({stock,purchases,openOrders,shipments})) distribute(inventory,field,data,'id');
+                inventory.forEach(inv=>{
+                    if(inv.stock && !inv.stock.length) {inv.stock=null;warnings.push('Stock unavailable for item '+inv.id+'.');}
+                });
                 if (openOrders) openOrders.forEach(o=>{
                     const row=getRow(rows,o.id,'',o.channel);
                     if (!row.so) row.so=[0,0,0];
@@ -434,57 +404,63 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
                     if (!row.so) row.so=[0,0,0];
                     row.so[0]+=o.shipped; row.so[1]+=o.shipped;
                 });
-                rows.forEach(r=>{if(batch.includes(r.id)) {
+                rows.forEach(r=>{if(inventory.has(r.id)) {
+                    const item=inventory.get(r.id).stock?.[0];
+                    if(item) {r.name=item.name || r.name;r.description=item.description;}
                     if(!r.so) r.so=[0,0,0];
                     if(shipments===null) {r.so[0]=null;r.so[1]=null;}
                     if(openOrders===null) {r.so[0]=null;r.so[2]=null;}
                 }});
             }
-            loadAllDetails(inventory,warnings);
+            loadAllDetails(inventory,warnings,reservationData);
             return inventory;
         }
-        function loadAllDetails(inventory,warnings) {
-            const ids=Array.from(inventory.keys());
-            for (let start=0;start<ids.length;start+=200) {
-                const batch=ids.slice(start,start+200);
-                const reservations=readSection('Reservation details',()=>{
-                    const out=[];
-                    transactionRows('orderreservation',lineFilters(batch).concat(['AND',['closed','is','F']]),
-                        ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv'],r=>out.push({itemId:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),channel:r.getText('saleschannel'),location:r.getText('location'),
-                            reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantityshiprecv'))}));return out;
-                },warnings);
-                const allocations=readSection('Supply allocation details',()=>{
-                    const out=[];
-                    transactionRows('transaction',lineFilters(batch).concat(['AND',['type','anyof','SalesOrd','TrnfrOrd'],'AND',['closed','is','F'],'AND',
-                        ['formulanumeric: ABS(NVL({quantityallocated},0))','greaterthan','0']]),['item','tranid','type','entity','location','quantityallocated'],r=>out.push({itemId:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),type:r.getText('type'),customer:r.getText('entity'),location:r.getText('location'),allocated:quantity(r.getValue('quantityallocated'))}));return out;
-                },warnings);
-                for(const id of batch) {
-                    inventory.get(id).reservations=reservations===null?null:reservations.filter(r=>r.itemId===id);
-                    inventory.get(id).allocations=allocations===null?null:allocations.filter(r=>r.itemId===id);
-                }
-            }
-            // Discover transfers in batches, then load each transfer only once for all items.
-            const transfers=readSection('Incoming transfer orders',()=>{
-                const transferIds=new Set(),out=[];
-                for(let start=0;start<ids.length;start+=200) transactionRows('transferorder',lineFilters(ids.slice(start,start+200)).concat(['AND',['closed','is','F'],'AND',['status','noneof','TrnfrOrd:A','TrnfrOrd:C','TrnfrOrd:H']]),[],r=>transferIds.add(String(r.id)));
-                for(const id of transferIds) {
-                    assertUsage();
-                    const rec=record.load({type:record.Type.TRANSFER_ORDER,id,isDynamic:false});
-                    for(let i=0;i<rec.getLineCount({sublistId:'item'});i++) {
-                        const val=fieldId=>rec.getSublistValue({sublistId:'item',fieldId,line:i});
-                        const itemId=String(val('item'));
-                        if(!inventory.has(itemId) || val('isclosed')===true || val('isclosed')==='T') continue;
-                        const ordered=quantity(val('quantity')),shipped=quantity(val('quantityfulfilled')),received=quantity(val('quantityreceived'));
-                        if(ordered<=received) continue;
-                        out.push({itemId,recordId:id,number:rec.getValue('tranid'),from:rec.getText('location'),to:rec.getText('transferlocation'),
-                            units:rec.getSublistText({sublistId:'item',fieldId:'units',line:i}) || 'Base units',ordered,shipped,received,committed:quantity(val('quantitycommitted')),expected:val('expectedreceiptdate') || '',
-                            remaining:Math.max(0,ordered-received),inTransit:Math.max(0,shipped-received)});
-                    }
-                }return out;
-            },warnings);
-            inventory.forEach(inv=>{inv.transfers=transfers===null?null:transfers.filter(r=>r.itemId===inv.id);});
+        // Index each master dataset in one pass, then assign lists in memory.
+        function distribute(inventory,field,data,idField) {
+            inventory.forEach(inv=>{inv[field]=data===null?null:[];});
+            if(data) data.forEach(row=>{const inv=inventory.get(String(row[idField]));if(inv)inv[field].push(row);});
         }
-        function loadItemDetails(inv,warnings) { loadAllDetails(new Map([[inv.id,inv]]),warnings); }
+        function loadAllDetails(inventory,warnings,reservationData) {
+            const ids=Array.from(inventory.keys());
+            if(!ids.length)return;
+            distribute(inventory,'reservations',reservationData===undefined?null:reservationData,'itemId');
+            const allocations=readSection('Supply allocation details',()=>{
+                const out=[];
+                transactionRows('transaction',lineFilters(ids).concat(['AND',['type','anyof','SalesOrd','TrnfrOrd'],'AND',['closed','is','F'],'AND',
+                    ['formulanumeric: ABS(NVL({quantityallocated},0))','greaterthan','0']]),['item','tranid','type','entity','location','quantityallocated'],r=>out.push({itemId:String(r.getValue('item')),recordId:r.id,number:r.getValue('tranid'),type:r.getText('type'),customer:r.getText('entity'),location:r.getText('location'),allocated:quantity(r.getValue('quantityallocated'))}));return out;
+            },warnings);
+            distribute(inventory,'allocations',allocations,'itemId');
+            const transfers=readSection('Incoming transfer orders',()=>{
+                const out=[],seen=new Map();
+                // Outgoing (negative-quantity) side only: a transfer also has an incoming
+                // side, which must not double the quantity. Dedicated transfer search
+                // columns expose both shipped and received amounts without record loads.
+                transactionRows('transferorder',lineFilters(ids).concat(['AND',['closed','is','F'],'AND',['status','noneof','TrnfrOrd:A','TrnfrOrd:C','TrnfrOrd:H'],'AND',['quantity','lessthan','0']]),
+                    ['item','tranid','location','transferlocation','quantity','transferorderitemline',
+                     'transferorderquantitycommitted','transferorderquantityshipped','transferorderquantityreceived','expectedreceiptdate'],r=>{
+                        const itemId=String(r.getValue('item'));
+                        if(!inventory.has(itemId))return;
+                        const line=String(r.getValue('transferorderitemline') || r.getValue('lineuniquekey') || '');
+                        if(!line)throw new Error('Transfer '+r.id+' has no usable source line ID; refusing to merge different item lines.');
+                        const ordered=quantity(r.getValue('quantity'));
+                        const shipped=quantity(r.getValue('transferorderquantityshipped'));
+                        const received=quantity(r.getValue('transferorderquantityreceived'));
+                        const committed=quantity(r.getValue('transferorderquantitycommitted'));
+                        const key=String(r.id)+'|'+line+'|'+itemId;
+                        const values=[ordered,shipped,received,committed].join('|');
+                        if(seen.has(key)) {
+                            if(seen.get(key)!==values)throw new Error('Conflicting transfer quantities for '+r.id+', line '+line+'.');
+                            return;
+                        }
+                        seen.set(key,values);
+                        if(ordered<=received)return;
+                        out.push({itemId,recordId:r.id,number:r.getValue('tranid'),from:r.getText('location'),to:r.getText('transferlocation'),units:'Base units',
+                            ordered,shipped,received,committed,expected:r.getValue('expectedreceiptdate') || '',remaining:Math.max(0,ordered-received),inTransit:Math.max(0,shipped-received)});
+                    });
+                return out;
+            },warnings);
+            distribute(inventory,'transfers',transfers,'itemId');
+        }
         function sum(data,field) {return data===null?null:data.reduce((s,r)=>s+r[field],0);}
         function summarizeInventory(inv,rows) {
             const bookings=rows.filter(r=>r.id===inv.id);
@@ -517,7 +493,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
                 html+=detailTable('Supply allocations (do not add to committed quantities)',['Order','Type','Customer','Location','Allocated'],i.allocations,r=>[r.number,r.type,r.customer,r.location,r.allocated]);
                 html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Committed','Used'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.committed,r.used]);
                 html+=detailTable('Incoming purchase orders',['PO','Vendor','Location','Ordered','Received','Remaining','Expected receipt'],i.purchases===null?null:i.purchases.filter(p=>p.remaining>0),r=>[r.number,r.vendor,r.location,r.ordered,r.received,r.remaining,r.expected]);
-                html+=detailTable('Incoming internal transfers (quantities in displayed line units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
+                html+=detailTable('Incoming internal transfers (base units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
                 html+='</div>';
             }
             return html;
@@ -697,16 +673,16 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             const rows = new Map(), warnings = [];
             let inventory = new Map(), fatal = null;
             try {
-                const omitted = loadSalesOrders(rows, '') + loadReservations(rows, '');
+                const omitted = loadSalesOrders(rows, '');
                 if (omitted) warnings.push(omitted + ' search group(s) have no item and cannot be displayed.');
                 try { loadMaster(rows, ''); }
                 catch (e) {
                     log.error({ title: 'Master CSV unavailable', details: e });
                     warnings.push('Master Excel Qty unavailable: ' + e.message);
                 }
+                const reservationData = loadReservations(rows,warnings);
                 if (rows.size > CONFIG.MAX_DISPLAY_ROWS) throw new Error('The full report exceeds CONFIG.MAX_DISPLAY_ROWS. Increase the configured limit after reviewing account capacity.');
-                inventory = loadInventory(rows, '', warnings);
-                fillItemNames(rows, warnings);
+                inventory = loadInventory(rows, '', warnings, reservationData);
             } catch (e) {
                 log.error({ title: 'Christmas quantity Suitelet failed', details: e });
                 fatal = e.message || String(e);
