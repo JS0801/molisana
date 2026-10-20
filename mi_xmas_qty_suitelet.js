@@ -142,104 +142,31 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             return withoutItem;
         }
 
-
-      function loadReservations(rows, warnings) {
-    const details = readSection('Order reservations', () => {
-        const out = [];
-
-        transactionRows(
-            'orderreservation',
-            [
-                ['type', 'anyof', 'OrdResv'],
-                'AND',
-                ['closed', 'is', 'F'],
-                'AND',
-                ['mainline', 'is', 'F'],
-                'AND',
-                [
-                    'formulanumeric: {quantity} - NVL({quantitycommitted},0)',
-                    'greaterthan',
-                    '0'
-                ],
-                'AND',
-                ['saleschannel', 'noneof', '@NONE@', '6', '1', '2', '5', '3', '4']
-            ],
-            [
-                'item',
-                'tranid',
-                'saleschannel',
-                'location',
-                'quantity',
-                'quantitycommitted',
-                'quantitydemandallocated'
-            ],
-            r => {
-                const itemId = String(r.getValue('item') || '');
-                if (!/^\d+$/.test(itemId)) return;
-
-                out.push({
-                    itemId,
-                    itemName: r.getText('item'),
-                    recordId: r.id,
-                    number: r.getValue('tranid'),
-                    channelId: String(r.getValue('saleschannel') || ''),
-                    channel: r.getText('saleschannel'),
-                    location: r.getText('location'),
-                    reserved: numberValue(
-                        r.getValue('quantity'), 'reservation quantity', 0
-                    ),
-                    committed: numberValue(
-                        r.getValue('quantitycommitted'), 'reservation committed', 0
-                    ),
-                    used: numberValue(
-                        r.getValue('quantitydemandallocated'),
-                        'reservation allocated demand',
-                        0
-                    )
-                });
-            },
-            [{ name: 'consolidationtype', value: 'ACCTTYPE' }]
-        );
-
-        return out;
-    }, warnings);
-
-    if (details) {
-        details.forEach(r => {
-            const row = getRow(rows, r.itemId, r.itemName, r.channel);
-
-            addQuantities(row, 'reservation', [
-                r.reserved,
-                r.committed,
-                r.used,
-                r.reserved - r.committed
-            ]);
-        });
-    }
-
-    return details;
-}
-
-        // function loadReservations(rows, warnings) {
-        //     const details=readSection('Order reservations',()=>{
-        //         const out=[];
-        //         transactionRows('orderreservation', [['mainline','is','F'],'AND',['closed','is','F'],'AND',['taxline','is','F'],'AND',['cogs','is','F']],
-        //             ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantityshiprecv', 'quantitydemandallocated'],r=>{
-        //                 const itemId=String(r.getValue('item') || '');
-        //                 if(!/^\d+$/.test(itemId)) return;
-        //                 out.push({itemId,itemName:r.getText('item'),recordId:r.id,number:r.getValue('tranid'),channelId:String(r.getValue('saleschannel') || ''),channel:r.getText('saleschannel'),location:r.getText('location'),
-        //                     reserved:quantity(r.getValue('quantity')),committed:quantity(r.getValue('quantitycommitted')),used:quantity(r.getValue('quantitydemandallocated'))});
-        //             }); return out;
-        //     },warnings);
-        //     // Preserve the original Christmas-channel discovery rule. Other reservations
-        //     // remain in the master dataset for details on the discovered items.
-        //     if(details) details.forEach(r=>{
-        //         if(['','@NONE@','1','2','3','4','5','6'].includes(r.channelId))return;
-        //         const row=getRow(rows,r.itemId,r.itemName,r.channel);
-        //         addQuantities(row,'reservation',[r.reserved,r.committed,r.used,r.reserved-r.committed-r.used]);
-        //     });
-        //     return details;
-        // }
+        function loadReservations(rows, warnings) {
+            const details=readSection('Order reservations',()=>{
+                const out=[];
+                // All-item version of the supplied item-6953 reservation search.
+                // SUM(committed - allocated) equals SUM(committed) - SUM(allocated).
+                // Read detail lines once, then group by item/channel in JavaScript.
+                transactionRows('orderreservation', [
+                    ['type','anyof','OrdResv'],'AND',['closed','is','F'],'AND',['mainline','is','F']
+                ], ['item','tranid','saleschannel','location','quantity','quantitycommitted','quantitydemandallocated','quantityshiprecv'],r=>{
+                    const itemId=String(r.getValue('item') || '');
+                    if(!/^\d+$/.test(itemId)) return;
+                    out.push({itemId,itemName:r.getText('item'),recordId:r.id,number:r.getValue('tranid'),channelId:String(r.getValue('saleschannel') || ''),channel:r.getText('saleschannel'),location:r.getText('location'),
+                        reserved:numberValue(r.getValue('quantity'),'reservation quantity',0),
+                        committed:numberValue(r.getValue('quantitycommitted'),'reservation committed',0)-numberValue(r.getValue('quantitydemandallocated'),'reservation allocated demand',0),
+                        used:numberValue(r.getValue('quantitydemandallocated'),'reservation allocated demand',0),
+                        fulfilled:numberValue(r.getValue('quantityshiprecv'),'reservation fulfilled/received',0)});
+                },[{name:'consolidationtype',value:'ACCTTYPE'}]);
+                return out;
+            },warnings);
+            if(details) details.forEach(r=>{
+                const row=getRow(rows,r.itemId,r.itemName,r.channel);
+                addQuantities(row,'reservation',[r.reserved,r.committed,r.used,r.fulfilled]);
+            });
+            return details;
+        }
 
         function newestMaster() {
             if (!Number.isInteger(Number(CONFIG.MASTER_FOLDER_ID)) || Number(CONFIG.MASTER_FOLDER_ID) <= 0) {
@@ -376,7 +303,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 'Booked / Original Commitments',
                 'Sales Order Qty - Ordered / demand', 'Sales Order Qty - Christmas SO Fulfilled', 'Sales Order Qty - Remaining',
                 'Remaining Commitments', 'Commitment Status',
-                'Order Reservation - Reserved', 'Order Reservation - Committed', 'Order Reservation - Used', 'Order Reservation - Remaining'];
+                'Order Reservation - Reserved', 'Order Reservation - Committed minus Allocated Demand', 'Order Reservation - Allocated Demand', 'Order Reservation - Fulfilled/Received'];
             return '\uFEFF' + [headers].concat(rows.map(r => {
                 const commitment = commitmentSummary(r);
                 return [r.id, r.description, r.name, r.channel, commitment.booked].concat(
@@ -391,7 +318,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 '<td class="num' + (n !== null && n < 0 ? ' negative' : '') + '">' + fmt(n) + '</td>').join('');
             return '<div class="table-wrap"><table><thead><tr>' +
                 '<th colspan="4">Item Details</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th>' +
-                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered / demand</th><th>Christmas SO fulfilled</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed</th><th>Used</th><th>Remaining</th></tr></thead><tbody>' +
+                '</tr><tr><th>Item ID</th><th>Item Description</th><th>Item Name</th><th>Sales Channel</th><th>Booked / Original Commitments</th><th>Ordered / demand</th><th>Christmas SO fulfilled</th><th>Remaining</th><th>Remaining Commitments</th><th>Status</th><th>Reserved</th><th>Committed − Allocated Demand</th><th>Allocated Demand</th><th>Fulfilled/Received</th></tr></thead><tbody>' +
                 (rows.map(r => {
                     const commitment = commitmentSummary(r);
                     return '<tr class="' + commitment.css + '"><td>' + escapeHtml(r.id) + '</td><td class="description">' + escapeHtml(r.description || '—') + '</td><td>' + escapeHtml(r.name || 'Unresolved item') + '</td><td>' + escapeHtml(r.channel) + '</td>' +
@@ -411,9 +338,11 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         function lineFilters(ids) {
             return [['mainline', 'is', 'F'], 'AND', ['taxline', 'is', 'F'], 'AND', ['cogs', 'is', 'F'], 'AND', ['shipping', 'is', 'F'], 'AND', ['item', 'anyof', ids]];
         }
-        function transactionRows(type, filters, columns, consume) {
+        function transactionRows(type, filters, columns, consume, settings) {
             const order = [search.createColumn({name:'internalid', sort:search.Sort.ASC}), search.createColumn({name:'lineuniquekey', sort:search.Sort.ASC})];
-            eachResult(search.create({type, filters, columns:order.concat(columns)}), consume);
+            const options={type,filters,columns:order.concat(columns)};
+            if(settings)options.settings=settings;
+            eachResult(search.create(options), consume);
         }
         // Load into temporary arrays. A failed later page must not publish partial totals.
         function readSection(label, fn, warnings) {
@@ -578,7 +507,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
                 html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
                 html+=detailTable('Supply allocations (do not add to committed quantities)',['Order','Type','Customer','Location','Allocated'],i.allocations,r=>[r.number,r.type,r.customer,r.location,r.allocated]);
-                html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Committed','Used'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.committed,r.used]);
+                html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Committed − Allocated Demand','Allocated Demand','Fulfilled/Received'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.committed,r.used,r.fulfilled]);
                 html+=detailTable('Incoming purchase orders',['PO','Vendor','Location','Ordered','Received','Remaining','Expected receipt'],i.purchases===null?null:i.purchases.filter(p=>p.remaining>0),r=>[r.number,r.vendor,r.location,r.ordered,r.received,r.remaining,r.expected]);
                 html+=detailTable('Incoming internal transfers (base units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
                 html+='</div>';
@@ -592,7 +521,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             rows.forEach(r => {if(!groups.has(r.id)) groups.set(r.id,[]);groups.get(r.id).push(r);});
             const fmt = n => n == null ? '—' : escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
             const numbers = values => values.map(n=>'<td class="num'+(n<0?' negative':'')+'">'+fmt(n)+'</td>').join('');
-            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Christmas SO fulfilled','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'];
+            const heads=['Details','Item','Sales Channel','Booked / Original Commitments','Ordered / demand','Christmas SO fulfilled','Open SO remaining','Remaining Commitments','Status','Reserved','Committed − Allocated Demand','Allocated Demand','Fulfilled/Received'];
             let body='';
             const csvIndexes=new Map(rows.map((r,i)=>[r,i]));
             groups.forEach((channels,id)=>{
@@ -784,7 +713,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 <button type="button" class="secondary" aria-expanded="false" aria-controls="report-explanation" onclick="var p=document.getElementById('report-explanation');p.hidden=!p.hidden;this.setAttribute('aria-expanded',String(!p.hidden));">Report Details</button></form>
                 <section id="report-explanation" hidden>
                 <p class="note">Fulfilled quantities are cumulative on Christmas sales orders with an order date or actual ship date from ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, plus older open Christmas orders. Billed, partially fulfilled, pending-billing and closed orders with fulfillment are included. These are SO fulfilled quantities, not shipments restricted to fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = Christmas SO fulfilled + current open SO quantity. Remaining Commitments = Original Booked − Christmas SO Fulfilled. Other channels are merged into Xmas 2026.</p>
-                <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately.</p>
+                <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately. Allocated Demand uses quantitydemandallocated. The adjusted committed column is quantitycommitted minus quantitydemandallocated. Fulfilled/Received uses quantityshiprecv. All open reservation lines are included, without a positive-remainder or sales-channel exclusion. Other channels are grouped into Xmas 2026.</p>
                 <p>Inventory figures include all sales channels and visible locations, even when filters are applied. Master bookings must use item base units. Blank bookings remain unknown.</p>
                 <p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only. Supplier stock in transit is already included in open PO remaining. This is coverage against bookings, not free-to-promise stock.</p>
                 <p>Filters and details use the loaded snapshot. Reload the page to refresh NetSuite data. Each filter is one searchable box. Type to filter immediately or choose a suggestion. Clear a box to show all values. Clear Filters restores every option. Export CSV includes filtered channel rows and item inventory totals once per item.</p>
