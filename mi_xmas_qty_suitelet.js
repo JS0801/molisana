@@ -172,16 +172,23 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
                 search.createColumn({ name: 'internalid', sort: search.Sort.DESC }),
                 search.createColumn({ name: 'name' })
             ];
-            const found = search.create({
+            // NetSuite text filters do not support "endswith". Check the exact
+            // extension in JavaScript, preserving newest-first order across pages.
+            const pages = search.create({
                 type: 'file',
-                filters: [
-                    ['folder', 'anyof', String(CONFIG.MASTER_FOLDER_ID)], 'AND', ['name', 'endswith', '.csv']
-                ], columns: cols
-            }).run().getRange({ start: 0, end: 1 });
-            if (!found.length) throw new Error('No .csv file found directly in master folder ' + CONFIG.MASTER_FOLDER_ID + '.');
-            const f = file.load({ id: found[0].getValue(cols[1]) });
+                filters: [['folder', 'anyof', String(CONFIG.MASTER_FOLDER_ID)]],
+                columns: cols
+            }).runPaged({ pageSize: 1000 });
+            let found = null;
+            for (const page of pages.pageRanges) {
+                assertUsage();
+                found = pages.fetch({ index: page.index }).data.find(r => /\.csv$/i.test(String(r.getValue(cols[2]) || '')));
+                if (found) break;
+            }
+            if (!found) throw new Error('No .csv file found directly in master folder ' + CONFIG.MASTER_FOLDER_ID + '.');
+            const f = file.load({ id: found.getValue(cols[1]) });
             if (f.size > CONFIG.MAX_FILE_BYTES) throw new Error('Newest master file exceeds the configured 9 MB limit: ' + f.name);
-            return { file: f, date: found[0].getValue(cols[0]) };
+            return { file: f, date: found.getValue(cols[0]) };
         }
 
         function parseCsv(contents) {
@@ -491,28 +498,63 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             return '<details open><summary>'+escapeHtml(title)+'</summary><div class="table-wrap detail"><table><thead><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+
                 (data.map(r=>'<tr>'+values(r).map((v,i)=>'<td>'+(i===0 && r.recordId?tx(r):escapeHtml(v==null?'—':v))+'</td>').join('')+'</tr>').join('') || '<tr><td colspan="'+heads.length+'">No matching records.</td></tr>')+'</tbody></table></div></details>';
         }
-        function renderInventory(inventory,allRows,visibleRows,itemId) {
-            const visible=new Set(visibleRows.map(r=>r.id));
-            const items=Array.from(inventory.values()).filter(i=>visible.has(i.id)).map(i=>summarizeInventory(i,allRows));
-            const fields=['purchased','received','onHand','available','committed','onOrder','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
-            const heads=['Item ID','Description','Item','Purchased','Received against POs','On hand','Available','Committed','On order (reference)','Internal transfer in transit','Open PO remaining','Season shipped','Original commitments','Outstanding commitments','Open SO demand','Projected excess / (shortage)','Details'];
-            const fmt=n=>n===null?'—':escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
-            let html='<h2>Inventory summary</h2><p>One row per item, all sales channels and all visible locations. Channel filters select items; inventory totals remain across all channels. Quantities and master bookings must use the same item base units. Blank master bookings remain unknown and suppress the coverage estimate.</p>'+
-                '<p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only; PO transit is already included in PO remaining. Internal transfers awaiting dispatch add no new supply. This is a commitment coverage estimate, not free-to-promise stock: open orders may exceed bookings, and blocked/non-sellable stock may require review.</p>'+
-                '<div class="table-wrap"><table><thead><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+
-                (items.map(i=>'<tr class="'+(i.excess===null?'':i.excess<0?'over':'complete')+'"><td>'+escapeHtml(i.id)+'</td><td class="description">'+escapeHtml(i.description)+'</td><td>'+escapeHtml(i.name)+'</td>'+fields.map(f=>'<td class="num">'+fmt(i[f])+'</td>').join('')+'<td><form method="post"><input type="hidden" name="custpage_item" value="'+escapeHtml(i.id)+'"><button name="action" value="view">View details</button></form></td></tr>').join('') || '<tr><td colspan="17">No matching items.</td></tr>')+'</tbody></table></div>';
+        function renderItemDetails(inventory,itemId) {
+            let html = '';
             if(itemId && inventory.has(itemId)) {
                 const i=inventory.get(itemId);
-                html+='<h2>Item '+escapeHtml(itemId)+' — inventory details</h2>';
+                html+='<details><summary>Inventory details for item '+escapeHtml(itemId)+'</summary>';
                 html+=detailTable('Stock by location',['Location','On hand','Available','Committed','On order','Backordered','Internal in transit'],i.stock,r=>[r.location,r.onHand,r.available,r.committed,r.onOrder,r.backordered,r.inTransit]);
                 html+=detailTable('Open sales orders / stock holders',['Order','Customer','Location','Ordered','Fulfilled','Remaining','Committed','Uncommitted'],i.openOrders,r=>[r.number,r.customer,r.location,r.ordered,r.fulfilled,r.remaining,r.committed,r.uncommitted]);
                 html+=detailTable('Supply allocations (do not add to committed quantities)',['Order','Type','Customer','Location','Allocated'],i.allocations,r=>[r.number,r.type,r.customer,r.location,r.allocated]);
                 html+=detailTable('Open order reservations',['Reservation','Channel','Location','Reserved','Committed','Used'],i.reservations,r=>[r.number,r.channel,r.location,r.reserved,r.committed,r.used]);
                 html+=detailTable('Incoming purchase orders',['PO','Vendor','Location','Ordered','Received','Remaining','Expected receipt'],i.purchases===null?null:i.purchases.filter(p=>p.remaining>0),r=>[r.number,r.vendor,r.location,r.ordered,r.received,r.remaining,r.expected]);
                 html+=detailTable('Incoming internal transfers (quantities in displayed line units)',['Transfer','From','To','Units','Ordered','Committed','Dispatched','Received','Remaining to receive','In transit','Expected receipt'],i.transfers,r=>[r.number,r.from,r.to,r.units,r.ordered,r.committed,r.shipped,r.received,r.remaining,r.inTransit,r.expected]);
+                html+='</details>';
             }
             return html;
         }
+        const INVENTORY_FIELDS = ['purchased','received','onHand','available','committed','onOrder','backordered','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
+        const INVENTORY_HEADINGS = ['Purchased','Received against POs','On hand','Available','Committed','On order (reference)','Backordered','Internal transfer in transit','Open PO remaining','Season shipped — all channels','Booked — all channels','Outstanding commitments — all channels','Open SO demand — all channels','Projected excess / (shortage)'];
+        function renderCombined(rows, allRows, inventory, chosenChannel) {
+            const groups = new Map();
+            rows.forEach(r => {if(!groups.has(r.id)) groups.set(r.id,[]);groups.get(r.id).push(r);});
+            const fmt = n => n == null ? '—' : escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
+            const numbers = values => values.map(n=>'<td class="num'+(n<0?' negative':'')+'">'+fmt(n)+'</td>').join('');
+            const heads=['Item ID','Item Description','Item Name','Sales Channel','Booked / Original Commitments','Ordered / demand','Season shipped','Open SO remaining','Remaining Commitments','Status','Reserved','Committed','Used','Reservation remaining'].concat(INVENTORY_HEADINGS,['Details']);
+            let body='';
+            groups.forEach((channels,id)=>{
+                const inv=inventory.get(id);
+                const summary=inv ? summarizeInventory(inv,allRows) : null;
+                channels.forEach((r,index)=>{
+                    const commitment=commitmentSummary(r);
+                    body+='<tr class="'+commitment.css+'">';
+                    if(index===0) body+='<td class="item-total" rowspan="'+channels.length+'">'+escapeHtml(id)+'</td><td class="description item-total" rowspan="'+channels.length+'">'+escapeHtml(r.description || '—')+'</td><td class="item-total" rowspan="'+channels.length+'">'+escapeHtml(r.name || id)+'</td>';
+                    body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null]);
+                    if(index===0) {
+                        body+=INVENTORY_FIELDS.map(f=>'<td rowspan="'+channels.length+'" class="num item-total'+(f==='excess' && summary && summary[f]<0?' shortage':'')+'">'+fmt(summary ? summary[f] : null)+'</td>').join('');
+                        body+='<td class="item-total" rowspan="'+channels.length+'"><form method="post"><input type="hidden" name="custpage_item" value="'+escapeHtml(id)+'"><input type="hidden" name="custpage_channel" value="'+escapeHtml(chosenChannel || '')+'"><button name="action" value="view">View details</button></form></td>';
+                    }
+                    body+='</tr>';
+                });
+            });
+            return '<p>Inventory figures are shared across each item’s sales-channel rows and include all channels and visible locations, even when a channel filter is applied. Master bookings must use item base units. Blank bookings remain unknown.</p>'+
+                '<p>Projected excess / shortage = On hand + internal transfer in transit + open PO remaining − outstanding commitments. On order is reference only. Supplier stock in transit is already included in open PO remaining. This is coverage against bookings, not free-to-promise stock.</p>'+
+                '<div class="table-wrap"><table><thead><tr><th colspan="4">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="4" class="reservation">Order Reservation</th><th colspan="'+INVENTORY_FIELDS.length+'" class="so">Item Inventory — All Sales Channels</th><th>Details</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+(body || '<tr><td colspan="'+heads.length+'">No matching items.</td></tr>')+'</tbody></table></div>';
+        }
+        function exportCombined(rows,allRows,inventory) {
+            const table=parseCsv(exportCsv(rows));
+            table[0]=table[0].concat(INVENTORY_HEADINGS);
+            const seen=new Set();
+            rows.forEach((r,index)=>{
+                const summary=!seen.has(r.id) && inventory.has(r.id)?summarizeInventory(inventory.get(r.id),allRows):null;
+                table[index+1]=table[index+1].concat(INVENTORY_FIELDS.map(f=>summary ? summary[f] : null));
+                seen.add(r.id);
+            });
+            // Existing text values have already been spreadsheet-escaped by exportCsv.
+            const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+            return '\uFEFF'+table.map(r=>r.map(cell).join(',')).join('\r\n');
+        }
+
         function exportInventory(inventory,allRows,visibleRows) {
             const visible=new Set(visibleRows.map(r=>r.id));
             const fields=['id','description','name','purchased','received','onHand','available','committed','onOrder','transit','incoming','shipped','booked','outstanding','openDemand','excess'];
@@ -543,18 +585,18 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
                 tbody tr.complete:hover{background:#cce9d3}tbody tr.over:hover{background:#f9d0d0}tbody tr.partial:hover{background:#ffe9a3}
                 .status{font-weight:700}.description{white-space:normal;min-width:220px;max-width:380px}
                 .legend{margin:12px 0;line-height:1.6;color:#394c63}
+                td.item-total{background:#f0f4f8;vertical-align:top}td.shortage{background:#fde5e5;color:#a5202d;font-weight:bold}
                 details{margin:18px 0}summary{font-size:16px;font-weight:bold;cursor:pointer}.detail{max-height:420px}.detail table{min-width:900px}.table-wrap form{padding:0;border:0;background:transparent}h2{margin-top:28px}
                 @media(max-width:650px){main{padding:14px}label,input,select{width:100%}h1{font-size:21px}}
                 </style></head><body><main><h1>Christmas Quantity Comparison</h1>
                 <form method="post"><label>Item<input name="custpage_item" list="items" value="${h(itemId)}" placeholder="All items — enter or select item ID"><datalist id="items">${options}</datalist></label>
                 <label>Sales Channel<select name="custpage_channel"><option value="">All Sales Channels</option>${channels}</select></label>
                 <button type="submit" name="action" value="view">Apply Filters</button><button type="submit" name="action" value="export" class="secondary">Export CSV</button>
-                <button type="submit" name="action" value="export_inventory" class="secondary">Export Inventory CSV</button>
                 <button type="submit" name="action" value="clear" class="secondary">Clear Filters</button></form>
                 <p class="note">Shipments: ${h(CONFIG.SEASON_START)} through ${h(CONFIG.SEASON_END)}, using shipped fulfillment dates. Purchases: ${h(CONFIG.PURCHASE_START)} through ${h(CONFIG.SEASON_END)}. Incoming supply and open demand use current open records, including older orders. “Ordered / demand” = season shipped + current open SO quantity. Remaining Commitments = Original Booked − Season Shipped. Other channels are merged into Xmas 2026.</p>
                 <p class="legend">Green: completed · Yellow: partially fulfilled · Red: shipped over commitment. Missing bookings show as unavailable; zero bookings with shipments show as over commitment. Order Reservation quantities are shown separately.</p>
                 ${warnings.map(w => '<div class="error" role="alert">' + h(w) + '</div>').join('')}
-                ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : renderInventory(inventory, allRows, rows, itemId) + '<h2>Commitments by sales channel</h2>' + renderTable(rows)}
+                ${fatal ? '<div class="error" role="alert">' + h(fatal) + '</div>' : renderCombined(rows, allRows, inventory, chosenChannel) + renderItemDetails(inventory, itemId)}
                 </main></body></html>`;
         }
 
@@ -586,7 +628,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format', 'N/record'],
             const selectedRows = allRows.filter(r => !chosenChannel || r.channel === chosenChannel);
             selectedRows.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id) || a.id.localeCompare(b.id) || a.channel.localeCompare(b.channel));
             if (!fatal && ['export','export_inventory'].includes(params.action) && !warnings.length) {
-                context.response.writeFile({ file: file.create({ name: params.action === 'export_inventory' ? 'Christmas_Inventory.csv' : 'Christmas_Quantities.csv', fileType: file.Type.CSV, contents: params.action === 'export_inventory' ? exportInventory(inventory, allRows, selectedRows) : exportCsv(selectedRows), encoding: file.Encoding.UTF8 }), isInline: false });
+                context.response.writeFile({ file: file.create({ name: params.action === 'export_inventory' ? 'Christmas_Inventory.csv' : 'Christmas_Quantities.csv', fileType: file.Type.CSV, contents: params.action === 'export_inventory' ? exportInventory(inventory, allRows, selectedRows) : exportCombined(selectedRows, allRows, inventory), encoding: file.Encoding.UTF8 }), isInline: false });
                 return;
             }
             if (['export','export_inventory'].includes(params.action) && warnings.length) warnings.push('CSV export is unavailable until the data errors above are resolved.');
