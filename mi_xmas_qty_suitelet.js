@@ -763,7 +763,13 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 .collapsed-summary thead th{position:static;white-space:normal;min-width:0;height:auto;padding:9px 10px;background:#eaf0f6;color:#24364e}
                 .collapsed-summary thead tr:first-child th{text-align:left;background:#dce7f1;font-size:13px}.collapsed-summary td{text-align:center;font-size:16px;font-weight:700;padding:14px 10px;background:white}
                 .column-help{display:inline-block;margin:0 0 0 5px;vertical-align:middle}.column-help summary{font-size:11px;border:1px solid #9bacbf;border-radius:50%;width:17px;height:17px;list-style:none;text-align:center}.column-help p{font-size:12px;font-weight:400;white-space:normal;text-align:left;line-height:1.5}
-                .channel-table{border:0;border-radius:0;max-height:none}.item-panel-body{min-width:0}.item-panels .item-panel-header:has(.collapsed-summary[hidden]) .panel-identity{flex:1;border-right:0}
+                .channel-table{border:0;border-radius:0;max-height:65vh;overflow:auto;isolation:isolate}
+                /* Keep column headers in the expanded table viewport and item identity visible horizontally. */
+                .channel-table>table>thead>tr:first-child>th{position:sticky;top:0;z-index:3;height:40px}
+                .channel-table>table>thead>tr:nth-child(2)>th{position:sticky;top:40px;z-index:3}
+                .channel-table>table>thead>tr>th:first-child{left:0;z-index:4}
+                .channel-table>table>tbody.item-group>tr.channel-row>td.shared-leading{position:sticky;left:0;z-index:2;background:#f0f4f8;box-shadow:2px 0 0 #c6d6e7}
+                .item-panel-body{min-width:0}.item-panels .item-panel-header:has(.collapsed-summary[hidden]) .panel-identity{flex:1;border-right:0}
                 @media(max-width:650px){main{padding:12px}.item-panel-header{flex-direction:column}.panel-identity{flex:auto;border-right:0}.collapsed-summary{width:100%}}
                 [hidden]{display:none!important}.item-detail-row>td{background:#f6f8fb;padding:18px}.inline-details{text-align:left;white-space:normal}.inline-details h3{margin:8px 0}button:disabled{opacity:.5;cursor:not-allowed}
                 td.item-total{background:#f0f4f8;vertical-align:top}td.shortage{background:#fde5e5;color:#a5202d;font-weight:bold}
