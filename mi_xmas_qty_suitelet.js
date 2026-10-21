@@ -119,14 +119,11 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         }
 
         function loadSalesOrders(rows, itemId) {
+            // Discovery needs only item/channel identities. Quantities are loaded once
+            // by the dedicated open and fulfilled SO searches below.
             const columns = [
-                search.createColumn({ name: 'internalid', join: 'item', summary: 'GROUP', sort: search.Sort.ASC }),
-                search.createColumn({ name: 'item', summary: 'GROUP' }),
-                search.createColumn({ name: 'quantity', summary: 'SUM' }),
-                search.createColumn({ name: 'quantityshiprecv', summary: 'SUM' }),
-                search.createColumn({ name: 'formulanumeric', summary: 'SUM', formula: '{quantity} - NVL({quantityshiprecv},0)' }),
-                search.createColumn({ name: 'custentity_default_shipping_channel', join: 'customerMain', summary: 'GROUP', sort: search.Sort.ASC }),
-                search.createColumn({ name: 'category', join: 'customerMain', summary: 'GROUP', sort: search.Sort.ASC })
+                search.createColumn({ name: 'item', summary: 'GROUP', sort: search.Sort.ASC }),
+                search.createColumn({ name: 'custentity_default_shipping_channel', join: 'customerMain', summary: 'GROUP', sort: search.Sort.ASC })
             ];
             const filters = [
                 ['type', 'anyof', 'SalesOrd'], 'AND', ['mainline', 'is', 'F'], 'AND',
@@ -136,10 +133,9 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const s = search.create({ type: 'salesorder', settings: [{ name: 'consolidationtype', value: 'ACCTTYPE' }], filters, columns });
             let withoutItem = 0;
             eachResult(s, r => {
-                const id = r.getValue(columns[1]);
+                const id = r.getValue(columns[0]);
                 if (!id || id === '- None -') { withoutItem++; return; }
-                const row = getRow(rows, id, r.getText(columns[1]), r.getText(columns[5]));
-                addQuantities(row, 'so', [2, 3, 4].map(i => numberValue(r.getValue(columns[i]), 'sales order result', 0)));
+                getRow(rows, id, r.getText(columns[0]), r.getText(columns[1]));
             });
             return withoutItem;
         }
@@ -479,7 +475,10 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
         function summarizeInventory(inv,rows) {
             const bookings=rows.filter(r=>r.id===inv.id);
             const known=bookings.length>0 && bookings.every(r=>r.master && r.master[0]!==null && r.master[0]!==undefined);
-            const booked=known?bookings.reduce((s,r)=>s+r.master[0],0):null;
+            // Total Booked treats blank cells in an existing master item as zero.
+            // An item missing from the master (or a failed master load) stays unavailable.
+            const masterBookings=bookings.filter(r=>r.master);
+            const booked=masterBookings.length?masterBookings.reduce((s,r)=>s+(r.master[0]??0),0):null;
             const shipped=sum(inv.shipments,'shipped'),onHand=sum(inv.stock,'onHand'),transit=sum(inv.stock,'inTransit'),incoming=sum(inv.purchases,'remaining');
             // Overshipments for customer A do not cancel a commitment still owed to customer B.
             const outstanding=known && shipped!==null?bookings.reduce((s,r)=>s+Math.max(0,commitmentSummary(r).remaining),0):null;
@@ -525,7 +524,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 ['excess','Projected Excess / (Shortage)',"On Hand + Internal Transfer In Transit + Pending Receipt − Remaining Commitments."]
             ]],
             ['Sales',[
-                ['booked','Total Booked',"Total original customer commitments from the latest master Excel file."],
+                ['booked','Total Booked',"Total original customer commitments from the latest master Excel file. Blank booking cells count as zero."],
                 ['shipped','Shipped',"Total quantity fulfilled against Christmas sales orders."],
                 ['outstanding','Remaining Commitments',"Original booked quantity minus shipped quantity for each sales channel. Extra shipments for one channel do not reduce another channel’s balance."],
                 ['pendingCommitment','Pending Commitment',"Quantity on open sales orders that has not been shipped or committed."],
@@ -568,7 +567,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             groups.forEach((channels,id)=>{
                 const inv=inventory.get(id);
                 const summary=inv ? (summaries ? summaries.get(id) : summarizeInventory(inv,allRows)) : null;
-                body+='<article class="item-panel" data-item-id="'+escapeHtml(id)+'"><header class="item-panel-header"><div class="panel-identity"><strong>'+escapeHtml(channels[0].name || id)+'</strong><div>'+escapeHtml(channels[0].description || '—')+'</div><small>Item ID: '+escapeHtml(id)+'</small><button type="button" class="toggle-item" aria-expanded="false" aria-controls="item-body-'+escapeHtml(id)+'">Expand ▾</button></div>'+renderCollapsedSummary(summary)+'</header><div class="item-panel-body" id="item-body-'+escapeHtml(id)+'" hidden><div class="table-wrap channel-table"><table><thead><tr><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>';
+                body+='<article class="item-panel" data-item-id="'+escapeHtml(id)+'"><header class="item-panel-header"><div class="panel-identity"><strong>'+escapeHtml(channels[0].name || id)+'</strong><div>'+escapeHtml(channels[0].description || '—')+'</div><small>Item ID: '+escapeHtml(id)+'</small><button type="button" class="toggle-item" aria-expanded="false" aria-controls="item-body-'+escapeHtml(id)+'">Expand ▾</button></div>'+renderCollapsedSummary(summary)+'</header><div class="item-panel-body" id="item-body-'+escapeHtml(id)+'" hidden><template class="panel-template"><div class="table-wrap channel-table"><table><thead><tr><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>';
                 body+='<tbody class="item-group" data-item-id="'+escapeHtml(id)+'" data-search="'+escapeHtml([id,channels[0].name,channels[0].description].join(' '))+'" data-expanded="false">';
                 channels.forEach((r,index)=>{
                     const commitment=commitmentSummary(r);
@@ -580,7 +579,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null,null]);
                     body+='</tr>';
                 });
-                body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+'<template class="detail-template">'+renderItemDetails(inventory,id,summary)+'</template></td></tr></tbody></table></div></div></article>';
+                body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+'<template class="detail-template">'+renderItemDetails(inventory,id,summary)+'</template></td></tr></tbody></table></div></template></div></article>';
             });
             return '<div id="combined-table" class="item-panels">'+body+'<p id="empty-result" hidden>No matching items.</p></div>';
         }
@@ -613,12 +612,22 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const item=document.getElementById('item-filter');
             const status=document.getElementById('status-filter');
             const channel=document.getElementById('channel-filter');
-            const groups=Array.from(document.querySelectorAll('tbody.item-group'));
+            // Keep expanded layouts inert until opened, but filter/export their cached
+            // channel nodes immediately. Move (do not clone) the template on expansion
+            // so filters, rowspans and cached references survive the first opening.
+            const panels=Array.from(document.querySelectorAll('article.item-panel'));
+            const panelByGroup=new Map();
+            const groups=panels.map(panel=>{
+                const template=panel.querySelector('template.panel-template');
+                const group=(template?template.content:panel).querySelector('tbody.item-group');
+                panelByGroup.set(group,panel);
+                return group;
+            });
             const normalize=v=>String(v || '').trim().toLowerCase();
             const query=document.getElementById('filter-status');
             // Cache main-table nodes; never traverse all hidden details on each keystroke.
             const groupNodes=new Map(groups.map(group=>[group,{
-                panel:group.closest('article.item-panel'),
+                panel:panelByGroup.get(group),
                 rows:Array.from(group.querySelectorAll('tr.channel-row')),
                 detail:group.querySelector('tr.item-detail-row'),
                 leading:Array.from(group.querySelectorAll('td.shared-leading')),
@@ -676,6 +685,8 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     const panel=itemButton.closest('article.item-panel');
                     const content=panel.querySelector('div.item-panel-body');
                     const expanded=content.hidden;
+                    const template=content.querySelector('template.panel-template');
+                    if(expanded && template){content.appendChild(template.content);template.remove();}
                     content.hidden=!expanded;
                     panel.querySelector('div.collapsed-summary').hidden=expanded;
                     itemButton.setAttribute('aria-expanded',String(expanded));
