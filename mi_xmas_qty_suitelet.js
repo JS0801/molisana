@@ -553,6 +553,10 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     '<div class="summary-metric"><dt>'+escapeHtml(label)+'</dt><dd class="'+(summary[field]<0?'negative':'')+'">'+(summary[field]==null?'—':escapeHtml(summary[field].toLocaleString('en-US',{maximumFractionDigits:6})))+'</dd><details class="metric-help"><summary title="'+escapeHtml(help)+'" aria-label="How '+escapeHtml(label)+' is calculated">?</summary><p>'+escapeHtml(help)+'</p></details></div>'
                 ).join('')+'</dl></section>').join('')+'</div>';
         }
+        function renderCollapsedSummary(summary) {
+            const fmt=n=>n==null?'—':escapeHtml(n.toLocaleString('en-US',{maximumFractionDigits:6}));
+            return '<div class="collapsed-summary"><table><thead><tr>'+SUMMARY_SECTIONS.map(([name,metrics])=>'<th colspan="'+metrics.length+'">'+escapeHtml(name)+'</th>').join('')+'</tr><tr>'+SUMMARY_SECTIONS.flatMap(section=>section[1]).map(([field,label,help])=>'<th>'+escapeHtml(label)+'<details class="column-help"><summary aria-label="How '+escapeHtml(label)+' is calculated">?</summary><p>'+escapeHtml(help)+'</p></details></th>').join('')+'</tr></thead><tbody><tr>'+INVENTORY_FIELDS.map(field=>'<td class="num'+(summary && summary[field]<0?' negative':'')+'">'+fmt(summary?summary[field]:null)+'</td>').join('')+'</tr></tbody></table></div>';
+        }
         function renderCombined(rows, allRows, inventory, chosenChannel, summaries) {
             const groups = new Map();
             rows.forEach(r => {if(!groups.has(r.id)) groups.set(r.id,[]);groups.get(r.id).push(r);});
@@ -564,6 +568,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             groups.forEach((channels,id)=>{
                 const inv=inventory.get(id);
                 const summary=inv ? (summaries ? summaries.get(id) : summarizeInventory(inv,allRows)) : null;
+                body+='<article class="item-panel" data-item-id="'+escapeHtml(id)+'"><header class="item-panel-header"><div class="panel-identity"><strong>'+escapeHtml(channels[0].name || id)+'</strong><div>'+escapeHtml(channels[0].description || '—')+'</div><small>Item ID: '+escapeHtml(id)+'</small><button type="button" class="toggle-item" aria-expanded="false" aria-controls="item-body-'+escapeHtml(id)+'">Expand ▾</button></div>'+renderCollapsedSummary(summary)+'</header><div class="item-panel-body" id="item-body-'+escapeHtml(id)+'" hidden><div class="table-wrap channel-table"><table><thead><tr><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>';
                 body+='<tbody class="item-group" data-item-id="'+escapeHtml(id)+'" data-search="'+escapeHtml([id,channels[0].name,channels[0].description].join(' '))+'" data-expanded="false">';
                 channels.forEach((r,index)=>{
                     const commitment=commitmentSummary(r);
@@ -575,9 +580,9 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     body+='<td>'+escapeHtml(r.channel)+'</td>'+numbers([commitment.booked])+numbers(r.so || [0,0,0])+numbers([commitment.remaining])+'<td class="status">'+escapeHtml(commitment.status)+'</td>'+numbers(r.reservation || [null,null,null,null,null]);
                     body+='</tr>';
                 });
-                body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+'<template class="detail-template">'+renderItemDetails(inventory,id,summary)+'</template></td></tr></tbody>';
+                body+='<tr id="detail-'+escapeHtml(id)+'" class="item-detail-row" hidden><td colspan="'+heads.length+'">'+'<template class="detail-template">'+renderItemDetails(inventory,id,summary)+'</template></td></tr></tbody></table></div></div></article>';
             });
-            return '<div class="table-wrap"><table id="combined-table"><thead><tr><th colspan="2">Item / Sales Channel</th><th class="master">Original Booking</th><th colspan="3" class="so">Sales Order Qty</th><th colspan="2" class="master">Commitment Progress</th><th colspan="5" class="reservation">Order Reservation</th></tr><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead>'+body+'<tbody id="empty-result" hidden><tr><td colspan="'+heads.length+'">No matching items.</td></tr></tbody></table></div>';
+            return '<div id="combined-table" class="item-panels">'+body+'<p id="empty-result" hidden>No matching items.</p></div>';
         }
 
         function exportCombined(rows,allRows,inventory) {
@@ -613,6 +618,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             const query=document.getElementById('filter-status');
             // Cache main-table nodes; never traverse all hidden details on each keystroke.
             const groupNodes=new Map(groups.map(group=>[group,{
+                panel:group.closest('article.item-panel'),
                 rows:Array.from(group.querySelectorAll('tr.channel-row')),
                 detail:group.querySelector('tr.item-detail-row'),
                 leading:Array.from(group.querySelectorAll('td.shared-leading')),
@@ -646,6 +652,7 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                     const visibleSet=new Set(visible);
                     rows.forEach(row=>{row.hidden=!visibleSet.has(row);});
                     group.hidden=visible.length===0;
+                    if(cached.panel)cached.panel.hidden=group.hidden;
                     const detail=cached.detail;
                     detail.hidden=!visible.length || group.dataset.expanded!=='true';
                     if(!visible.length) return;
@@ -664,6 +671,17 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
             form.addEventListener('submit',event=>{event.preventDefault();applyFilters();});
             document.getElementById('clear-filters').addEventListener('click',()=>{searchableFilters.forEach(f=>{f.input.value='';f.refresh();});applyFilters();});
             document.getElementById('combined-table').addEventListener('click',event=>{
+                const itemButton=event.target.closest('button.toggle-item');
+                if(itemButton) {
+                    const panel=itemButton.closest('article.item-panel');
+                    const content=panel.querySelector('div.item-panel-body');
+                    const expanded=content.hidden;
+                    content.hidden=!expanded;
+                    panel.querySelector('div.collapsed-summary').hidden=expanded;
+                    itemButton.setAttribute('aria-expanded',String(expanded));
+                    itemButton.textContent=expanded?'Collapse ▴':'Expand ▾';
+                    return;
+                }
                 const button=event.target.closest('button.toggle-detail');
                 if(!button)return;
                 const group=button.closest('tbody.item-group');
@@ -736,6 +754,17 @@ define(['N/search', 'N/file', 'N/log', 'N/runtime', 'N/format'],
                 .status{font-weight:700}.description{white-space:normal;min-width:220px;max-width:380px}
                 #item-filter{max-width:430px}#report-explanation{background:#fff;border:1px solid #dce2eb;padding:16px;margin:16px 0;line-height:1.6}.inventory-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;white-space:normal;margin:16px 0}.inventory-grid>div{background:#fff;border:1px solid #dce2eb;border-radius:6px;padding:12px}.inventory-grid dt{font-size:12px;color:#4b5e73}.inventory-grid dd{margin:8px 0 0;font-size:20px;font-weight:700}.description strong,.description small{display:block}.description small{margin-top:6px;color:#56677b}
                 .legend{margin:12px 0;line-height:1.6;color:#394c63}
+
+                .item-panel{border:2px solid #b8c8d8;border-radius:10px;margin:0 0 24px;background:white;overflow:clip;box-shadow:0 3px 8px #21334b12}
+                .item-panel-header{display:flex;align-items:stretch;background:#edf3f9;position:sticky;top:0;z-index:4;border-bottom:1px solid #c6d6e7}
+                .panel-identity{flex:0 0 260px;padding:16px;border-right:2px solid #c6d6e7;white-space:normal}
+                .panel-identity strong{display:block;color:#245885;font-size:16px}.panel-identity small{display:block;margin:6px 0;color:#56677b}.toggle-item{margin-top:8px}
+                .collapsed-summary{min-width:0;flex:1;overflow-x:auto;background:white}.collapsed-summary table{min-width:2200px;table-layout:fixed}
+                .collapsed-summary thead th{position:static;white-space:normal;min-width:0;height:auto;padding:9px 10px;background:#eaf0f6;color:#24364e}
+                .collapsed-summary thead tr:first-child th{text-align:left;background:#dce7f1;font-size:13px}.collapsed-summary td{text-align:center;font-size:16px;font-weight:700;padding:14px 10px;background:white}
+                .column-help{display:inline-block;margin:0 0 0 5px;vertical-align:middle}.column-help summary{font-size:11px;border:1px solid #9bacbf;border-radius:50%;width:17px;height:17px;list-style:none;text-align:center}.column-help p{font-size:12px;font-weight:400;white-space:normal;text-align:left;line-height:1.5}
+                .channel-table{border:0;border-radius:0;max-height:none}.item-panel-body{min-width:0}.item-panels .item-panel-header:has(.collapsed-summary[hidden]) .panel-identity{flex:1;border-right:0}
+                @media(max-width:650px){main{padding:12px}.item-panel-header{flex-direction:column}.panel-identity{flex:auto;border-right:0}.collapsed-summary{width:100%}}
                 [hidden]{display:none!important}.item-detail-row>td{background:#f6f8fb;padding:18px}.inline-details{text-align:left;white-space:normal}.inline-details h3{margin:8px 0}button:disabled{opacity:.5;cursor:not-allowed}
                 td.item-total{background:#f0f4f8;vertical-align:top}td.shortage{background:#fde5e5;color:#a5202d;font-weight:bold}
                 details{margin:18px 0}summary{font-size:16px;font-weight:bold;cursor:pointer}.detail{max-height:420px}.detail table{min-width:900px}.table-wrap form{padding:0;border:0;background:transparent}h2{margin-top:28px}
